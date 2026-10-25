@@ -1,0 +1,11 @@
+preferred,banned_or_check,note,severity
+Quillmark Pulse,Quillmark Insights,Product renamed June 2026 (rule TERM-04; fact F-001/X-102),high
+Quillmark Analytics,"Quill Mark,Quillmark Ltd",Company name (rule TERM-05),medium
+team members,employees,People-language (rule TERM-02),low
+"1,299/month","999/month",Pricing moved 1 Oct 2026 (rule CLM-04; fact F-002 vs X-101),high
+"2,300+ teams","5,000+ teams",Customer count from Fact Library (rule CLM-03; fact F-012 vs X-103),high
+ISO 27001,fully ISO 27001 certified,Current status only (rule CLM-05; fact F-031 expired),high
+,trusted by,Keep only with an approved count attached (rule CLM-01),medium
+,#1,Superlative needs approved source (rule CLM-02),high
+India,Bengaluru,Office location vs market claim; keep market claims sourced (rule CLM-02),low
+free trial,free forever,Trial is 14 days (fact F-044),medium

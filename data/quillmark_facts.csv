@@ -1,0 +1,42 @@
+id,text,category,owner,source,valid_from,valid_to,confidential
+F-001,"Product name: Quillmark Pulse (renamed from Quillmark Insights in June 2026)",product,Marketing Ops,Brand memo 2026-06-01,2026-06-01,,0
+F-002,"Starter plan: 1,299/month (from 1 Oct 2026)",pricing,Marketing Ops,Price list v9,2026-10-01,,0
+F-003,"Growth plan: 3,499/month (from 1 Oct 2026)",pricing,Marketing Ops,Price list v9,2026-10-01,,0
+F-004,"Enterprise plan: custom pricing via sales",pricing,Sales,Vend policy 2026,,,0
+F-005,"Annual billing gives 2 months free on Starter and Growth",pricing,Marketing Ops,Pricing FAQ v3,2026-10-01,,0
+F-012,"2,300+ active customer teams",product,Marketing Ops,Customer registry Q3 2026,2026-07-01,2027-03-31,0
+F-013,"Customers across 14 countries",product,Marketing Ops,Customer registry Q3 2026,2026-07-01,2027-03-31,0
+F-014,"Mid-market focus: companies of 50-500 employees",product,Founders,ICP definition v2,,,0
+F-021,"99.9% uptime SLA (last 12 months actual: 99.94%)",reliability,Engineering,Status page export 2026-09,2025-10-01,,0
+F-022,"Sub-second p95 dashboard load time",reliability,Engineering,Perf report Q3 2026,2026-09-01,,0
+F-023,"Daily automated backups with 30-day retention",reliability,Engineering,Infra runbook v4,2026-04-01,,0
+F-024,"Data hosted in India (Mumbai) and EU (Frankfurt) regions",reliability,Engineering,Infra map 2026,,,0
+F-025,"GDPR compliant; data processing agreement available",compliance,Legal,DPA template v2,2026-01-01,,0
+F-026,"DPDP Act 2023 compliant policies; grievance officer named",compliance,Legal,Compliance letter 2026-08,2026-08-15,,0
+F-031,"ISO 27001 certificate EXPIRED on 30 Sep 2026; renewal filed, in progress",compliance,Legal,Cert status sheet,2024-10-01,2026-09-30,0
+F-032,"SOC 2 Type II audit scheduled for Jan 2027",compliance,Engineering,Audit plan,2026-09-15,,0
+F-033,"No data incidents in company history as of Oct 2026",compliance,Engineering,Security register,2026-10-01,,0
+F-041,"40+ integrations including Slack, Trello, HubSpot, Zoho",product,Product,Integrations catalogue v7,2026-08-01,,0
+F-042,"API rate limit: 600 requests/minute on Team plan",product,Engineering,Developer docs v5,2026-06-01,,0
+F-043,"Available in 6 languages including English, Hindi, German",product,Product,Roadmap register,2026-09-01,,0
+F-044,"14-day free trial with no credit card required",commercial,Marketing Ops,Trial page copy 2026,2026-10-01,,0
+F-045,"Free plan for students and small teams (community features)",commercial,Marketing Ops,Plan page 2026,2026-10-01,,0
+F-046,"Mobile app (iOS and Android) launched March 2026",product,Product,Release notes 2026-03,2026-03-15,,0
+F-050,"Founded 2019; HQ in Bengaluru",company,Founders,About page 2026,,,0
+F-051,"182 team members across Bengaluru, Pune and remote India",company,People Ops,Headcount sheet Sep 2026,2026-09-01,2027-02-28,0
+F-052,"Series A raised 2023; investors named on the About page",company,Finance,Press kit 2026,,,0
+F-053,"NPS 71 (last enterprise survey, Q2 2026, n=214)",sentiment,CX,CX report Q2 2026,2026-07-01,2026-12-31,0
+F-054,"Median first-value time: 5 days from signup",product,CX,Onboarding analytics Q3,2026-09-01,,0
+F-055,"Support response target: 4 business hours (Team plan and above)",commercial,CX,Support policy v3,2026-05-01,,0
+F-056,"Refund window: 30 days on annual plans",commercial,Sales,Sales policy 2026,,,0
+C-001,"Approved public reference: an analytics platform trusted by 2,300+ teams (source F-012)",messaging,Marketing Ops,Approved copy sheet Q4,2026-10-01,2027-03-31,0
+C-002,"Approved public reference: honest pricing with plans from 1,299/month (sources F-002/F-003)",messaging,Marketing Ops,Approved copy sheet Q4,2026-10-06,2027-03-31,0
+C-003,"Certification claim: ISO 27001 (APPROVED until certificate renews; do NOT use after 30 Sep 2026)",compliance,Legal,Cert register,2024-10-01,2026-09-30,0
+CONF-01,"Planned 2027 pricing change under review (do not publish)",pricing,Finance,Board deck (confidential),,2027-06-30,1
+CONF-02,"MRR 4.2 crore as of Sep 2026 (internal)",finance,Finance,Finance report Sept,,,,1
+CONF-03,"Logo churn 2.1% Q3 2026 (internal)",finance,Finance,Board deck (confidential),,,,1
+CONF-04,"Unannounced: AI analyst add-on, target Feb 2027",product,Product,Roadmap (confidential),,,1
+CONF-05,"Upcoming enterprise contract with undisclosed bank",sales,Sales,Pipeline (confidential),,,,1
+X-101,"Legacy: Starter 999/month (SUPERSEDED 30 Sep 2026)",pricing,Marketing Ops,Old price list v8,2025-01-01,2026-09-30,0
+X-102,"Legacy: Quillmark Insights product name (SUPERSEDED Jun 2026)",product,Marketing Ops,Old brand book v3.1,2024-01-01,2026-06-01,0
+X-103,"Legacy: 1,800+ customer teams (SUPERSEDED Q3 2026)",product,Marketing Ops,Old customer registry,2026-01-01,2026-07-01,0

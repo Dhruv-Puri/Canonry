@@ -1,0 +1,11 @@
+# Canonry engine dependencies (Python 3.11+/3.12+)
+# Install into a local virtualenv — never global:
+#   python -m venv .venv
+#   .venv/Scripts/pip install -r engine/requirements.txt   (Windows)
+#   .venv/bin/pip install -r engine/requirements.txt       (mac/linux)
+fastapi==0.162.0
+uvicorn==0.54.0
+httpx==0.28.1
+pydantic==2.14.1
+pydantic-settings==2.16.1
+PyNaCl==1.6.2

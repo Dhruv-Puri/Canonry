@@ -1,0 +1,76 @@
+# ============================================================
+#  Canonry — root .gitignore
+#  Only source code, demo data and documentation get committed.
+# ============================================================
+
+# ---- Python (engine) ----------------------------------------
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---- Databases & secrets (generated at runtime) ---------------
+# db/ holds the SQLite database files AND the Ed25519 signing seed
+# (db/signing_seed.bin) — private key material is never committed.
+db/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite3
+*.bin
+
+# environment / API keys (Gemini, Groq, OpenRouter)
+.env
+.env.*
+!.env.example
+*.pem
+
+# ---- Node / Next.js (web) ------------------------------------
+web/node_modules/
+web/.next/
+web/out/
+web/build/
+web/next-env.d.ts
+web/*.tsbuildinfo
+web/.vercel/
+web/coverage/
+.web-lightning/
+
+# ---- Portable runtimes & local tooling ------------------------
+# tools/node-v22.14.0-win-x64/ is a downloaded portable Node.js used to
+# run the web app on this machine. See docs/getting-started.md for how
+# to substitute any local Node.js >= 18.
+tools/
+
+# ---- Freebuff / development scaffolding -----------------------
+.freebuff/
+AGENTS.md
+
+# ---- Local run artifacts --------------------------------------
+.run/
+*.log
+npm-debug.log*
+yarn-debug.log*
+*/npm-debug.log*
+
+# ---- OS junk ---------------------------------------------------
+.DS_Store
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ---- Editor junk -----------------------------------------------
+.vscode/
+.idea/
+*.swp
+*~
+
+# Temporary test/debug scripts
+dbg_*.py
+
+# PDF
+Canonry_Round1_Plan_vaidvansh6.pdf
