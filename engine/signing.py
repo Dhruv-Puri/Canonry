@@ -17,7 +17,7 @@ from typing import Any, Dict, Optional
 from nacl.exceptions import BadSignatureError
 from nacl.signing import SigningKey, VerifyKey
 
-from db import _now, gen_id
+from db import _now, gen_id, get_knowledge_version
 
 KEY_PATH = os.path.join(os.path.dirname(__file__), "..", "db", "signing_seed.bin")
 
@@ -42,7 +42,7 @@ def _fingerprint(content: str) -> str:
 
 def sign_approval(conn: sqlite3.Connection, workspace_id: str, submission_id: str,
                   revision_id: str, content: str, approved_by: str,
-                  approver_role: str) -> Dict[str, Any]:
+                  approver_role: str, self_approved: bool = False) -> Dict[str, Any]:
     signing = load_signing_key()
     pub_fp = hashlib.sha256(bytes(signing.verify_key)).hexdigest()[:16]
     rules_version = conn.execute(
@@ -56,9 +56,13 @@ def sign_approval(conn: sqlite3.Connection, workspace_id: str, submission_id: st
         "content_sha256": _fingerprint(content),
         "approved_by": approved_by,
         "approver_role": approver_role,
+        # true when the approver also drafted it (self-chosen roles make this possible)
+        "self_approved": bool(self_approved),
         "rules_version": int(rules_version),
+        # the exact knowledge (rules, facts, terms) in force when this was approved
+        "knowledge_version": get_knowledge_version(conn),
         "decided_at": _now(),
-        "kind": "ProofOfCompliance/1",
+        "kind": "ProofOfCompliance/2",
     }
     canonical = json.dumps(record, sort_keys=True, separators=(",", ":")).encode()
     sig = signing.sign(canonical).signature.hex()

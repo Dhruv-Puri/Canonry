@@ -61,7 +61,7 @@ deterministic checks are free, fast and certain; the AI only handles what rule p
 
 ## 3. Quick start (clone → clone-ready)
 
-Run the engine then pick any of: Vite/Next/Hono/anything front-end — or use the shipped `web/` app, which expects the engine at `http://localhost:8000` (or set `NEXT_PUBLIC_ENGINE_URL`).
+Run the engine then pick any of: Vite/Next/Hono/anything front-end — or use the shipped `web/` app, which expects the engine at `http://localhost:8000` (or set `CANONRY_ENGINE_URL` before `npm run build`; the proxy is fixed at build time).
 
 ```bash
 # 1. Engine (Python + FastAPI)

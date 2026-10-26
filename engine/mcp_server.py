@@ -84,8 +84,9 @@ def check_claim(conn: sqlite3.Connection, args: Dict[str, Any], ws: str) -> str:
     snippet = args["claim"]
     as_source = args.get("as_source", "in-house")
     facts = claims.visible_facts(conn, ws, as_source != "agency")
-    kind = "superlative" if any(p.search(snippet) for p in [
-        __import__("re").compile(r"#\d+", re.I)]) else "count"
+    # same claim patterns as the check pipeline decide the claim kind
+    found = claims.find_claims(snippet)
+    kind = found[0]["kind"] if found else "count"
     retrieved = claims.retrieve_facts(snippet, facts)
     v = claims.classify_match(kind, snippet, retrieved)
     if v["verdict"] is None:

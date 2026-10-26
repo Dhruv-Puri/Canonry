@@ -102,7 +102,7 @@ for _ in range(12):
     if sugg.get("replace") or sugg.get("operation") == "remove":
         arjun.post(f"/submissions/{first['submission_id']}/resolve", json={
             "revision_id": d["latest_revision"]["id"], "finding_id": f["id"], "action": "accept"})
-    elif f["category"] == "missing_disclaimer":
+    elif f["category"] in ("missing_disclaimer", "missing_cta"):
         # fix in the creator's own words: end with a CTA/link (rule MSG-03)
         arjun.post(f"/submissions/{first['submission_id']}/resolve", json={
             "revision_id": d["latest_revision"]["id"], "finding_id": f["id"], "action": "edit",

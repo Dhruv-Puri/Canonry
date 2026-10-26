@@ -25,7 +25,10 @@ from db import _now, gen_id
 
 CLAIM_PATTERNS: List[Tuple[str, re.Pattern]] = [
     ("certification", re.compile(r"\bISO\s*27001\b|\bSOC\s*2\b|\bGDPR[- ]certified\b|\bHIPAA\b", re.IGNORECASE)),
-    ("superlative", re.compile(r"#\d+|number\s*-?\s*one|india'?s\s+no\.?1|the\s+best|most\s+trusted|leading|largest|fastest", re.IGNORECASE)),
+    ("superlative", re.compile(
+        r"#\d+\b|\bnumber\s*-?\s*one\b|\bno\.\s?1\b|\bbest[- ]in[- ]class\b|\bmost\s+trusted\b"
+        r"|\b(?:the|a|india'?s|world'?s|asia'?s)\s+(?:best|leading|largest|fastest|biggest)\b(?!\s+practices?\b)",
+        re.IGNORECASE)),
     ("count", re.compile(
         r"(?:trusted\s+by\s+|over\s+|more\s+than\s+)?"
         r"\d{1,3}(?:,\d{3})+(?=[\dxX\s]*\s*(?:teams|users|customers|people|employees))"
@@ -81,7 +84,7 @@ def _widen_to_claim(text: str, trigger_span: Tuple[int, int], left_max: int = 3)
     lo, count = idx, 0
     while lo > 0 and count < left_max:
         prev = words[lo - 1][2]
-        if any(ch in prev for ch in ",.;:!?()-"):
+        if any(ch in prev for ch in ",.;:!?()-—–") or prev.lower() in _CONJUNCTIONS:
             break
         lo -= 1
         count += 1
@@ -89,10 +92,14 @@ def _widen_to_claim(text: str, trigger_span: Tuple[int, int], left_max: int = 3)
     end = e
     while end < len(text) and text[end].isalnum():
         end += 1
-    m = re.match(r"(?:/\s*[A-Za-z]{1,9})?[ ]?[A-Za-z]{1,9}(?=[\s,.;:!?]|$)", text[end:end + 12])
-    if m:
-        end += m.end()
+    if not text[e - 1].isalpha():  # complete a trailing unit ("/month", "certified")
+        m = re.match(r"(?:/\s*[A-Za-z]{1,9})?[ ]?([A-Za-z]{1,9})(?=[\s,.;:!?]|$)", text[end:end + 12])
+        if m and m.group(1).lower() not in _CONJUNCTIONS:
+            end += m.end()
     return start, end
+
+
+_CONJUNCTIONS = {"and", "or", "but", "with", "while", "plus"}
 
 
 def _extract_numbers(s: str) -> List[str]:
@@ -239,21 +246,43 @@ def classify_match(claim_kind: str, snippet: str, facts: List[sqlite3.Row]) -> D
     return {"verdict": None}
 
 
-def superlative_verdict(snippet: str, facts: List[sqlite3.Row]) -> Optional[Dict[str, Any]]:
+def superlative_verdict(snippet: str, facts: List[sqlite3.Row], trigger: str = "") -> Optional[Dict[str, Any]]:
     """Superlatives: Likely — no approved source exists behind it (rule CLM-02;
     India pack CCPA)."""
-    return {"verdict": "unsupported", "fact_ids": [], "operation": "remove",
+    fix = superlative_fix(snippet, trigger)
+    return {"verdict": "unsupported", "fact_ids": [], "operation": "replace" if fix else "remove",
             "explanation": 'No approved source supports this superlative claim (rule CLM-02; India pack: CCPA 2022 requires substantiation). Drop the ranking claim or use the approved customer-count phrasing from the Fact Library.',
-            "suggestion": None}
+            "suggestion": fix}
+
+
+def superlative_fix(snippet: str, trigger: str) -> Optional[str]:
+    """Minimal fix: remove the ranking words (and an owner like "India's"),
+    keep the noun: "India's #1 analytics" -> "an analytics"."""
+    if not trigger or trigger not in snippet:
+        return None
+    before, after = snippet.split(trigger, 1)
+    before_words = before.split()
+    dropped_owner = bool(before_words) and re.search(r"'s$", before_words[-1]) is not None
+    if dropped_owner:
+        before_words = before_words[:-1]
+    if re.match(r"(?i)(the|a)\s", trigger):  # "the leading" -> keep the article
+        before_words.append(trigger.split()[0])
+    rest = after.strip()
+    if not rest:
+        return None
+    if dropped_owner and (not before_words or before_words[-1].lower() not in ("a", "an", "the")):
+        before_words.append("an" if rest[0].lower() in "aeiou" else "a")
+    return " ".join(before_words + [rest])
 
 
 # ---- Verified Claim Memory ---------------------------------------------------
 
-def vcm_lookup(conn: sqlite3.Connection, ws: str, key: str, claim_numbers: List[str]):
-    """Reuse a stored verdict only when numbers/units/names match exactly."""
+def vcm_lookup(conn: sqlite3.Connection, ws: str, key: str, claim_numbers: List[str], kv: int):
+    """Reuse a stored verdict only when numbers/units/names match exactly and it
+    was reached against the same knowledge version (plan: "cache by version")."""
     row = conn.execute(
-        "SELECT * FROM claim_memory WHERE workspace_id = ? AND claim_norm = ?",
-        (ws, key),
+        "SELECT * FROM claim_memory WHERE workspace_id = ? AND claim_norm = ? AND knowledge_version = ?",
+        (ws, key, kv),
     ).fetchone()
     if not row:
         return None
@@ -267,12 +296,12 @@ def vcm_lookup(conn: sqlite3.Connection, ws: str, key: str, claim_numbers: List[
 
 def vcm_store(conn: sqlite3.Connection, ws: str, key: str, numbers: List[str], verdict: str,
               fact_ids: List[str], explanation: str, suggestion: Optional[str], model: str,
-              operation: Optional[str] = None) -> None:
+              operation: Optional[str] = None, *, kv: int) -> None:
     conn.execute(
-        "INSERT OR REPLACE INTO claim_memory (id, workspace_id, claim_norm, numbers_json, verdict, fact_ids, explanation, suggestion, operation, model, created_at) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT OR REPLACE INTO claim_memory (id, workspace_id, claim_norm, numbers_json, verdict, fact_ids, explanation, suggestion, operation, model, created_at, knowledge_version) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
         (gen_id("vcm"), ws, key, json.dumps(list(set(numbers))), verdict,
-         json.dumps(fact_ids), explanation, suggestion, operation, model, _now()),
+         json.dumps(fact_ids), explanation, suggestion, operation, model, _now(), kv),
     )
     conn.commit()
 

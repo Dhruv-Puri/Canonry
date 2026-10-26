@@ -22,7 +22,7 @@ Severity = Literal["high", "medium", "low"]
 CATEGORIES = [
     "banned_term", "outdated_term", "terminology",
     "outdated_name", "contradicted_claim", "outdated_claim", "unsupported_claim",
-    "readability", "missing_disclaimer", "incomplete_citation",
+    "readability", "missing_disclaimer", "missing_cta", "confidential_leak", "incomplete_citation",
     "tone", "messaging", "accessibility",
 ]
 

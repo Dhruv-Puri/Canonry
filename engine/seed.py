@@ -11,6 +11,7 @@ import os
 import sqlite3
 from typing import Iterable
 
+import knowledge
 from db import (
     audit, bump_knowledge, connect, gen_id, init_schema,
 )
@@ -115,6 +116,7 @@ def seed() -> str:
             ),
         )
         bump_knowledge(conn)
+        knowledge.backfill_history(conn)  # version 1 of every seeded rule, fact and term
         audit(
             conn, "system", "seed_workspace",
             f"Quillmark demo data: {n_rules} rules, {n_facts} facts, {n_terms} terms",

@@ -1,10 +1,14 @@
 // Typed client for the Canonry engine (same-origin /engine proxy).
-// Guest mode: every 401 is surfaced; the UI always offers one-click demo
-// personas so judges never need credentials.
+// Guest mode: a 401 signs in as the demo creator once and retries; the UI
+// also offers one-click demo personas so judges never need credentials.
 
 export type Citation = {
-  type: "fact" | "rule" | "term";
+  type: "fact" | "rule" | "term" | "pack";
   id: string;
+  /** version of the rule/fact/term this finding was checked against */
+  version?: number;
+  /** its version today; greater than `version` means it changed since */
+  current_version?: number | null;
   excerpt?: string;
   owner?: string;
   valid_to?: string | null;
@@ -12,6 +16,40 @@ export type Citation = {
 };
 
 export type Suggestion = { replace?: string; operation?: "replace" | "remove" };
+
+// ---- knowledge base (versioned: every change is a new version with a reason) ----
+
+export type KBKind = "rules" | "facts" | "terms";
+
+export type Rule = {
+  id: string; category: string; statement: string; do_example: string | null; dont_example: string | null;
+  severity: string; status: string; vague_flag: string | null; version: number;
+};
+export type Fact = {
+  id: string; text: string; category: string; owner: string | null; source: string | null;
+  valid_from: string | null; valid_to: string | null; confidential: number; superseded: number;
+  active?: boolean; version: number;
+};
+export type Term = {
+  id: number; preferred: string | null; banned_or_check: string | null; note: string | null;
+  severity: string; status: string; version: number;
+};
+export type KBEntity = Rule | Fact | Term;
+
+export type HistoryEntry = {
+  version: number; action: "seed" | "create" | "update" | "retire" | "restore";
+  snapshot: Record<string, unknown>; reason: string | null; by_user: string | null; by_name?: string | null; at: string;
+  knowledge_version: number;
+};
+
+export type ImpactItem = { submission_id: string; title: string; status: string; because: string };
+
+export type KBWriteResult = { entity: KBEntity; knowledge_version: number; impact?: ImpactItem[] };
+
+export function isRetired(kind: KBKind, e: KBEntity): boolean {
+  if (kind === "facts") return Boolean((e as Fact).superseded);
+  return (e as Rule | Term).status === "retired";
+}
 
 export type Provenance = { model: string | null; prompt_version: string; knowledge_version: string };
 
@@ -56,6 +94,7 @@ export type Decision = {
   replacement?: string | null;
   reason?: string | null;
   by_user: string;
+  by_name?: string | null;
   at: string;
 };
 
@@ -65,6 +104,7 @@ export type Approval = {
   action: string;
   reason?: string | null;
   reviewer: string;
+  reviewer_name?: string | null;
   at: string;
 };
 
@@ -78,6 +118,8 @@ export type SubmissionDetail = {
   decisions: Decision[];
   approvals: Approval[];
   poc: { id: string; created_at: string } | null;
+  /** Latest check run on the latest revision; status "ai_pending" means only rule-based checks ran. */
+  check: { status: string; started_at: string; finished_at: string | null; ai_calls: number; discarded: number } | null;
   me: User;
 };
 
@@ -91,7 +133,21 @@ export class ApiError extends Error {
   }
 }
 
+/** Fired when the engine says nobody is signed in; <IdentityGate> shows the welcome screen. */
+export const SIGNED_OUT_EVENT = "canonry:signed-out";
+
 export async function api<T>(path: string, init?: RequestInit & { json?: unknown }): Promise<T> {
+  try {
+    return await request<T>(path, init);
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 401 && typeof window !== "undefined") {
+      window.dispatchEvent(new Event(SIGNED_OUT_EVENT));
+    }
+    throw e;
+  }
+}
+
+async function request<T>(path: string, init?: RequestInit & { json?: unknown }): Promise<T> {
   const { json, ...rest } = init ?? {};
   const res = await fetch(`${BASE}${path}`, {
     ...rest,
@@ -129,7 +185,9 @@ export const CATEGORY_LABEL: Record<string, string> = {
   contradicted_claim: "Contradicted claim",
   outdated_claim: "Outdated claim",
   unsupported_claim: "Unsupported claim",
-  missing_disclaimer: "Missing CTA/disclaimer",
+  missing_disclaimer: "Missing disclaimer",
+  missing_cta: "No call to action",
+  confidential_leak: "Confidential information",
   banned_term: "Banned word",
   tone: "Tone",
   readability: "Readability",

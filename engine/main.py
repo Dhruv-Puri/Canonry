@@ -6,8 +6,11 @@ is small documents, so checks run inline but through the same job-table seam
 """
 from __future__ import annotations
 
+import csv
+import io
 import json
 import os
+import re
 import secrets
 import sqlite3
 from datetime import date
@@ -18,8 +21,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+import access
 import claims
 import gateway
+import knowledge
 import pipeline
 import signing
 from checkers import Ctx
@@ -38,6 +43,36 @@ app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000"], allo
 def _startup() -> None:
     init_schema()
     seed()
+    _seed_demo_submission()
+
+
+# The launch post from plan Section 1, so a fresh deployment opens on a real,
+# already-checked example instead of an empty workspace.
+DEMO_POST = ("Meet Quillmark Insights 2.0 — India's #1 analytics platform, trusted by 5,000+ teams "
+             "and fully ISO 27001 certified. Plans start at just ₹999/month!")
+
+
+def _seed_demo_submission() -> None:
+    """First boot only: if the workspace has no submissions at all, add the demo
+    launch post as Arjun and run it through the normal check pipeline."""
+    conn = connect()
+    try:
+        if conn.execute("SELECT COUNT(*) FROM submissions").fetchone()[0]:
+            return
+        arjun = conn.execute("SELECT * FROM users WHERE email = 'arjun@quillmark'").fetchone()
+        if not arjun:
+            return
+        sid = gen_id("sub")
+        conn.execute(
+            "INSERT INTO submissions (id, workspace_id, title, channel, source_type, created_by, status, created_at) "
+            "VALUES (?,?,?,?,?,?,'Draft',?)",
+            (sid, arjun["workspace_id"], "Launch post — Pulse 2.0", "social", "ai-assisted", arjun["email"], _now()),
+        )
+        audit(conn, "system", "seed_demo_submission", f"{sid}: launch post (plan Section 1)")
+        run_check_for_submission(conn, sid, DEMO_POST, arjun["role"])
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def _user(req: Request, conn: sqlite3.Connection):
@@ -51,6 +86,14 @@ def _user(req: Request, conn: sqlite3.Connection):
 def _ws(conn: sqlite3.Connection) -> str:
     row = conn.execute("SELECT id FROM workspaces LIMIT 1").fetchone()
     return row["id"]
+
+
+def _visible_sub(conn: sqlite3.Connection, user, sid: str):
+    """The submission, if this user may see and act on it; otherwise 404 (no hint it exists)."""
+    sub = conn.execute("SELECT * FROM submissions WHERE id = ?", (sid,)).fetchone()
+    if not sub or not access.can_see_submission(user, sub):
+        raise HTTPException(404, "Submission not found")
+    return sub
 
 
 # ---- auth -------------------------------------------------------------------
@@ -82,12 +125,90 @@ def login(body: LoginIn):
         conn.close()
 
 
+ROLES = ("creator", "reviewer", "agency", "admin")
+
+
+def _clean_name(name: Any) -> str:
+    name = " ".join(str(name or "").split())
+    if not 2 <= len(name) <= 40:
+        raise HTTPException(422, "Name must be 2–40 characters.")
+    return name
+
+
+def _clean_role(role: Any) -> str:
+    if role not in ROLES:
+        raise HTTPException(422, "Role must be creator, reviewer, agency or admin.")
+    return role
+
+
+def _public_user(user) -> Dict[str, Any]:
+    return {"id": user["id"], "name": user["name"], "role": user["role"], "email": user["email"]}
+
+
+@app.post("/join")
+def join(body: Dict[str, Any]):
+    """No-login entry: a person names themselves and picks a role. Each join is
+    a new person, even if the name matches someone else's."""
+    name, role = _clean_name(body.get("name")), _clean_role(body.get("role"))
+    conn = connect()
+    try:
+        uid = gen_id("usr")
+        conn.execute(
+            "INSERT INTO users (id, workspace_id, email, name, role, created_at) VALUES (?,?,?,?,?,?)",
+            (uid, _ws(conn), f"{uid}@guest.canonry", name, role, _now()),
+        )
+        audit(conn, f"{uid}@guest.canonry", "join", f"{name} joined as {role}")
+        token = create_session(conn, uid)
+        resp = JSONResponse({"id": uid, "name": name, "role": role})
+        resp.set_cookie("canonry_session", token, httponly=True, samesite="lax")
+        conn.commit()
+        return resp
+    finally:
+        conn.close()
+
+
+@app.patch("/me")
+def update_me(req: Request, body: Dict[str, Any]):
+    conn = connect()
+    try:
+        user = _user(req, conn)
+        name = _clean_name(body["name"]) if "name" in body else user["name"]
+        role = _clean_role(body["role"]) if "role" in body else user["role"]
+        conn.execute("UPDATE users SET name = ?, role = ? WHERE id = ?", (name, role, user["id"]))
+        changes = []
+        if role != user["role"]:
+            changes.append(f"{user['role']} -> {role}")
+        if name != user["name"]:
+            changes.append(f"renamed {user['name']} -> {name}")
+        if changes:
+            audit(conn, user["email"], "profile_change", "; ".join(changes))
+        conn.commit()
+        return {"id": user["id"], "name": name, "role": role}
+    finally:
+        conn.close()
+
+
+@app.post("/logout")
+def logout(req: Request):
+    token = req.cookies.get("canonry_session") or req.headers.get("x-canon-session")
+    conn = connect()
+    try:
+        if token:
+            conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
+            conn.commit()
+    finally:
+        conn.close()
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie("canonry_session")
+    return resp
+
+
 @app.get("/me")
 def me(req: Request):
     conn = connect()
     try:
         user = _user(req, conn)
-        return dict(user)
+        return _public_user(user)
     finally:
         conn.close()
 
@@ -116,21 +237,85 @@ def workspace(req: Request):
 
 # ---- knowledge base ----------------------------------------------------------
 
-def lint_rule(stmt: str, do: Optional[str], dont: Optional[str], existing: List[str]) -> Optional[str]:
-    cheap = not stmt.strip()
-    short = len(stmt.strip()) < 25
-    no_examples = not (do or dont)
-    words = [w.lower() for w in stmt.split()]
-    lack = any(w in words for w in ("bold", "fresh", "engaging", "nice")) and no_examples
-    contradictory = stmt.count(" and ") > 0 and (("formal" in words and "fresh" in words) or ("always" in words and "never" in words))
-    duplicate = stmt[:40] in existing
-    if contradictory:
-        return "vague_contradictory"
-    if duplicate:
-        return "vague_duplicate"
-    if short or no_examples or lack or cheap:
-        return "vague_no_examples"
-    return None
+def _kb(fn, *args):
+    """Run a knowledge write and turn its refusals into HTTP errors."""
+    try:
+        return fn(*args)
+    except knowledge.KBError as e:
+        raise HTTPException(e.status, e.detail)
+
+
+def _kb_fields(body: Dict[str, Any]) -> Dict[str, Any]:
+    return {k: v for k, v in body.items() if k not in ("reason", "expected_version", "version")}
+
+
+@app.post("/kb/{kind}")
+def kb_create(req: Request, kind: str, body: Dict[str, Any]):
+    conn = connect()
+    try:
+        user = _user(req, conn)
+        return _kb(knowledge.create, conn, _ws(conn), kind, _kb_fields(body), user, body.get("reason"))
+    finally:
+        conn.close()
+
+
+@app.put("/kb/{kind}/{entity_id}")
+def kb_update(req: Request, kind: str, entity_id: str, body: Dict[str, Any]):
+    conn = connect()
+    try:
+        user = _user(req, conn)
+        return _kb(knowledge.update, conn, _ws(conn), kind, entity_id, _kb_fields(body),
+                   body.get("expected_version"), user, body.get("reason"))
+    finally:
+        conn.close()
+
+
+@app.post("/kb/{kind}/{entity_id}/retire")
+def kb_retire(req: Request, kind: str, entity_id: str, body: Dict[str, Any]):
+    conn = connect()
+    try:
+        user = _user(req, conn)
+        return _kb(knowledge.retire, conn, _ws(conn), kind, entity_id, body.get("expected_version"),
+                   user, body.get("reason"))
+    finally:
+        conn.close()
+
+
+@app.post("/kb/{kind}/{entity_id}/restore")
+def kb_restore(req: Request, kind: str, entity_id: str, body: Dict[str, Any]):
+    conn = connect()
+    try:
+        user = _user(req, conn)
+        return _kb(knowledge.restore, conn, _ws(conn), kind, entity_id, body.get("version"),
+                   body.get("expected_version"), user, body.get("reason"))
+    finally:
+        conn.close()
+
+
+@app.get("/kb/stale-approvals")
+def kb_stale_approvals(req: Request):
+    conn = connect()
+    try:
+        _user(req, conn)
+        return {"items": knowledge.stale_approvals(conn, _ws(conn))}
+    finally:
+        conn.close()
+
+
+@app.get("/kb/{kind}/{entity_id}/history")
+def kb_history(req: Request, kind: str, entity_id: str):
+    conn = connect()
+    try:
+        user = _user(req, conn)
+        if kind not in knowledge.ENTITIES:
+            raise HTTPException(404, "Unknown knowledge type.")
+        versions = knowledge.history(conn, _ws(conn), knowledge.ENTITIES[kind], entity_id)
+        if kind == "facts":
+            for v in versions:
+                v["snapshot"] = access.redact_fact(v["snapshot"], user)
+        return {"versions": versions}
+    finally:
+        conn.close()
 
 
 @app.post("/rules/import")
@@ -144,34 +329,37 @@ def rules_import(req: Request, body: Dict[str, Any]):
         lines = (body.get("csv") or "").strip().splitlines()
         if not lines:
             raise HTTPException(400, "Paste CSV with header: id,category,statement,do_example,dont_example,severity")
-        header = [h.strip() for h in lines[0].split(",")]
-        existing = [r["statement"][:40] for r in conn.execute(
-            "SELECT statement FROM rules WHERE workspace_id=?", (ws,)).fetchall()]
-        added, flagged = 0, []
-        for line in lines[1:]:
-            if not line.strip():
+        # quoted fields may contain commas ("Ink #101828, Teal #0E7C7B")
+        rows = list(csv.DictReader(io.StringIO("\n".join(lines))))
+        added, updated, flagged, skipped = 0, 0, [], []
+        for r in rows:
+            r = {k.strip(): (v or "").strip() for k, v in r.items() if k}
+            if not r.get("statement"):
                 continue
-            parts = [p.strip() for p in line.split(",")]
-            r = dict(zip(header, parts + [None] * (len(header) - len(parts))))
-            rid = r.get("id") or gen_id("r")
-            stmt = r.get("statement") or ""
-            if not stmt:
+            fields = {"category": r.get("category") or "General", "statement": r["statement"],
+                      "do_example": r.get("do_example"), "dont_example": r.get("dont_example"),
+                      "severity": r.get("severity") or "medium", "status": "approved"}
+            # every row goes through the versioned write path: new rules are created,
+            # existing ones get a new version; nothing is overwritten in place
+            try:
+                cur = knowledge.snapshot(conn, ws, "rule", r["id"]) if r.get("id") else None
+                if cur:
+                    res = knowledge.update(conn, ws, "rules", r["id"], fields, cur["version"], user, "CSV import")
+                    updated += 1
+                else:
+                    res = knowledge.create(conn, ws, "rules", {**fields, "id": r.get("id")}, user, "CSV import")
+                    added += 1
+            except knowledge.KBError as e:
+                skipped.append({"id": r.get("id"), "reason": e.detail})
                 continue
-            vague = lint_rule(stmt, r.get("do_example"), r.get("dont_example"), existing)
-            status = "flagged" if vague else "approved"
-            conn.execute(
-                "INSERT OR REPLACE INTO rules (id, workspace_id, category, statement, do_example, "
-                "dont_example, severity, status, vague_flag, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                (rid, ws, r.get("category", "General"), stmt, r.get("do_example"),
-                 r.get("dont_example"), r.get("severity", "medium"), status, vague, _now()),
-            )
-            added += 1
-            if vague:
-                flagged.append({"id": rid, "statement": stmt, "flag": vague,
-                                "rewrite_suggestion": rewrite_suggestion(stmt, vague)})
-        audit(conn, user["email"], "import_rules", f"imported {added} rules, {len(flagged)} flagged")
+            ent = res["entity"]
+            if ent["vague_flag"]:
+                flagged.append({"id": ent["id"], "statement": ent["statement"], "flag": ent["vague_flag"],
+                                "rewrite_suggestion": rewrite_suggestion(ent["statement"], ent["vague_flag"])})
+        audit(conn, user["email"], "import_rules",
+              f"imported {added} new, {updated} updated, {len(flagged)} flagged, {len(skipped)} skipped")
         conn.commit()
-        return {"added": added, "flagged": flagged}
+        return {"added": added, "updated": updated, "flagged": flagged, "skipped": skipped}
     finally:
         conn.close()
 
@@ -192,28 +380,6 @@ def get_rules(req: Request):
         rows = [dict(r) for r in conn.execute(
             "SELECT * FROM rules ORDER BY id").fetchall()]
         return {"rules": rows}
-    finally:
-        conn.close()
-
-
-@app.patch("/rules/{rule_id}")
-def update_rule(req: Request, rule_id: str, body: Dict[str, Any]):
-    conn = connect()
-    try:
-        user = _user(req, conn)
-        if user["role"] not in ("reviewer", "admin"):
-            raise HTTPException(403, "Reviewers edit guidelines; others may suggest")
-        ws = _ws(conn)
-        vague = lint_rule(body.get("statement", ""), body.get("do_example"), body.get("dont_example"), [])
-        conn.execute(
-            "UPDATE rules SET statement=?, do_example=?, dont_example=?, status=?, vague_flag=? "
-            "WHERE id=? AND workspace_id=?",
-            (body.get("statement"), body.get("do_example"), body.get("dont_example"),
-             "flagged" if vague else "approved", vague, rule_id, ws),
-        )
-        audit(conn, user["email"], "edit_rule", f"{rule_id}")
-        conn.commit()
-        return {"ok": True, "flag": vague}
     finally:
         conn.close()
 
@@ -259,48 +425,13 @@ def get_facts(req: Request, hashes: Optional[str] = None):
     try:
         user = _user(req, conn)
         ws = _ws(conn)
-        confidential_ok = user["role"] in ("reviewer", "admin", "creator")
         rows = conn.execute("SELECT * FROM facts WHERE workspace_id=? ORDER BY id", (ws,)).fetchall()
         out = []
         for r in rows:
-            d = dict(r)
-            if d["confidential"] and not confidential_ok:
-                d["text"] = "[Confidential] cited excerpt only"
+            d = access.redact_fact(dict(r), user)
             d["active"] = claims._fact_active(r)
             out.append(d)
         return {"facts": out}
-    finally:
-        conn.close()
-
-
-class FactIn(BaseModel):
-    text: str
-    category: str
-    owner: str = "Marketing Ops"
-    source: str = ""
-    valid_from: Optional[str] = None
-    valid_to: Optional[str] = None
-    confidential: int = 0
-
-
-@app.post("/facts")
-def add_fact(req: Request, body: FactIn):
-    conn = connect()
-    try:
-        user = _user(req, conn)
-        if user["role"] not in ("reviewer", "admin"):
-            raise HTTPException(403, "Only reviewers/owners add facts")
-        fid = body.text.lower().startswith("legacy") and None or None
-        fid = gen_id("F-")
-        conn.execute(
-            "INSERT INTO facts (id, workspace_id, text, category, owner, source, valid_from, valid_to, "
-            "confidential, superseded, created_at) VALUES (?,?,?,?,?,?,?,?,?,0,?)",
-            (fid, _ws(conn), body.text, body.category, body.owner, body.source,
-             body.valid_from, body.valid_to, body.confidential, _now()),
-        )
-        audit(conn, user["email"], "add_fact", f"{fid}: {body.text[:60]}")
-        conn.commit()
-        return {"id": fid}
     finally:
         conn.close()
 
@@ -317,6 +448,10 @@ def get_terms(req: Request):
 
 # ---- submissions & the check ---------------------------------------------------
 
+# where content is published; drives routing and channel rules (e.g. social word limits)
+CHANNELS = ("social", "web", "blog", "email", "sales")
+
+
 class SubmitIn(BaseModel):
     title: str
     channel: str
@@ -326,6 +461,12 @@ class SubmitIn(BaseModel):
 
 @app.post("/submissions")
 def submit(req: Request, body: SubmitIn):
+    if not body.content.strip():
+        raise HTTPException(422, "Write something to check: the draft is empty.")
+    if not body.title.strip():
+        raise HTTPException(422, "Give the draft a title.")
+    if body.channel not in CHANNELS:
+        raise HTTPException(422, f"Channel must be one of: {', '.join(CHANNELS)}.")
     conn = connect()
     try:
         user = _user(req, conn)
@@ -362,7 +503,7 @@ def run_check_for_submission(conn: sqlite3.Connection, sid: str, content: str, r
 def list_submissions(req: Request):
     conn = connect()
     try:
-        _user(req, conn)
+        user = _user(req, conn)
         rows = conn.execute(
             "SELECT s.*, (SELECT content FROM revisions WHERE submission_id = s.id ORDER BY revision_no DESC LIMIT 1) "
             "content, (SELECT COUNT(*) FROM findings f WHERE f.revision_id IN "
@@ -370,7 +511,7 @@ def list_submissions(req: Request):
             "(SELECT signature FROM proof_of_compliance WHERE revision_id = (SELECT id FROM revisions "
             "WHERE submission_id = s.id ORDER BY revision_no DESC LIMIT 1)) poc_sig "
             "FROM submissions s ORDER BY s.created_at DESC").fetchall()
-        return {"submissions": [dict(r) for r in rows]}
+        return {"submissions": [dict(r) for r in rows if access.can_see_submission(user, r)]}
     finally:
         conn.close()
 
@@ -381,7 +522,7 @@ def get_submission(req: Request, sid: str):
     try:
         user = _user(req, conn)
         sub = conn.execute("SELECT * FROM submissions WHERE id = ?", (sid,)).fetchone()
-        if not sub:
+        if not sub or not access.can_see_submission(user, sub):
             raise HTTPException(404)
         revs = [dict(r) for r in conn.execute(
             "SELECT * FROM revisions WHERE submission_id=? ORDER BY revision_no", (sid,)).fetchall()]
@@ -396,30 +537,42 @@ def get_submission(req: Request, sid: str):
             f["provenance"] = json.loads(f["provenance_json"])
             del f["provenance_json"]
             for c in f["citations"]:
-                if c["type"] == "fact":
-                    row = conn.execute("SELECT text, owner, valid_to, confidential FROM facts WHERE id=?", (c["id"],)).fetchone()
-                    if row:
-                        c["excerpt"] = row["text"]
-                        c["owner"] = row["owner"]
-                        c["valid_to"] = row["valid_to"]
-                elif c["type"] == "term":
-                    row = conn.execute(
-                        "SELECT preferred FROM terms WHERE id=? AND workspace_id=?", (c["id"], sub["workspace_id"])
-                    ).fetchone()
-                    if row and row["preferred"]:
+                entity = {"fact": "fact", "rule": "rule", "pack": "rule", "term": "term"}.get(c["type"])
+                if not entity:
+                    continue
+                ws_id = sub["workspace_id"]
+                # show the version the finding was checked against; fall back to the
+                # current row for findings recorded before versions were pinned
+                row = (knowledge.snapshot_at(conn, ws_id, entity, str(c["id"]), c["version"]) if c.get("version")
+                       else None) or knowledge.snapshot(conn, ws_id, entity, str(c["id"]))
+                if not row:
+                    continue
+                c["current_version"] = knowledge.current_version(conn, ws_id, entity, str(c["id"]))
+                if entity == "fact":
+                    row = access.redact_fact(row, user)
+                    c["excerpt"], c["owner"], c["valid_to"] = row["text"], row["owner"], row["valid_to"]
+                    c["confidential"] = row.get("confidential", 0)
+                elif entity == "term":
+                    if row.get("preferred"):
                         c["excerpt"] = "approved term: " + row["preferred"]
-                elif c["type"] == "rule":
-                    row = conn.execute("SELECT statement FROM rules WHERE id=? AND workspace_id=?", (c["id"], sub["workspace_id"])).fetchone()
-                    if row:
-                        c["excerpt"] = row["statement"]
+                else:  # rule, or an India-pack rule
+                    c["excerpt"] = row["statement"]
+        # the whole trail: each resolve creates a new revision, so decisions sit on
+        # earlier revisions; showing only the latest one's would always be empty
         decisions = [dict(d) for d in conn.execute(
-            "SELECT * FROM decisions WHERE revision_id=? ORDER BY at", (latest["id"] if latest else "",)).fetchall()]
+            "SELECT d.*, u.name AS by_name FROM decisions d JOIN revisions r ON r.id = d.revision_id "
+            "LEFT JOIN users u ON u.email = d.by_user WHERE r.submission_id = ? ORDER BY d.at", (sid,)).fetchall()]
         approvals = [dict(a) for a in conn.execute(
-            "SELECT * FROM approvals WHERE submission_id=? ORDER BY at", (sid,)).fetchall()]
+            "SELECT a.*, u.name AS reviewer_name FROM approvals a LEFT JOIN users u ON u.email = a.reviewer "
+            "WHERE a.submission_id = ? ORDER BY a.at", (sid,)).fetchall()]
         poc = conn.execute("SELECT id, created_at FROM proof_of_compliance WHERE submission_id=? ORDER BY created_at DESC LIMIT 1", (sid,)).fetchone()
+        # latest check run on the latest revision, so the UI can say when AI checks are still pending
+        check = conn.execute(
+            "SELECT status, started_at, finished_at, ai_calls, discarded, knowledge_version FROM check_runs "
+            "WHERE revision_id = ? ORDER BY started_at DESC LIMIT 1", (latest["id"] if latest else "",)).fetchone()
         return {"submission": dict(sub), "revisions": revs, "latest_revision": latest,
                 "findings": findings, "decisions": decisions, "approvals": approvals,
-                "poc": dict(poc) if poc else None, "me": dict(user)}
+                "poc": dict(poc) if poc else None, "check": dict(check) if check else None, "me": dict(user)}
     finally:
         conn.close()
 
@@ -437,6 +590,7 @@ def resolve_finding(req: Request, sid: str, body: ResolveIn):
     conn = connect()
     try:
         user = _user(req, conn)
+        _visible_sub(conn, user, sid)
         f = conn.execute("SELECT * FROM findings WHERE id=? AND revision_id=?", (body.finding_id, body.revision_id)).fetchone()
         if not f:
             raise HTTPException(404, "Finding not found")
@@ -447,13 +601,11 @@ def resolve_finding(req: Request, sid: str, body: ResolveIn):
             repl = (suggestion or {}).get("replace")
             op = (suggestion or {}).get("operation", "replace")
             if not repl and op == "remove":
-                if f["span_text"] and f["span_text"] in content:
-                    content = content.replace(f["span_text"], "").replace("  ", " ")
-            elif repl and f["span_text"] and f["span_text"] in content:
-                content = content.replace(f["span_text"], repl)
+                content = apply_fix(content, f["span_start"], f["span_text"], "")
+            elif repl:
+                content = apply_fix(content, f["span_start"], f["span_text"], repl)
         elif body.action == "edit" and body.replacement:
-            if f["span_text"] and f["span_text"] in content:
-                content = content.replace(f["span_text"], body.replacement)
+            content = apply_fix(content, f["span_start"], f["span_text"], body.replacement)
         elif body.action == "dispute" and not body.reason:
             raise HTTPException(400, "Disputes require a reason (rule applies? unclear? fact outdated? AI misread?)")
         conn.execute(
@@ -471,11 +623,30 @@ def resolve_finding(req: Request, sid: str, body: ResolveIn):
         conn.close()
 
 
+def apply_fix(content: str, start: Optional[int], span: Optional[str], replacement: str) -> str:
+    """Replace exactly the flagged span (not every copy of it). A removal also
+    tidies what it leaves behind: a dangling "and"/comma/dash, doubled spaces,
+    a space before punctuation."""
+    if not span:
+        return content
+    if start is None or content[start:start + len(span)] != span:
+        start = content.find(span)
+        if start < 0:
+            return content
+    content = content[:start] + replacement + content[start + len(span):]
+    if not replacement:
+        content = re.sub(r"(?:\s*(?:,|—|–|--|\band\b|\bor\b))+\s*(?=[.!?;,]|$)", "", content)
+    content = re.sub(r"[ 	]{2,}", " ", content)
+    content = re.sub(r"\s+([.!?;,])", r"\1", content)
+    return content.strip()
+
+
 @app.post("/submissions/{sid}/recheck")
 def recheck(req: Request, sid: str):
     conn = connect()
     try:
         user = _user(req, conn)
+        _visible_sub(conn, user, sid)
         rev = conn.execute(
             "SELECT * FROM revisions WHERE submission_id=? ORDER BY revision_no DESC LIMIT 1", (sid,)).fetchone()
         result = run_check_for_submission(conn, sid, rev["content"], user["role"])
@@ -526,9 +697,12 @@ def submit_review(req: Request, sid: str):
     conn = connect()
     try:
         user = _user(req, conn)
+        _visible_sub(conn, user, sid)
         sub = conn.execute("SELECT * FROM submissions WHERE id=?", (sid,)).fetchone()
         if not sub:
             raise HTTPException(404)
+        if sub["status"] not in ("Draft", "Checked", "Changes requested"):
+            raise HTTPException(409, f"This item is already {sub['status']}.")
         risk = compute_risk(conn, sid)
         status = "Exempt-approved" if risk["risk"] == "exempt" else "In review"
         conn.execute("UPDATE submissions SET status=?, risk=?, router_note=? WHERE id=?",
@@ -550,6 +724,7 @@ def review(req: Request, sid: str, body: ReviewIn):
     conn = connect()
     try:
         user = _user(req, conn)
+        _visible_sub(conn, user, sid)
         if user["role"] not in ("reviewer", "admin"):
             raise HTTPException(403, "Only reviewers/approvers decide")
         sub = conn.execute("SELECT * FROM submissions WHERE id=?", (sid,)).fetchone()
@@ -560,18 +735,27 @@ def review(req: Request, sid: str, body: ReviewIn):
         open_high = conn.execute(
             "SELECT COUNT(*) c FROM findings WHERE revision_id=? AND status='open' AND severity='high'",
             (rev["id"],)).fetchone()["c"]
+        if body.action in ("approve", "request_changes", "override") and sub["status"] != "In review":
+            raise HTTPException(409, f"Only content that is In review can be decided; this item is {sub['status']}. The creator submits it for review first.")
         if body.action == "approve":
             if open_high > 0:
                 raise HTTPException(409, "High-severity findings must be resolved or explicitly overridden before approval — the reviewer decides, never the AI.")
+            # roles are self-chosen, so the same person may draft and approve; allowed
+            # (a solo demo must finish the loop) but never hidden: labelled and signed
+            self_approved = sub["created_by"] == user["email"]
+            note = body.comment or body.reason
+            if self_approved:
+                note = "[self-approved] " + (note or "approved by the same person who drafted it")
             conn.execute(
                 "INSERT INTO approvals (id, submission_id, action, reason, reviewer, at) VALUES (?,?,?,?,?,?)",
-                (gen_id("app"), sid, "approve", body.comment, user["email"], _now()),
+                (gen_id("app"), sid, "approve", note, user["email"], _now()),
             )
-            signed = signing.sign_approval(conn, sub["workspace_id"], sid, rev["id"], rev["content"], user["email"], user["role"])
+            signed = signing.sign_approval(conn, sub["workspace_id"], sid, rev["id"], rev["content"], user["email"],
+                                           user["role"], self_approved=self_approved)
             conn.execute("UPDATE submissions SET status='Signed' WHERE id=?", (sid,))
-            audit(conn, user["email"], "approve", f"{sid} signed {signed['poc_id']}")
+            audit(conn, user["email"], "approve", f"{sid} signed {signed['poc_id']}" + (" (self-approved)" if self_approved else ""))
             conn.commit()
-            return {"status": "Signed", "poc_id": signed["poc_id"]}
+            return {"status": "Signed", "poc_id": signed["poc_id"], "self_approved": self_approved}
         if body.action == "override":
             if not body.reason or body.finding_id is None:
                 raise HTTPException(400, "Overrides need the finding id and a reason")
@@ -580,10 +764,10 @@ def review(req: Request, sid: str, body: ReviewIn):
                 "VALUES (?,?,?,?,?,?,?,?)",
                 (gen_id("dec"), rev["id"], body.finding_id, "override", None, body.reason, user["email"], _now()),
             )
-            conn.execute("UPDATE findings SET status='disputed' WHERE id=?", (body.finding_id,))
+            conn.execute("UPDATE findings SET status='disputed' WHERE id=? AND revision_id=?", (body.finding_id, rev["id"]))
             remaining = conn.execute(
                 "SELECT COUNT(*) c FROM findings WHERE revision_id=? AND status='open'", (rev["id"],)).fetchone()["c"]
-            status = "Changes requested" if remaining else sub["status"]
+            status = sub["status"]  # an override settles one finding; the reviewer still decides the item
             conn.execute(
                 "INSERT INTO approvals (id, submission_id, action, reason, reviewer, at) VALUES (?,?,?,?,?,?)",
                 (gen_id("app"), sid, "override", body.reason, user["email"], _now()),
@@ -593,9 +777,11 @@ def review(req: Request, sid: str, body: ReviewIn):
             conn.commit()
             return {"status": status, "remaining_open": remaining}
         if body.action == "request_changes":
+            if not (body.comment or body.reason or "").strip():
+                raise HTTPException(422, "Say what needs to change before requesting changes.")
             conn.execute(
                 "INSERT INTO approvals (id, submission_id, action, reason, reviewer, at) VALUES (?,?,?,?,?,?)",
-                (gen_id("app"), sid, "request_changes", body.comment, user["email"], _now()),
+                (gen_id("app"), sid, "request_changes", body.comment or body.reason, user["email"], _now()),
             )
             conn.execute("UPDATE submissions SET status='Changes requested' WHERE id=?", (sid,))
             conn.commit()
@@ -678,7 +864,7 @@ def expiry_alerts(req: Request):
                 "SELECT DISTINCT s.id, s.title, s.status FROM submissions s JOIN revisions v ON v.submission_id=s.id "
                 "JOIN decisions d ON d.revision_id=v.id JOIN findings fnd ON fnd.id=d.finding_id "
                 "WHERE fnd.citations_json LIKE ? AND s.status IN ('Approved','Signed')",
-                (f'"{f["id"]}"%',),
+                (f'%"{f["id"]}"%',),
             ).fetchall()
             alerts.append({
                 "fact": dict(f), "active": claims._fact_active(f),
@@ -696,7 +882,12 @@ def pending_jobs(req: Request):
     try:
         _user(req, conn)
         pend = conn.execute(
-            "SELECT r.id rid, s.id, r.started_at FROM revisions r JOIN submissions s on s.id=r.submission_id LIMIT 0").fetchall()
+            "SELECT cr.id run_id, cr.revision_id, s.id submission_id, s.title, cr.started_at "
+            "FROM check_runs cr JOIN revisions r ON r.id = cr.revision_id "
+            "JOIN submissions s ON s.id = r.submission_id "
+            "WHERE cr.status = 'ai_pending' AND r.revision_no = "
+            "(SELECT MAX(revision_no) FROM revisions WHERE submission_id = s.id) "
+            "ORDER BY cr.started_at DESC").fetchall()
         return {"pending": [dict(p) for p in pend]}
     finally:
         conn.close()

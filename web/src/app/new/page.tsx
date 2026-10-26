@@ -6,7 +6,7 @@ import { api, type Submission } from "@/lib/api";
 
 const SAMPLE_POST =
   "Meet Quillmark Pulse — India's most trusted analytics platform. " +
-  "Plans start from Rs 1,299/month. Sign up at quillmark.co/pulse.";
+  "Plans start from ₹1,299/month. Sign up at quillmark.co/pulse.";
 
 export default function NewSubmissionPage() {
   const router = useRouter();
@@ -15,7 +15,7 @@ export default function NewSubmissionPage() {
   const [source, setSource] = useState("ai-assisted");
   const [content, setContent] = useState(
     "Meet Quillmark Insights 2.0 — India's #1 analytics platform, trusted by " +
-      "5,000+ teams and fully ISO 27001 certified. Plans start at just Rs 999/month!"
+      "5,000+ teams and fully ISO 27001 certified. Plans start at just ₹999/month!"
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,41 +36,42 @@ export default function NewSubmissionPage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl space-y-4">
+    <div className="mx-auto max-w-2xl space-y-5">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight">Submit content</h1>
-        <p className="text-sm text-muted-foreground">
+        <p className="eyebrow">New submission</p>
+        <h1 className="page-title mt-1.5">Submit content</h1>
+        <p className="page-lede">
           Checks run on save — no separate “run check” step to forget.
         </p>
       </div>
 
-      <div className="space-y-3 rounded-lg border border-border bg-card p-4">
+      <div className="surface space-y-4 p-6">
         <div className="grid gap-3 sm:grid-cols-3">
           <Field label="Title">
             <input
-              className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+              className="field h-[38px] px-3"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
             />
           </Field>
           <Field label="Channel">
             <select
-              className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm"
+              className="field h-[38px] px-2 capitalize"
               value={channel}
               onChange={(e) => setChannel(e.target.value)}
             >
-              {["social", "web", "blog", "email"].map((c) => (
+              {["social", "web", "blog", "email", "sales"].map((c) => (
                 <option key={c} value={c}>{c}</option>
               ))}
             </select>
           </Field>
           <Field label="Source">
             <select
-              className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm"
+              className="field h-[38px] px-2 capitalize"
               value={source}
               onChange={(e) => setSource(e.target.value)}
             >
-              {["member", "agency", "ai-assisted"].map((c) => (
+              {["in-house", "agency", "ai-assisted"].map((c) => (
                 <option key={c} value={c}>{c}</option>
               ))}
             </select>
@@ -80,7 +81,7 @@ export default function NewSubmissionPage() {
         <Field label="Content">
           <textarea
             rows={7}
-            className="w-full rounded-md border border-input bg-transparent p-3 text-sm"
+            className="field p-3 font-serif text-base leading-relaxed"
             value={content}
             onChange={(e) => setContent(e.target.value)}
           />
@@ -89,22 +90,22 @@ export default function NewSubmissionPage() {
         <div className="flex items-center justify-between">
           <button
             onClick={() => setContent(SAMPLE_POST)}
-            className="text-xs text-muted-foreground underline hover:text-foreground"
+            className="link text-xs"
           >
             Use a clean sample post instead
           </button>
           <button
             onClick={() => void submit()}
             disabled={busy || !content.trim() || !title.trim()}
-            className="rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background hover:opacity-90 disabled:opacity-40"
+            className="btn btn-primary"
           >
-            {busy ? "Checking…" : "Submit for check"}
+            {busy ? "Checking…" : <>Submit for check <span aria-hidden className="btn-arrow">→</span></>}
           </button>
         </div>
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && <p className="text-sm text-danger-fg" role="alert">{error}</p>}
       </div>
 
-      <p className="text-xs text-muted-foreground">
+      <p className="text-xs leading-relaxed text-muted-foreground">
         The prefilled text deliberately breaks a few Quillmark rules — an outdated product name,
         a contradicted count, an unsupported superlative and an old price — so you can see the
         finding → fix → review → approve loop in one pass.
@@ -116,7 +117,7 @@ export default function NewSubmissionPage() {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block space-y-1">
-      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      <span className="text-xs font-medium text-foreground-secondary">{label}</span>
       {children}
     </label>
   );

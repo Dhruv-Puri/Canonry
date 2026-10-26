@@ -15,7 +15,7 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "..", "db", "canonry.db")
+DB_PATH = os.environ.get("CANONRY_DB_PATH") or os.path.join(os.path.dirname(__file__), "..", "db", "canonry.db")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS workspaces (
@@ -43,13 +43,21 @@ CREATE TABLE IF NOT EXISTS facts (
   category TEXT NOT NULL, owner TEXT, source TEXT, valid_from TEXT,
   valid_to TEXT, confidential INTEGER NOT NULL DEFAULT 0,
   superseded INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL,
+  created_at TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1,
   PRIMARY KEY (id, workspace_id)
 );
 CREATE TABLE IF NOT EXISTS terms (
   id INTEGER PRIMARY KEY AUTOINCREMENT, workspace_id TEXT NOT NULL,
   preferred TEXT, banned_or_check TEXT, note TEXT,
-  severity TEXT NOT NULL DEFAULT 'medium'
+  severity TEXT NOT NULL DEFAULT 'medium',
+  version INTEGER NOT NULL DEFAULT 1, status TEXT NOT NULL DEFAULT 'active'
+);
+CREATE TABLE IF NOT EXISTS knowledge_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, workspace_id TEXT NOT NULL,
+  entity TEXT NOT NULL, entity_id TEXT NOT NULL, version INTEGER NOT NULL,
+  action TEXT NOT NULL, snapshot_json TEXT NOT NULL, reason TEXT, by_user TEXT,
+  at TEXT NOT NULL, knowledge_version INTEGER NOT NULL,
+  UNIQUE (workspace_id, entity, entity_id, version)
 );
 CREATE TABLE IF NOT EXISTS submissions (
   id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL,
@@ -94,7 +102,8 @@ CREATE TABLE IF NOT EXISTS audit_log (
 CREATE TABLE IF NOT EXISTS claim_memory (
   id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, claim_norm TEXT NOT NULL,
   numbers_json TEXT NOT NULL, verdict TEXT NOT NULL, fact_ids TEXT NOT NULL,
-  explanation TEXT, suggestion TEXT, operation TEXT, model TEXT, created_at TEXT NOT NULL
+  explanation TEXT, suggestion TEXT, operation TEXT, model TEXT, created_at TEXT NOT NULL,
+  knowledge_version INTEGER
 );
 CREATE TABLE IF NOT EXISTS ai_calls (
   id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT, task TEXT, provider TEXT,
@@ -140,10 +149,25 @@ def init_schema() -> None:
     conn = connect()
     try:
         conn.executescript(SCHEMA)
-        # migration for DBs created before the claim_memory.operation column
-        cols = [r[1] for r in conn.execute("PRAGMA table_info(claim_memory)").fetchall()]
-        if cols and "operation" not in cols:
-            conn.execute("ALTER TABLE claim_memory ADD COLUMN operation TEXT")
+        # migrations for databases created before these columns existed
+        for table, column, ddl in (
+            ("claim_memory", "operation", "operation TEXT"),
+            ("claim_memory", "knowledge_version", "knowledge_version INTEGER"),
+            ("facts", "version", "version INTEGER NOT NULL DEFAULT 1"),
+            ("terms", "version", "version INTEGER NOT NULL DEFAULT 1"),
+            ("terms", "status", "status TEXT NOT NULL DEFAULT 'active'"),
+        ):
+            cols = [r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
+            if cols and column not in cols:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+        # the knowledge-version counter starts no lower than anything already recorded
+        if not conn.execute("SELECT 1 FROM meta WHERE key='knowledge_version'").fetchone():
+            seen = conn.execute("SELECT COALESCE(MAX(knowledge_version), 0) FROM check_runs").fetchone()[0]
+            has_knowledge = conn.execute("SELECT COUNT(*) FROM rules").fetchone()[0] > 0
+            start = max(_legacy_knowledge_version(conn) if has_knowledge else 0, int(seen or 0))
+            conn.execute("INSERT INTO meta (key, value) VALUES ('knowledge_version', ?)", (str(start),))
+        import knowledge  # local import: knowledge.py imports this module
+        knowledge.backfill_history(conn)
         conn.commit()
     finally:
         conn.close()
@@ -170,33 +194,39 @@ def audit(conn: sqlite3.Connection, actor: str, action: str, detail: str) -> Non
     )
 
 
-def knowledge_version(conn: sqlite3.Connection) -> int:
+# ---- knowledge version: one monotonic counter, +1 per knowledge change ---------
+
+def _legacy_knowledge_version(conn: sqlite3.Connection) -> int:
+    """The pre-counter scheme (rowid sum + bump), used only to seed the counter
+    so a migrated database never reports a lower version than it already did."""
     row = conn.execute(
         "SELECT (SELECT COALESCE(MAX(rowid),0) FROM rules) "
         "+ (SELECT COALESCE(MAX(rowid),0) FROM facts) "
         "+ (SELECT COALESCE(MAX(rowid),0) FROM terms) AS v"
     ).fetchone()
-    return int(row["v"])
-
-
-def bump_knowledge(conn: sqlite3.Connection) -> None:
-    conn.execute(
-        "INSERT INTO meta (key, value) VALUES ('knowledge_version_bump', '1') "
-        "ON CONFLICT(key) DO UPDATE SET value = "
-        "CASE WHEN CAST(value AS INTEGER) = 0 THEN 1 ELSE CAST(value AS INTEGER) + 1 END",
-    )
+    bump = conn.execute("SELECT value FROM meta WHERE key='knowledge_version_bump'").fetchone()
+    try:
+        extra = int(bump["value"]) if bump else 0
+    except (TypeError, ValueError):
+        extra = 0
+    return int(row["v"]) + extra
 
 
 def get_knowledge_version(conn: sqlite3.Connection) -> int:
-    row = conn.execute(
-        "SELECT value FROM meta WHERE key='knowledge_version_bump'"
-    ).fetchone()
-    base = knowledge_version(conn)
-    try:
-        bump = int(row["value"]) if row else 0
-    except (TypeError, ValueError):
-        bump = 0
-    return base + bump
+    row = conn.execute("SELECT value FROM meta WHERE key='knowledge_version'").fetchone()
+    return int(row["value"]) if row else 0
+
+
+def next_knowledge_version(conn: sqlite3.Connection) -> int:
+    conn.execute(
+        "INSERT INTO meta (key, value) VALUES ('knowledge_version', '1') "
+        "ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT)"
+    )
+    return get_knowledge_version(conn)
+
+
+def bump_knowledge(conn: sqlite3.Connection) -> None:
+    next_knowledge_version(conn)
 
 
 # ---- users & sessions -------------------------------------------------------
