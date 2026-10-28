@@ -145,7 +145,7 @@ export type SubmissionDetail = {
   ai_allowance: AiAllowance;
 };
 
-export type AiReason = "no_provider" | "user_quota" | "workspace_quota" | "provider_unavailable" | "budget";
+export type AiReason = "no_provider" | "user_quota" | "workspace_quota" | "provider_unavailable" | "budget" | "time_budget";
 export type AiAllowance = {
   used: number; limit: number; workspace_used: number; workspace_limit: number; resets_at: string;
 };

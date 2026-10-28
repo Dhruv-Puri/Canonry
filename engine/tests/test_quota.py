@@ -126,6 +126,7 @@ r, d = check(maya)
 expect(d["check"]["ai_reason"] == "provider_unavailable", f"reason provider_unavailable ({d['check']['ai_reason']})")
 expect(d["ai_allowance"]["used"] == 0, "a failed provider attempt does not use a try")
 provider["mode"] = "ok"
+gateway.reset_limits()  # the cooldown after the 503 has expired
 
 # --- workspace cap (3): arjun used 2, maya's first makes 3 ---------------------------
 print("== workspace cap")

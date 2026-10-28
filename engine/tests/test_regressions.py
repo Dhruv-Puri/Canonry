@@ -143,7 +143,7 @@ import gateway as _gateway  # noqa: E402
 
 _saved = (_gateway.any_available, _claims.ai_implicit_claims, _gateway.gateway_call)
 _gateway.any_available = lambda: True
-_claims.ai_implicit_claims = lambda text, budget, conn: []
+_claims.ai_implicit_claims = lambda text, budget, conn, **_: []
 _gateway.gateway_call = lambda *a, **k: {"text": '{"tone_findings": []}', "model": "stub"}
 try:
     rr = submit(arjun, "Quillmark Pulse helps team members see their numbers.").json()

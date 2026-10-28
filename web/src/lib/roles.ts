@@ -18,6 +18,51 @@ export const ROLES: { id: Role; label: string; short: string; does: string; icon
 
 export const ROLE_LABEL: Record<string, string> = Object.fromEntries(ROLES.map((r) => [r.id, r.label]));
 
+/** Roles whose job is deciding on submissions, not authoring them. */
+export function canReview(role: string | null | undefined): boolean {
+  return role === "reviewer" || role === "admin";
+}
+
+/** Where a role starts and where its logo goes. */
+export function roleHome(role: string | null | undefined): string {
+  if (role === "admin") return "/admin";
+  if (role === "reviewer") return "/review";
+  if (role === "agency") return "/agency";
+  return "/";
+}
+
+/** Navigation is deliberately different per role: a reviewer should never land on a draft box. */
+export function navLinksFor(role: string | null | undefined): { href: string; label: string }[] {
+  if (role === "admin") {
+    return [
+      { href: "/admin", label: "Overview" },
+      { href: "/review", label: "Review queue" },
+      { href: "/kb", label: "Knowledge base" },
+      { href: "/insights", label: "Insights" },
+    ];
+  }
+  if (role === "reviewer") {
+    return [
+      { href: "/review", label: "Review queue" },
+      { href: "/kb", label: "Knowledge base" },
+      { href: "/insights", label: "Insights" },
+    ];
+  }
+  if (role === "agency") {
+    return [
+      { href: "/agency", label: "My work" },
+      { href: "/new", label: "Submit" },
+      { href: "/kb", label: "Knowledge base" },
+    ];
+  }
+  return [
+    { href: "/", label: "Home" },
+    { href: "/new", label: "Write" },
+    { href: "/kb", label: "Knowledge base" },
+    { href: "/insights", label: "Insights" },
+  ];
+}
+
 export function initials(name: string): string {
   // first letter of the first and last word, skipping punctuation: "Guest (Reviewer)" -> "GR"
   const parts = name.trim().split(/\s+/).map((w) => w.match(/[\p{L}\p{N}]/u)?.[0] ?? "").filter(Boolean);

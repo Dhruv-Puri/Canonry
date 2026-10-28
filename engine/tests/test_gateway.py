@@ -64,12 +64,38 @@ def _openai_reply(body):
                                      "choices": [{"message": {"content": json.dumps(out)}}]})
 
 
+def _gemini_reply(body):
+    system = (((body.get("systemInstruction") or {}).get("parts") or [{}])[0].get("text") or "")
+    if "claim extractor" in system:
+        out = {"claims": [{"claim": "Customers love our reliable dashboards"}]}
+    elif "verify promotional claims" in system:
+        out = {"claims": [{"claim": "Customers love our reliable dashboards", "verdict": "unsupported",
+                           "fact_ids": ["F-999"], "explanation": "No approved fact backs this.", "fix": ""}]}
+    else:
+        out = {"tone_findings": [{"span": "You will regret waiting another day",
+                                  "explanation": "Pushy; VOICE-3.2 asks for confident, never pushy.",
+                                  "fix": "Start when you are ready"}]}
+    return httpx.Response(200, json={"candidates": [{
+        "content": {"parts": [{"text": json.dumps(out)}]}, "finishReason": "STOP"}]})
+
+
 def handler(request: httpx.Request) -> httpx.Response:
     body = json.loads(request.content or b"{}")
     requests.append((request.url.host, request.content.decode("utf-8", "replace")))
     if request.url.host == "generativelanguage.googleapis.com":
         if gemini_mode["reply"] == "429":
             return httpx.Response(429, json={"error": {"message": "quota"}})
+        if gemini_mode["reply"] == "fallback":
+            if "gemini-3.5-flash-lite" in request.url.path:
+                return _gemini_reply(body)
+            return httpx.Response(503, json={"error": {"message": "high demand"}})
+        if gemini_mode["reply"] == "deep_fallback":
+            if "gemini-3-flash-preview" in request.url.path:
+                return _gemini_reply(body)
+            if any(m in request.url.path for m in (
+                    "gemini-3.1-flash-lite", "gemini-3.5-flash-lite", "gemini-flash-lite-latest")):
+                return httpx.Response(429, json={"error": {"message": "daily quota"}})
+            return httpx.Response(503, json={"error": {"message": "high demand"}})
         return httpx.Response(200, json={})  # 200 with no candidates
     return _openai_reply(body)
 
@@ -81,7 +107,8 @@ arjun.post("/login", json={"email": "arjun@quillmark"})
 def ledger():
     conn = connect()
     try:
-        return [dict(r) for r in conn.execute("SELECT provider, task, ok, prompt_version FROM ai_calls ORDER BY id")]
+        return [dict(r) for r in conn.execute(
+            "SELECT provider, task, ok, prompt_version, model FROM ai_calls ORDER BY id")]
     finally:
         conn.close()
 
@@ -102,6 +129,7 @@ expect(requests == [] and ledger() == [], "nothing was sent and nothing logged")
 
 # --- 2. Gemini rate-limited -> Groq answers; the ledger tells the truth ----------
 print("== fallback")
+gateway.reset_limits()
 gateway.configure(env={"GEMINI_API_KEY": "test", "GROQ_API_KEY": "test"}, transport=httpx.MockTransport(handler))
 r, d = check("fallback")
 expect(r["ai_pending"] is False and d["check"]["status"] == "done", f"AI checks ran ({d['check']['status']})")
@@ -129,8 +157,51 @@ secret = [r["text"] for r in conn.execute("SELECT text FROM facts WHERE confiden
 conn.close()
 expect(secret and not any(t in sent for t in secret), "no confidential fact text was sent to any provider")
 
+# --- a busy Gemini model falls through to another Gemini model -------------------
+print("== gemini model fallback")
+gateway.reset_limits()
+gemini_mode["reply"] = "fallback"
+requests.clear()
+gateway.configure(env={"GEMINI_API_KEY": "test", "GROQ_API_KEY": "test"}, transport=httpx.MockTransport(handler))
+before = len(ledger())
+r, d = check("gemini 3.5 fallback")
+new = ledger()[before:]
+ok = [x for x in new if x["ok"] == 1]
+expect(r["ai_pending"] is False and d["check"]["status"] == "done",
+       f"the 3.5 fallback completed the check ({d['check']['status']})")
+expect(len(ok) == 3 and all(x["provider"] == "gemini" for x in ok),
+       f"three Gemini fallback calls succeeded ({[(x['provider'], x['task']) for x in ok]})")
+expect(all(x["model"] == "gemini-3.5-flash-lite" for x in ok),
+       f"the fallback model is logged ({[x['model'] for x in ok]})")
+claim = next((f for f in d["findings"] if f["checker"] == "claims" and
+              f["span_text"] == "Customers love our reliable dashboards"), None)
+expect(claim is not None and claim["provenance"]["model"] == "gemini-3.5-flash-lite",
+       "the finding names the fallback model")
+
+# --- several models exhausted or busy: keep trying the remaining free quotas ---
+print("== gemini deeper fallback")
+gateway.reset_limits()
+gemini_mode["reply"] = "deep_fallback"
+requests.clear()
+before = len(ledger())
+r, d = check("gemini deeper fallback")
+new = ledger()[before:]
+ok = [x for x in new if x["ok"] == 1]
+expect(r["ai_pending"] is False and d["check"]["status"] == "done",
+       f"the check completed after three models were unavailable ({d['check']['status']})")
+expect(len(ok) == 3 and all(x["model"] == "gemini-3-flash-preview" for x in ok),
+       f"the next free model answered every call ({[x['model'] for x in ok]})")
+expect({"gemini-3.1-flash-lite", "gemini-3.5-flash-lite", "gemini-flash-lite-latest"}
+       <= {x["model"] for x in new if x["ok"] == 0},
+       "the exhausted models are logged and skipped")
+expect(gateway.Gemini().models() == [
+    "gemini-3.1-flash-lite", "gemini-3.5-flash-lite", "gemini-flash-lite-latest",
+    "gemini-3-flash-preview", "gemini-3.8-flash", "gemini-3.6-flash",
+], f"the full free-tier chain is configured ({gateway.Gemini().models()})")
+
 # --- 3. a 200 with no answer is a failure, not a success -------------------------
 print("== empty answer")
+gateway.reset_limits()
 gemini_mode["reply"] = "empty"
 before = len(ledger())
 r, d = check("empty gemini")

@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import time
 from typing import Any, Dict, List, Optional
 
 import checkers
@@ -137,8 +138,11 @@ def run_check(conn: sqlite3.Connection, revision_id: str, actor: Optional[str] =
         })
 
     # --- AI: implicit claims + tone (one batched call each, strict JSON) ----
+    ai_deadline = gateway.ai_deadline()
+
     def budget_left() -> bool:
-        return gateway.call_budget_ok(words, gateway.successful_calls(conn) - ai_calls_before)
+        return time.monotonic() < ai_deadline and gateway.call_budget_ok(
+            words, gateway.successful_calls(conn) - ai_calls_before)
 
     # why the AI checks did not (fully) run; None = they ran. Checked in order: a
     # provider exists, then the daily allowance (quota.py), then each call's answer
@@ -150,14 +154,20 @@ def run_check(conn: sqlite3.Connection, revision_id: str, actor: Optional[str] =
     def missed() -> None:  # an AI call gave no usable answer
         nonlocal ai_reason
         if ai_reason is None:
-            ai_reason = "provider_unavailable" if budget_left() else "budget"
+            if time.monotonic() >= ai_deadline:
+                ai_reason = "time_budget"
+            elif not budget_left():
+                ai_reason = "budget"
+            else:
+                ai_reason = "provider_unavailable"
 
-    implicit = claims.ai_implicit_claims(text, budget_left(), conn) if use_ai else None
+    implicit = claims.ai_implicit_claims(text, budget_left(), conn, deadline=ai_deadline) if use_ai else None
     if use_ai and implicit is None:
         missed()
     if implicit:
         verified = claims.ai_verify_claims(
-            text, [{"snippet": i["claim"]} for i in implicit], facts, budget_left(), conn)
+            text, [{"snippet": i["claim"]} for i in implicit], facts, budget_left(), conn,
+            deadline=ai_deadline)
         for v in verified:
             if v["verdict"] == "supported":
                 continue
@@ -194,6 +204,7 @@ def run_check(conn: sqlite3.Connection, revision_id: str, actor: Optional[str] =
                       (ws,)).fetchall())
               + "\n\nCONTENT:\n" + text}],
             conn=conn, budget_ok=budget_left(), prompt_version=TONE_PROMPT_VERSION,
+            deadline=ai_deadline,
         )
         if not tone_out:
             missed()

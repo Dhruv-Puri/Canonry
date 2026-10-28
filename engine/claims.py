@@ -336,12 +336,13 @@ VERIFY_SYSTEM = (
 )
 
 
-def ai_implicit_claims(text: str, budget_ok: bool, conn: sqlite3.Connection) -> Optional[List[Dict[str, str]]]:
+def ai_implicit_claims(text: str, budget_ok: bool, conn: sqlite3.Connection,
+                       deadline: Optional[float] = None) -> Optional[List[Dict[str, str]]]:
     out = gateway.gateway_call(
         "extract_implicit_claims",
         [{"role": "system", "content": CLAIM_EXTRACT_SYSTEM},
          {"role": "user", "content": text[:4000]}],
-        conn=conn, budget_ok=budget_ok,
+        conn=conn, budget_ok=budget_ok, deadline=deadline,
     )
     if out is None:
         return None
@@ -357,7 +358,8 @@ def ai_implicit_claims(text: str, budget_ok: bool, conn: sqlite3.Connection) -> 
 
 
 def ai_verify_claims(text: str, pending: List[Dict[str, Any]], facts: List[sqlite3.Row],
-                     budget_ok: bool, conn: sqlite3.Connection) -> List[Dict[str, Any]]:
+                     budget_ok: bool, conn: sqlite3.Connection,
+                     deadline: Optional[float] = None) -> List[Dict[str, Any]]:
     facts_blob = "\n".join(
         f'{f["id"]}: {f["text"]} (valid {f["valid_from"] or "?"} to {f["valid_to"] or "?"})'
         for f in facts[:40]
@@ -367,7 +369,7 @@ def ai_verify_claims(text: str, pending: List[Dict[str, Any]], facts: List[sqlit
         [{"role": "system", "content": VERIFY_SYSTEM},
          {"role": "user", "content": "APPROVED FACTS:\n" + facts_blob + "\n\nCLAIMS:\n" +
           "\n".join("- " + c["snippet"] for c in pending)}],
-        conn=conn, budget_ok=budget_ok,
+        conn=conn, budget_ok=budget_ok, deadline=deadline,
     )
     if out is None:
         return []

@@ -16,12 +16,14 @@ import {
 } from "@/lib/api";
 import { diffSummary, diffWords, type DiffToken } from "@/lib/diff";
 import { CategoryBadge, LevelBadge, RiskBadge, StatusBadge } from "@/components/fx";
+import { AiLoadingScreen } from "@/components/ai-loading";
 import { ROLE_LABEL } from "@/lib/roles";
 
 export function SubmissionDetailClient({ sid }: { sid: string }) {
   const [d, setD] = useState<SubmissionDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [checking, setChecking] = useState(false);
   const [revIdx, setRevIdx] = useState(-1); // -1 => latest
   const [diffMode, setDiffMode] = useState(false);
   const [pocId, setPocId] = useState<string | null>(null);
@@ -64,6 +66,15 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
     }
   }
 
+  async function recheck() {
+    setChecking(true);
+    try {
+      await act(() => api(`/submissions/${sid}/recheck`, { method: "POST" }));
+    } finally {
+      setChecking(false);
+    }
+  }
+
   async function review(action: "approve" | "request_changes" | "override", reason: string, findingId?: string) {
     setBusy(true);
     setError(null);
@@ -89,14 +100,19 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
   const s = d.submission;
   const canReview = ["reviewer", "admin"].includes(d.me.role);
   const canResolve = ["creator", "admin", "agency"].includes(d.me.role);
+  const backHref = canReview ? "/review" : d.me.role === "agency" ? "/agency" : "/";
+  const backLabel = canReview ? "Review queue" : d.me.role === "agency" ? "My work" : "All submissions";
   const inReview = s.status === "In review";
   // the engine says what this status allows; content changes only while with the creator
   const editable = d.allowed.edit;
 
   return (
     <div className="space-y-5">
-      <Link href="/" className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground">
-        ← All submissions
+      <Link
+        href={backHref}
+        className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+      >
+        ← {backLabel}
       </Link>
       <div className="flex flex-wrap items-center gap-2">
         <h1 className="page-title mr-1">{s.title}</h1>
@@ -159,7 +175,7 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
       {(canResolve || canReview) && showActionsForRev && editable && (
         <ActionsBar
           busy={busy}
-          onRecheck={() => act(() => api(`/submissions/${sid}/recheck`, { method: "POST" }))}
+          onRecheck={() => void recheck()}
           onSubmitReview={
             canResolve || canReview
               ? () =>
@@ -301,6 +317,8 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
           ))}
         </TrailCard>
       </section>
+
+      <AiLoadingScreen open={checking} title="Re-checking this revision" />
     </div>
   );
 }
@@ -427,6 +445,13 @@ function AiSkipped({ reason, allowance }: { reason: AiReason | null; allowance: 
         <>
           <b className="font-semibold">The AI provider didn&apos;t answer.</b> It may be busy or rate-limited. {ran} Press
           Re-check in a few minutes; this did not use one of your AI checks.
+        </>
+      );
+    case "time_budget":
+      return (
+        <>
+          <b className="font-semibold">The AI checks ran out of time before they finished.</b> Rule-based checks still
+          ran on this revision. Press Re-check to try the AI part again.
         </>
       );
     case "budget":
