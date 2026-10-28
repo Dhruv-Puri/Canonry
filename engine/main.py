@@ -882,7 +882,7 @@ def submit(req: Request, body: SubmitIn):
 
 
 def run_check_for_submission(conn: sqlite3.Connection, sid: str, content: str,
-                             actor: Optional[str] = None) -> Dict[str, Any]:
+                             actor: Optional[str] = None, reuse_ai_from: Optional[str] = None) -> Dict[str, Any]:
     rev_no = conn.execute("SELECT COALESCE(MAX(revision_no),0)+1 AS n FROM revisions WHERE submission_id=?", (sid,)).fetchone()["n"]
     rid = gen_id("rev")
     conn.execute(
@@ -890,7 +890,7 @@ def run_check_for_submission(conn: sqlite3.Connection, sid: str, content: str,
         (rid, sid, content, rev_no, _now()),
     )
     conn.execute("UPDATE submissions SET status = CASE WHEN status='Draft' THEN 'Checked' ELSE status END WHERE id=?", (sid,))
-    result = pipeline.run_check(conn, rid, actor)
+    result = pipeline.run_check(conn, rid, actor, reuse_ai_from)
     result["revision_id"] = rid
     return result
 
@@ -1026,7 +1026,8 @@ def resolve_finding(req: Request, sid: str, body: ResolveIn):
             (gen_id("dec"), body.revision_id, body.finding_id, body.action, body.replacement, body.reason, user["email"], _now()),
         )
         conn.execute("UPDATE findings SET status=? WHERE id=?", (RESOLVE_ACTIONS[body.action], body.finding_id))
-        result = run_check_for_submission(conn, sid, content, user["email"])
+        # rules re-run now; the AI's findings carry over (Re-check runs the AI again)
+        result = run_check_for_submission(conn, sid, content, user["email"], reuse_ai_from=body.revision_id)
         audit(conn, user["email"], f"finding_{body.action}", f"{body.finding_id} reason={body.reason or ''}")
         conn.commit()
         return {"ok": True, "revision_id": result["revision_id"], "ai_pending": result["ai_pending"],

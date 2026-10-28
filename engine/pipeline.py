@@ -49,8 +49,52 @@ def _pin_citation_versions(conn: sqlite3.Connection, ws: str, citations: List[Di
                 c["version"] = v
 
 
-def run_check(conn: sqlite3.Connection, revision_id: str, actor: Optional[str] = None) -> Dict[str, Any]:
-    """Check one revision. `actor` (an email) is charged one AI try if a provider answers."""
+def _is_ai_finding(provenance: Dict[str, Any]) -> bool:
+    model = provenance.get("model") or ""
+    return bool(model) and not model.startswith(("rule-patterns", "claim-memory:"))
+
+
+def _carried_ai_findings(conn: sqlite3.Connection, prev_revision_id: str, revision_id: str,
+                         text: str) -> List[Dict[str, Any]]:
+    """The previous revision's AI findings whose flagged text is still in `text`,
+    re-anchored on the new revision. Resolving one finding changes one phrase;
+    the AI's judgement of the rest of the copy still stands."""
+    out: List[Dict[str, Any]] = []
+    for r in conn.execute("SELECT * FROM findings WHERE revision_id = ? AND status IN ('open', 'disputed')",
+                          (prev_revision_id,)).fetchall():
+        prov = json.loads(r["provenance_json"] or "{}")
+        span = r["span_text"] or ""
+        if not _is_ai_finding(prov) or not span or span not in text:
+            continue
+        starts, i = [], text.find(span)
+        while i >= 0:
+            starts.append(i)
+            i = text.find(span, i + 1)
+        start = min(starts, key=lambda s: abs(s - (r["span_start"] or 0)))
+        out.append({
+            "id": gen_id("fnd"), "revision_id": revision_id, "checker": r["checker"], "category": r["category"],
+            "span": {"start": start, "end": start + len(span), "text": span},
+            "tier": r["tier"], "severity": r["severity"], "citations": json.loads(r["citations_json"] or "[]"),
+            "explanation": r["explanation"], "suggestion": json.loads(r["suggestion_json"] or "null"),
+            "title": r["title"], "provenance": prov,
+        })
+    return out
+
+
+def _ai_reason_of(conn: sqlite3.Connection, revision_id: str) -> Optional[str]:
+    """Why the AI checks of `revision_id` didn't run (None = they did)."""
+    row = conn.execute("SELECT status, ai_reason FROM check_runs WHERE revision_id = ? "
+                       "ORDER BY started_at DESC LIMIT 1", (revision_id,)).fetchone()
+    if row is None or row["status"] not in ("done", "ai_pending"):
+        return "provider_unavailable"  # never finished: no AI result to keep
+    return row["ai_reason"]
+
+
+def run_check(conn: sqlite3.Connection, revision_id: str, actor: Optional[str] = None,
+              reuse_ai_from: Optional[str] = None) -> Dict[str, Any]:
+    """Check one revision. `actor` (an email) is charged one AI try if a provider answers.
+    `reuse_ai_from` (a previous revision id) skips the AI calls and carries that
+    revision's AI findings forward: resolving a finding re-checks instantly."""
     rev = conn.execute("SELECT * FROM revisions WHERE id = ?", (revision_id,)).fetchone()
     sub = conn.execute("SELECT * FROM submissions WHERE id = ?", (rev["submission_id"],)).fetchone()
     ws = sub["workspace_id"]
@@ -146,10 +190,16 @@ def run_check(conn: sqlite3.Connection, revision_id: str, actor: Optional[str] =
 
     # why the AI checks did not (fully) run; None = they ran. Checked in order: a
     # provider exists, then the daily allowance (quota.py), then each call's answer
-    ai_reason: Optional[str] = None if gateway.any_available() else "no_provider"
-    if ai_reason is None:
-        ai_reason = quota.blocked(conn, ws, actor)
-    use_ai = ai_reason is None
+    ai_reason: Optional[str]
+    if reuse_ai_from:
+        # resolving one finding: keep the AI's still-valid findings, skip the calls
+        findings += _carried_ai_findings(conn, reuse_ai_from, revision_id, text)
+        ai_reason = _ai_reason_of(conn, reuse_ai_from)
+    else:
+        ai_reason = None if gateway.any_available() else "no_provider"
+        if ai_reason is None:
+            ai_reason = quota.blocked(conn, ws, actor)
+    use_ai = ai_reason is None and not reuse_ai_from
 
     def missed() -> None:  # an AI call gave no usable answer
         nonlocal ai_reason

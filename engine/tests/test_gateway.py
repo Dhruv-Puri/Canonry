@@ -218,6 +218,43 @@ r, d = check("ollama")
 expect(r["ai_pending"] is False and {h for h, _ in requests} == {"ollama.test"}, "checks ran on the local model")
 
 # --- which .env file is read: CANONRY_ENV_FILE ("" = none; the suites run that way) ---
+import time  # noqa: E402
+
+print("== resolving a finding re-checks without the AI")
+gateway.reset_limits()
+gateway.configure(env={"GROQ_API_KEY": "test"}, transport=httpx.MockTransport(handler))
+arjun = TestClient(engine.app, raise_server_exceptions=False)
+arjun.post("/login", json={"email": "maya@quillmark"})  # a fresh daily AI allowance
+requests.clear()
+r, d = check("resolve")
+sid = r["submission_id"]
+expect(r["ai_pending"] is False and requests, f"setup: the submit ran the AI checks ({r.get('ai_reason')})")
+tone = next(f for f in d["findings"] if f["checker"] == "tone")
+claim = next(f for f in d["findings"] if f["checker"] == "claims" and f["provenance"]["model"])
+requests.clear()
+started = time.monotonic()
+res = arjun.post(f"/submissions/{sid}/resolve", json={
+    "revision_id": d["latest_revision"]["id"], "finding_id": tone["id"], "action": "accept"})
+took = time.monotonic() - started
+after = arjun.get(f"/submissions/{sid}").json()
+expect(res.status_code == 200 and requests == [], f"accepting a fix sends no AI request ({len(requests)})")
+expect(took < 3.0, f"and answers at once ({took:.1f}s)")
+expect("Start when you are ready" in after["latest_revision"]["content"], "the suggested fix is in the new revision")
+kept = [f for f in after["findings"] if f["checker"] == "claims" and f["span_text"] == claim["span_text"]]
+expect(len(kept) == 1 and kept[0]["provenance"]["model"] == claim["provenance"]["model"],
+       "the AI claim finding carries over to the new revision")
+expect(not any(f["checker"] == "tone" and f["status"] == "open" for f in after["findings"]),
+       "the fixed tone finding does not come back")
+expect(after["check"]["ai_reason"] is None and after["check"]["ai_calls"] == 0,
+       "the carried run reads as AI-checked, with no new calls")
+disp = arjun.post(f"/submissions/{sid}/resolve", json={
+    "revision_id": after["latest_revision"]["id"], "finding_id": kept[0]["id"], "action": "dispute",
+    "reason": "AI misread"})
+final = arjun.get(f"/submissions/{sid}").json()
+expect(disp.status_code == 200 and requests == [], "a dispute sends no AI request either")
+expect(any(f["span_text"] == claim["span_text"] and f["status"] == "disputed" for f in final["findings"]),
+       "the disputed AI finding stays decided")
+
 print("== env file")
 import tempfile  # noqa: E402
 env_file = os.path.join(tempfile.mkdtemp(), "keys.env")
