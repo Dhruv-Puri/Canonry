@@ -38,6 +38,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="flex min-h-full flex-col overflow-x-clip">
         <div aria-hidden className="scroll-progress" />
         <Spotlight />
+        {/* the gate reads the URL (public routes skip sign-in), so it streams in */}
+        <Suspense fallback={<div className="min-h-dvh" aria-busy="true" />}>
         <IdentityGate>
         <Suspense fallback={<div className="h-[68px]" />}>
           <SiteNav />
@@ -52,6 +54,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           </div>
         </footer>
         </IdentityGate>
+        </Suspense>
       </body>
     </html>
   );

@@ -1,12 +1,12 @@
 """Knowledge base editing: version history, write API, pinned citations,
 version-stamped claim memory and fact-change impact (fresh test DB).
 
-Run:  .venv/Scripts/python engine/test_knowledge.py
+Run:  .venv/Scripts/python engine/tests/test_knowledge.py
 """
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # the engine package
 
 import db as _db
 
@@ -78,6 +78,10 @@ import re  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 import main  # noqa: E402
+
+# Test clients use localhost HTTP with password-free demo login.
+main.COOKIE_SECURE = False
+main.DEMO_MODE = True
 
 
 def client(email):

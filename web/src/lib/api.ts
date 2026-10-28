@@ -44,6 +44,16 @@ export type HistoryEntry = {
 
 export type ImpactItem = { submission_id: string; title: string; status: string; because: string };
 
+export type RulePreview = {
+  rule: string;
+  new_examples_would_be_tests: boolean;
+  impacted_approved_content: ImpactItem[];
+  impacted_count: number;
+  new_breakages: ImpactItem[];
+  resolved: ImpactItem[];
+  impacted: { before: number; after: number; new_breakages: number; resolved: number };
+};
+
 export type KBWriteResult = { entity: KBEntity; knowledge_version: number; impact?: ImpactItem[] };
 
 export function isRetired(kind: KBKind, e: KBEntity): boolean {
@@ -109,6 +119,10 @@ export type Approval = {
 };
 
 export type User = { id: string; email: string; name: string; role: string };
+export type AuthMode = { demo_mode: boolean; registration: "demo" | "invitation-only" };
+export type InvitationInfo = { email: string; role: string; expires_at: string };
+export type ImportedRule = { category: string; statement: string; do_example?: string | null; dont_example?: string | null; severity: string; status: "draft" };
+export type RuleImportPreview = { proposals: ImportedRule[]; ignored: number; source: string; message: string };
 
 export type SubmissionDetail = {
   submission: Submission;
@@ -121,6 +135,8 @@ export type SubmissionDetail = {
   /** Latest check run on the latest revision; status "ai_pending" means only rule-based checks ran. */
   check: { status: string; started_at: string; finished_at: string | null; ai_calls: number; discarded: number } | null;
   me: User;
+  /** which lifecycle actions the current status allows (engine workflow rules) */
+  allowed: { edit: boolean; submit: boolean; approve: boolean; request_changes: boolean; override: boolean };
 };
 
 export const BASE = "/engine";

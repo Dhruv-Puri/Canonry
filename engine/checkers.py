@@ -10,24 +10,40 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-sqlite3 = None  # type: ignore
+import policy
+from contract import CONTRACT_VERSION
+
 
 
 class Ctx:
     """Everything a checker needs about the workspace & revision."""
 
-    def __init__(self, conn, revision_id: str, channel: str, source_type: str, kv: int):
+    def __init__(self, conn, revision_id: str, channel: str, source_type: str, kv: int,
+                 ws: Optional[str] = None):
         self.conn = conn
         self.revision_id = revision_id
         self.channel = channel
         self.source_type = source_type
         self.kv = kv
+        self.ws = ws or self._workspace()
+        self._rules: Dict[str, Optional[str]] = {}
+
+    def _workspace(self) -> Optional[str]:
+        row = self.conn.execute(
+            "SELECT s.workspace_id FROM revisions r JOIN submissions s ON s.id = r.submission_id WHERE r.id = ?",
+            (self.revision_id,)).fetchone() or self.conn.execute("SELECT id FROM workspaces LIMIT 1").fetchone()
+        return row[0] if row else None
+
+    def rule(self, check_key: str) -> Optional[str]:
+        """The rule this built-in check cites in this workspace; None = check is off."""
+        if check_key not in self._rules:
+            self._rules[check_key] = policy.rule_for(self.conn, self.ws, check_key)
+        return self._rules[check_key]
 
 
 def _f(ctx: Ctx, checker: str, category: str, span: Tuple[int, int, str], tier: str,
        severity: str, citations: List[Dict[str, Any]], explanation: str,
        suggestion: Optional[str] = None, title: Optional[str] = None) -> Dict[str, Any]:
-    from contract import CONTRACT_VERSION
     return {
         "id": f"fnd_{ctx.revision_id[-6:]}_{len(span[2])%997:03d}_{span[0]}",
         "revision_id": ctx.revision_id,
@@ -58,10 +74,9 @@ def _ci_find(text: str, needle: str) -> Optional[Tuple[int, int]]:
 def check_terminology(ctx: Ctx, text: str) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     rows = ctx.conn.execute(
-        "SELECT id, preferred, banned_or_check, note, severity FROM terms WHERE status = 'active' AND workspace_id = "
-        "(SELECT s.workspace_id FROM revisions r JOIN submissions s ON s.id = r.submission_id WHERE r.id = ?) "
+        "SELECT id, preferred, banned_or_check, note, severity FROM terms WHERE status = 'active' AND workspace_id = ? "
         "ORDER BY severity DESC",
-        (ctx.revision_id,),
+        (ctx.ws,),
     ).fetchall()
     for t in rows:
         banned = t["banned_or_check"] or ""
@@ -93,8 +108,6 @@ def check_terminology(ctx: Ctx, text: str) -> List[Dict[str, Any]]:
 
 
 # ---- readability / format / social ----------------------------------------
-
-_SENT = re.compile(r"[^.!?]+[.!?]+")
 
 
 # ---- confidential information ----------------------------------------------
@@ -134,9 +147,8 @@ def check_confidential(ctx: Ctx, text: str) -> List[Dict[str, Any]]:
     never its text."""
     out: List[Dict[str, Any]] = []
     facts = ctx.conn.execute(
-        "SELECT id, text, owner FROM facts WHERE confidential = 1 AND superseded = 0 AND workspace_id = "
-        "(SELECT s.workspace_id FROM revisions r JOIN submissions s ON s.id = r.submission_id WHERE r.id = ?)",
-        (ctx.revision_id,),
+        "SELECT id, text, owner FROM facts WHERE confidential = 1 AND superseded = 0 AND workspace_id = ?",
+        (ctx.ws,),
     ).fetchall()
     flagged = set()
     for start, end, sentence in _sentences(text):
@@ -169,38 +181,43 @@ def check_confidential(ctx: Ctx, text: str) -> List[Dict[str, Any]]:
 
 def check_readability(ctx: Ctx, text: str) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
-    sentences = [s for s in (m.group(0) for m in _SENT.finditer(text)) if len(s.split()) > 5]
-    long_ones = [s for s in sentences if len(s.split()) > 22]
-    if long_ones:
-        s = long_ones[0].strip()
-        pos = text.find(s)
+    # the same sentence splitter the confidential checker uses: a full stop ends
+    # a sentence only before whitespace, so "4.2 crore" stays one sentence
+    sentences = [(s, e, body) for s, e, body in _sentences(text) if len(body.split()) > 5]
+    long_ones = [x for x in sentences if len(x[2].split()) > 22]
+    rule = ctx.rule("voice.sentence_length")
+    if long_ones and rule:
+        pos, end, s = long_ones[0]
         out.append(_f(
-            ctx, "readability", "readability", (pos, pos + len(s), s), "definite", "low",
-            [{"type": "rule", "id": "VOICE-3.1"}],
-            f"Sentence is {len(s.split())} words; voice rule VOICE-3.1 asks for an average under 20 words per sentence.",
+            ctx, "readability", "readability", (pos, end, s), "definite", "low",
+            [{"type": "rule", "id": rule}],
+            f"Sentence is {len(s.split())} words; voice rule {rule} asks for an average under 20 words per sentence.",
         ))
     words = len(text.split())
-    if ctx.channel == "social" and words > 200:
-        first = next((m.group(0).strip() for m in _SENT.finditer(text)), text[:80].strip())
-        pos = text.find(first)
+    rule = ctx.rule("social.length")
+    if ctx.channel == "social" and words > 200 and rule:
+        first_span = next(iter(_sentences(text)), None)
+        first = first_span[2] if first_span else text[:80].strip()
+        pos = first_span[0] if first_span else text.find(first)
         out.append(_f(
             ctx, "readability", "readability", (pos, pos + len(first), first),
-            "definite", "low", [{"type": "rule", "id": "SOC-01"}],
-            f"Social posts are limited to 200 words; this draft is {words} (rule SOC-01).",
+            "definite", "low", [{"type": "rule", "id": rule}],
+            f"Social posts are limited to 200 words; this draft is {words} (rule {rule}).",
         ))
     # a social post that talks pricing is a sales post: it should end with a CTA
     is_sales = re.search(r"₹|/\s*(?:month|mo|year)\b|\bplans?\b|\bpricing\b", text, re.IGNORECASE)
     has_cta = re.search(r"https?://|\b(?:sign up|try|book|start (?:a|your)|learn more|register|contact|get started)\b",
                         text, re.IGNORECASE)
-    if ctx.channel == "social" and is_sales and not has_cta:
-        last = [m for m in _SENT.finditer(text)]
-        s, e = (last[-1].start(), last[-1].end()) if last else (0, len(text))
+    rule = ctx.rule("messaging.cta")
+    if ctx.channel == "social" and is_sales and not has_cta and rule:
+        last = list(_sentences(text))
+        s, e = (last[-1][0], last[-1][1]) if last else (0, len(text))
         while s < e and text[s].isspace():
             s += 1
         out.append(_f(
             ctx, "readability", "missing_cta", (s, e, text[s:e]),
-            "consider", "low", [{"type": "rule", "id": "MSG-03"}],
-            "Sales posts end with a clear call to action (rule MSG-03); no link or CTA found. Add one in your own words.",
+            "consider", "low", [{"type": "rule", "id": rule}],
+            f"Sales posts end with a clear call to action (rule {rule}); no link or CTA found. Add one in your own words.",
             title="No call to action",
         ))
     return out
@@ -217,14 +234,16 @@ EXCL = re.compile(r"!")
 
 def check_tone_rules(ctx: Ctx, text: str) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
-    if len(EXCL.findall(text)) > 1:
+    rule = ctx.rule("voice.exclamation")
+    if len(EXCL.findall(text)) > 1 and rule:
         out.append(_f(
             ctx, "tone", "tone", (0, 0, ""), "consider", "medium",
-            [{"type": "rule", "id": "VOICE-3.4"}],
-            "More than one exclamation mark in the post (voice rule VOICE-3.4 allows at most one).",
+            [{"type": "rule", "id": rule}],
+            f"More than one exclamation mark in the post (voice rule {rule} allows at most one).",
             title="Tone: too many exclamation marks",
         ))
-    for pat in HARDSELL:
+    rule = ctx.rule("voice.hard_sell")
+    for pat in HARDSELL if rule else ():
         m = re.search(pat, text, re.IGNORECASE)
         if m:
             phrase = text[m.start():m.end()]
@@ -232,8 +251,8 @@ def check_tone_rules(ctx: Ctx, text: str) -> List[Dict[str, Any]]:
             fix = re.sub(r"^just\s+", "", phrase, flags=re.IGNORECASE) if phrase.lower().startswith("just") else None
             out.append(_f(
                 ctx, "tone", "tone", (m.start(), m.end(), phrase), "consider", "medium",
-                [{"type": "rule", "id": "VOICE-3.2"}],
-                f'"{phrase}" reads as a hard sell; voice rule VOICE-3.2 is "confident, never pushy".',
+                [{"type": "rule", "id": rule}],
+                f'"{phrase}" reads as a hard sell (voice rule {rule}: confident, never pushy).',
                 fix, title="Tone: hard-sell phrasing",
             ))
             break

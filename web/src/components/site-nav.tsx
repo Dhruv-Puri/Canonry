@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { Check, ChevronDown, LogOut, Menu, PencilLine, X } from "lucide-react";
+import { Check, ChevronDown, Copy, LogOut, Menu, PencilLine, X } from "lucide-react";
 import { BrandMark } from "@/components/brand";
 import { useIdentity } from "@/components/identity";
+import { api } from "@/lib/api";
 import { initials, ROLE_LABEL, ROLES } from "@/lib/roles";
 
 const LINKS = [
@@ -81,8 +82,11 @@ export function SiteNav() {
 
 /** The person's chip: switch role, change name, or hand the device to someone else. */
 function ProfileMenu({ inline = false }: { inline?: boolean }) {
-  const { me, update, leave } = useIdentity();
+  const { me, demoMode, update, leave } = useIdentity();
   const [open, setOpen] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState("creator");
+  const [inviteLink, setInviteLink] = useState("");
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -135,7 +139,8 @@ function ProfileMenu({ inline = false }: { inline?: boolean }) {
           role="menu"
           className={`animate-fade-up z-50 w-72 rounded-2xl border border-border bg-card p-2 shadow-float ${inline ? "mt-2" : "absolute right-0 top-12"}`}
         >
-          <p className="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Switch role</p>
+          {demoMode && <>
+          <p className="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Switch demo role</p>
           {ROLES.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
@@ -149,6 +154,22 @@ function ProfileMenu({ inline = false }: { inline?: boolean }) {
               {me.role === id && <Check className="size-4 text-brand" strokeWidth={3} aria-hidden />}
             </button>
           ))}
+          </>}
+          {!demoMode && me.role === "admin" && <>
+            <div className="my-2 border-t border-border" />
+            <form className="space-y-2 px-1" onSubmit={(e) => {
+              e.preventDefault();
+              void run(async () => {
+                const created = await api<{ invitation: string }>("/invitations", { method: "POST", json: { email: inviteEmail, role: inviteRole } });
+                setInviteLink(`${window.location.origin}/?invite=${encodeURIComponent(created.invitation)}`);
+              });
+            }}>
+              <p className="px-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Invite a teammate</p>
+              <input type="email" required className="field h-9 px-3 text-sm" placeholder="teammate@company.com" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} />
+              <div className="flex gap-2"><select className="field h-9 flex-1 px-2 text-sm" value={inviteRole} onChange={(e) => setInviteRole(e.target.value)}>{ROLES.map(({ id, label }) => <option key={id} value={id}>{label}</option>)}</select><button className="btn btn-sm btn-primary">Create invite</button></div>
+              {inviteLink && <button type="button" className="flex w-full items-center gap-2 break-all rounded-lg bg-muted p-2 text-left text-xs" onClick={() => void navigator.clipboard.writeText(inviteLink)}><Copy className="size-3 shrink-0" /> Copy invite link</button>}
+            </form>
+          </>}
           <div className="my-2 border-t border-border" />
           {renaming ? (
             <form

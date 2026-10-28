@@ -1,0 +1,81 @@
+# Round 2 gates (plan Section 11.5): lint/type-check, unit tests, end-to-end
+# smoke, evaluation regression check, dependency scanning.
+# Everything runs on free GitHub Actions minutes and needs no secrets.
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  engine:
+    name: Engine — suites + evaluation gate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: engine
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: engine/requirements.txt
+
+      - name: Install engine dependencies
+        run: pip install -r requirements.txt
+
+      - name: Suites (each on its own fresh database) + evaluation gate
+        run: python tests/run_tests.py
+
+  web:
+    name: Web — type-check + production build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web dependencies
+        run: npm ci
+
+      - name: Type-check (generates Next route types first)
+        run: npm run typecheck
+
+      - name: Production build
+        run: npm run build
+        env:
+          CANONRY_ENGINE_URL: http://127.0.0.1:8000
+
+  security:
+    name: Dependency scanning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Audit Python dependencies
+        run: |
+          pip install pip-audit
+          pip-audit -r engine/requirements.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Audit web dependencies (production tree)
+        working-directory: web
+        run: npm audit --omit=dev --audit-level=high

@@ -11,6 +11,7 @@ import {
   type KBEntity,
   type KBKind,
   type KBWriteResult,
+  type RulePreview,
 } from "@/lib/api";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
@@ -90,6 +91,8 @@ export function EntityDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
+  const [preview, setPreview] = useState<RulePreview | null>(null);
+  const [previewBusy, setPreviewBusy] = useState(false);
   const editing = entity !== null;
 
   useEffect(() => {
@@ -98,12 +101,35 @@ export function EntityDialog({
       setReason("");
       setError(null);
       setConflict(false);
+      setPreview(null);
     }
   }, [open, kind, entity]);
 
   const missing = FIELDS[kind].some((f) => f.required && !String(values[f.key] ?? "").trim());
   const needsWord = kind === "terms" && !String(values.preferred).trim() && !String(values.banned_or_check).trim();
   const canSave = !busy && !missing && !needsWord && (!editing || reason.trim().length >= 3);
+
+  async function previewImpact() {
+    if (!entity) return;
+    setPreviewBusy(true);
+    setError(null);
+    try {
+      setPreview(
+        await api<RulePreview>(`/rules/${entity.id}/preview-change`, {
+          method: "POST",
+          json: {
+            statement: values.statement,
+            do_example: values.do_example,
+            dont_example: values.dont_example,
+          },
+        })
+      );
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setPreviewBusy(false);
+    }
+  }
 
   async function save() {
     setBusy(true);
@@ -164,6 +190,65 @@ export function EntityDialog({
                 placeholder="e.g. Price changed on 1 Oct 2026"
               />
             </label>
+          )}
+
+          {kind === "rules" && editing && (
+            <div className="rounded-xl border border-border bg-muted/40 p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-semibold text-foreground">Rule test</span>
+                <span className="text-xs text-muted-foreground">
+                  Which shipped content this change would affect, before you save it.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void previewImpact()}
+                  disabled={previewBusy}
+                  className="btn btn-sm btn-secondary ml-auto"
+                >
+                  {previewBusy ? "Checking…" : "Preview impact"}
+                </button>
+              </div>
+              {preview && (
+                <div className="mt-2 space-y-1.5 text-xs">
+                  <p>
+                    {preview.impacted.new_breakages > 0 ? (
+                      <b className="text-warning-fg">
+                        {preview.impacted.new_breakages} approved item
+                        {preview.impacted.new_breakages === 1 ? "" : "s"} would newly break.
+                      </b>
+                    ) : (
+                      <span className="text-muted-foreground">No approved content would newly break.</span>
+                    )}{" "}
+                    {preview.impacted.resolved > 0 && (
+                      <span className="text-success-fg">
+                        {preview.impacted.resolved} would stop being flagged.
+                      </span>
+                    )}
+                  </p>
+                  {preview.impacted_approved_content.length > 0 ? (
+                    <ul className="space-y-1">
+                      {preview.impacted_approved_content.slice(0, 6).map((i) => (
+                        <li key={i.submission_id} className="text-muted-foreground">
+                          <Link href={`/submissions/${i.submission_id}`} className="link font-medium">
+                            {i.title}
+                          </Link>{" "}
+                          — {i.because}{" "}
+                          {preview.new_breakages.some((n) => n.submission_id === i.submission_id) && (
+                            <span className="ml-1 rounded-full bg-warning-bg px-1.5 py-0.5 text-[10px] font-semibold text-warning-fg">
+                              newly affected
+                            </span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-muted-foreground">
+                      Nothing approved contains the words in the current don’t-example.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
           )}
 
           {error && (

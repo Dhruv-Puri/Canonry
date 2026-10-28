@@ -14,7 +14,7 @@ import sys
 from typing import Any, Dict
 
 import claims
-from db import connect, get_knowledge_version
+from db import connect
 from seed import seed
 
 PROTOCOL_VERSION = "2024-11-05"

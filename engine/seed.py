@@ -12,6 +12,7 @@ import sqlite3
 from typing import Iterable
 
 import knowledge
+import policy
 from db import (
     audit, bump_knowledge, connect, gen_id, init_schema,
 )
@@ -31,12 +32,23 @@ def is_seeded(conn: sqlite3.Connection) -> bool:
     return row["c"] > 0
 
 
+# the Quillmark brand book's own rule for each built-in check
+QUILLMARK_BINDINGS = {
+    "claims.statistic": "CLM-01", "claims.superlative": "CLM-02", "claims.certification": "CLM-05",
+    "voice.sentence_length": "VOICE-3.1", "voice.hard_sell": "VOICE-3.2", "voice.tone": "VOICE-3.2",
+    "voice.exclamation": "VOICE-3.4", "social.length": "SOC-01", "messaging.cta": "MSG-03",
+}
+
+
 def seed() -> str:
     init_schema()
     conn = connect()
     try:
         if is_seeded(conn):
             row = conn.execute("SELECT id FROM workspaces LIMIT 1").fetchone()
+            # databases seeded before rule bindings existed get them on next boot
+            policy.ensure_bindings(conn, row["id"], QUILLMARK_BINDINGS)
+            conn.commit()
             return row["id"]
         ws_id = "ws_quillmark"
         at = "seed"
@@ -115,6 +127,7 @@ def seed() -> str:
                 "maya", at,
             ),
         )
+        policy.ensure_bindings(conn, ws_id, QUILLMARK_BINDINGS)
         bump_knowledge(conn)
         knowledge.backfill_history(conn)  # version 1 of every seeded rule, fact and term
         audit(

@@ -1,13 +1,13 @@
 """Seed-data integrity: the CSVs parse into the columns they claim, and the
 seeded workspace keeps confidential facts confidential and vague rules flagged.
 
-Run:  .venv/Scripts/python engine/test_seed_data.py
+Run:  .venv/Scripts/python engine/tests/test_seed_data.py
 """
 import csv
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # the engine package
 
 import db as _db
 

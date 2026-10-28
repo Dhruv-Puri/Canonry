@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronRight, TriangleAlert } from "lucide-react";
+import { ChevronRight, GitCompare, TriangleAlert } from "lucide-react";
 import {
   api,
   ApiError,
@@ -12,6 +12,7 @@ import {
   type Revision,
   type SubmissionDetail,
 } from "@/lib/api";
+import { diffSummary, diffWords, type DiffToken } from "@/lib/diff";
 import { CategoryBadge, LevelBadge, RiskBadge, StatusBadge } from "@/components/fx";
 import { ROLE_LABEL } from "@/lib/roles";
 
@@ -20,6 +21,7 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [revIdx, setRevIdx] = useState(-1); // -1 => latest
+  const [diffMode, setDiffMode] = useState(false);
   const [pocId, setPocId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -42,6 +44,10 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
 
   const openFindings = d?.findings.filter((f) => f.status === "open") ?? [];
   const showActionsForRev = rev?.id === d?.latest_revision?.id;
+  // the revision before the one on screen, for the diff view
+  const revListIndex = d && revIdx === -1 ? d.revisions.length - 1 : revIdx;
+  const prevRev: Revision | null =
+    d && revListIndex > 0 ? (d.revisions[revListIndex - 1] ?? null) : null;
 
   async function act(fn: () => Promise<unknown>) {
     setBusy(true);
@@ -82,6 +88,8 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
   const canReview = ["reviewer", "admin"].includes(d.me.role);
   const canResolve = ["creator", "admin", "agency"].includes(d.me.role);
   const inReview = s.status === "In review";
+  // the engine says what this status allows; content changes only while with the creator
+  const editable = d.allowed.edit;
 
   return (
     <div className="space-y-5">
@@ -140,7 +148,15 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
         <ReviewBar busy={busy} onReview={review} openHigh={openFindings.some((f) => f.severity === "high")} />
       )}
 
-      {(canResolve || canReview) && showActionsForRev && (
+      {!editable && (
+        <p className="rounded-md border border-border bg-muted px-3 py-2 text-sm text-foreground-secondary">
+          {inReview
+            ? "Content is locked while in review. The reviewer approves it or requests changes."
+            : "This content is approved and locked. To change it, start a new submission."}
+        </p>
+      )}
+
+      {(canResolve || canReview) && showActionsForRev && editable && (
         <ActionsBar
           busy={busy}
           onRecheck={() => act(() => api(`/submissions/${sid}/recheck`, { method: "POST" }))}
@@ -154,7 +170,7 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
                   )
               : null
           }
-          canSubmit={["Draft", "Checked", "Changes requested"].includes(s.status)}
+          canSubmit={d.allowed.submit}
         />
       )}
 
@@ -162,9 +178,20 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
       <section className="paper pb-5 pl-14 pr-6 pt-4">
         <div className="mb-3 flex items-center gap-2">
           <h2 className="eyebrow">Content under review</h2>
+          <button
+            type="button"
+            onClick={() => setDiffMode((v) => !v)}
+            disabled={!prevRev}
+            aria-pressed={diffMode}
+            title={prevRev ? `Show what changed from rev ${prevRev.revision_no} to rev ${rev?.revision_no}` : "The first revision has nothing before it"}
+            className={`btn btn-sm ml-auto ${diffMode ? "btn-primary" : "btn-secondary"}`}
+          >
+            <GitCompare className="size-3.5" aria-hidden />
+            {diffMode ? "Viewing changes" : "Compare with previous"}
+          </button>
           <select
             aria-label="Revision"
-            className="field ml-auto h-8 w-auto px-2 text-xs"
+            className="field h-8 w-auto px-2 text-xs"
             value={revIdx}
             onChange={(e) => setRevIdx(Number(e.target.value))}
           >
@@ -179,7 +206,12 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
               ))}
           </select>
         </div>
-        <ContentWithSpans content={rev?.content ?? ""} findings={rev?.id === d.latest_revision?.id ? d.findings : []} />
+        {diffMode && prevRev ? (
+          <RevisionDiff before={prevRev.content} after={rev?.content ?? ""}
+                        fromNo={prevRev.revision_no} toNo={rev?.revision_no} />
+        ) : (
+          <ContentWithSpans content={rev?.content ?? ""} findings={rev?.id === d.latest_revision?.id ? d.findings : []} />
+        )}
       </section>
 
       {/* ---- findings ---- */}
@@ -198,7 +230,7 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
             f={f}
             disabled={busy}
             active={showActionsForRev}
-            canResolve={canResolve}
+            canResolve={canResolve && editable}
             onOverride={canReview && inReview ? (reason) => review("override", reason, f.id) : undefined}
             onAccept={() =>
               act(() =>
@@ -406,6 +438,46 @@ function ContentWithSpans({ content, findings }: { content: string; findings: Fi
         )
       )}
     </p>
+  );
+}
+
+/** What changed between the previous revision and the one on screen (plan Must: revision diff). */
+function RevisionDiff({ before, after, fromNo, toNo }: {
+  before: string;
+  after: string;
+  fromNo?: number;
+  toNo?: number;
+}) {
+  const tokens = useMemo(() => diffWords(before, after), [before, after]);
+  const { added, removed } = diffSummary(tokens);
+  const show = (t: DiffToken, i: number) => {
+    if (t.op === "same") return <span key={i}>{t.text}</span>;
+    return (
+      <mark
+        key={i}
+        className={
+          t.op === "add"
+            ? "rounded-sm bg-success-bg px-0.5 font-medium text-success-fg"
+            : "rounded-sm bg-danger-bg px-0.5 text-danger-fg line-through decoration-danger-fg/60"
+        }
+        title={t.op === "add" ? "added in this revision" : "removed in this revision"}
+      >
+        {t.text}
+      </mark>
+    );
+  };
+  return (
+    <div>
+      <p className="mb-3 text-xs text-muted-foreground">
+        Changes from <span className="font-medium text-foreground">rev {fromNo}</span> to{" "}
+        <span className="font-medium text-foreground">rev {toNo}</span> ·{" "}
+        <span className="font-medium text-success-fg">+{added} word{added === 1 ? "" : "s"}</span> ·{" "}
+        <span className="font-medium text-danger-fg">−{removed} word{removed === 1 ? "" : "s"}</span>
+      </p>
+      <p className="whitespace-pre-wrap font-serif text-[15px] leading-relaxed text-foreground">
+        {tokens.map(show)}
+      </p>
+    </div>
   );
 }
 

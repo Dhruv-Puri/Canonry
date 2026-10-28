@@ -1,11 +1,13 @@
 """Self-chosen identity (no login) and role-enforced access (fresh test DB).
 
-Run:  .venv/Scripts/python engine/test_identity.py
+Run:  .venv/Scripts/python engine/tests/test_identity.py
 """
+import io
 import os
 import sys
+import zipfile
 
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # the engine package
 
 import db as _db
 
@@ -24,6 +26,13 @@ init_schema()
 seed()
 
 import main  # noqa: E402
+
+# Test clients use localhost HTTP. Production cookies remain Secure in the
+# actual app; disable that attribute only in this isolated suite.
+main.COOKIE_SECURE = False
+# This suite explicitly exercises local persona behavior; let the client use the
+# demo-mode self-join path without requiring a persisted environment setting.
+main.DEMO_MODE = True
 
 failures = []
 
@@ -74,6 +83,64 @@ leaver, _ = person("Dev Shah", "agency")
 leaver.post("/logout")
 expect(leaver.get("/me").status_code == 401, "logout ends the session")
 
+# ---- production-mode auth and single-use invitations --------------------------
+main.DEMO_MODE = False
+main.COOKIE_SECURE = False
+
+# Bootstrap a production administrator with a deployment-configured password.
+os.environ["CANONRY_BOOTSTRAP_ADMIN_EMAIL"] = "owner@example.com"
+os.environ["CANONRY_BOOTSTRAP_ADMIN_PASSWORD"] = "a-long-deployment-password"
+main._ensure_bootstrap_admin()
+owner = TestClient(main.app)
+login = owner.post("/login", json={"email": "owner@example.com", "password": "a-long-deployment-password"})
+expect(login.status_code == 200 and owner.get("/me").json().get("role") == "admin", "production admin signs in with password")
+expect(owner.post("/login", json={"email": "owner@example.com", "password": "wrong-password"}).status_code == 401,
+       "production login rejects an incorrect password")
+expect(owner.patch("/me", json={"role": "admin"}).status_code == 403, "production users cannot self-assign a role")
+expect(owner.get("/workspace").json().get("me", {}).get("password_hash") is None, "workspace API does not expose password hashes")
+invite = owner.post("/invitations", json={"email": "new.writer@example.com", "role": "reviewer"})
+expect(invite.status_code == 200, f"admin can issue a role-bound invitation ({invite.status_code})")
+token = invite.json().get("invitation", "")
+info = owner.get(f"/invitations/{token}")
+expect(info.status_code == 200 and info.json().get("role") == "reviewer", "invitation preview reveals its assigned role")
+joined = TestClient(main.app)
+joined_response = joined.post("/join", json={"name": "New Writer", "email": "new.writer@example.com", "password": "secure-password-123", "role": "admin", "invitation": token})
+expect(joined_response.status_code == 200 and joined.get("/me").json().get("role") == "reviewer", "invite overrides any submitted role")
+expect(owner.post("/join", json={"name": "No Invite", "email": "no.invite@example.com", "password": "secure-password-123", "role": "admin"}).status_code == 403,
+       "production signup requires an invitation")
+expect(TestClient(main.app).post("/join", json={"name": "Replay", "email": "new.writer@example.com", "password": "secure-password-123", "invitation": token}).status_code == 403,
+       "used invitations cannot create another account")
+expect(owner.post("/invitations", json={"email": "x@example.com", "role": "admin"}, headers={"Origin": "https://attacker.invalid"}).status_code == 403,
+       "cross-origin state changes are blocked")
+
+# Production rulebook uploads are previews first and remain inactive drafts.
+md = b"# Voice\nUse short, active sentences for every customer-facing headline.\n- Avoid unsupported superiority claims in all public copy.\n"
+preview = owner.post("/rules/import-document?filename=voice.md", content=md, headers={"Content-Type": "application/octet-stream"})
+expect(preview.status_code == 200 and len(preview.json().get("proposals", [])) == 2,
+       f"Markdown rulebook produces editable proposals ({preview.status_code})")
+proposals = preview.json().get("proposals", [])
+expect(all(p.get("status") == "draft" and p.get("category") == "Voice" for p in proposals),
+       "import preview categorizes rule suggestions and marks them draft")
+drafts = owner.post("/rules/import-drafts", json={"proposals": proposals})
+expect(drafts.status_code == 200 and drafts.json().get("count") == 2
+       and all(rule["status"] == "draft" for rule in drafts.json().get("created", [])),
+       f"reviewed import saves inactive drafts ({drafts.status_code})")
+docx_bytes = io.BytesIO()
+with zipfile.ZipFile(docx_bytes, "w") as archive:
+    archive.writestr("word/document.xml", '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Claims</w:t></w:r></w:p><w:p><w:r><w:t>Every product claim must match an approved and current fact.</w:t></w:r></w:p></w:body></w:document>')
+preview_docx = owner.post("/rules/import-document?filename=claims.docx", content=docx_bytes.getvalue(), headers={"Content-Type": "application/octet-stream"})
+expect(preview_docx.status_code == 200 and preview_docx.json().get("proposals", [{}])[0].get("category") == "Claims",
+       f"valid DOCX paragraphs are extracted ({preview_docx.status_code})")
+invalid_docx = owner.post("/rules/import-document?filename=not-a-doc.docx", content=b"not a zip", headers={"Content-Type": "application/octet-stream"})
+expect(invalid_docx.status_code == 422, "malformed DOCX is rejected cleanly")
+large = owner.post("/rules/import-document?filename=large.txt", content=b"x" * (5 * 1024 * 1024 + 1), headers={"Content-Type": "application/octet-stream"})
+expect(large.status_code == 413, "oversized document rejected before parsing")
+main.DEMO_MODE = True
+main.COOKIE_SECURE = False
+os.environ.pop("CANONRY_BOOTSTRAP_ADMIN_EMAIL", None)
+os.environ.pop("CANONRY_BOOTSTRAP_ADMIN_PASSWORD", None)
+
+# Demo persona tests use their normal no-password / role-picker path.
 # ---- Task 2: role-enforced visibility -----------------------------------------
 import access  # noqa: E402
 

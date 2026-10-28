@@ -10,7 +10,7 @@
 
 | Area | Status | Evidence |
 |------|--------|----------|
-| Engine core (schema, seed, checkers, claims, contract) | ✅ done | `engine/test_engine.py` — ALL ENGINE TESTS PASSED |
+| Engine core (schema, seed, checkers, claims, contract) | ✅ done | `engine/tests/test_engine.py` — ALL ENGINE TESTS PASSED |
 | Claim pipeline (retrieval, verdicts, VCM, citation check) | ✅ done | same test suite |
 | Workflow (resolve, dispute, review, override, risk router) | ✅ done | test suite + driven live in the browser |
 | Proof of Compliance (Ed25519 + ledger + public /verify) | ✅ done | signing + verify exercised in test and in UI |
@@ -19,8 +19,11 @@
 | Web app — all 7 screens | ✅ done | dashboard / new / submission detail / KB / insights / verify / persona nav |
 | Guest access — no sign-in needed | ✅ done | persona switcher performs real engine login; judge clicks and works |
 | AI gateway (3 providers, key-less honest mode) | ✅ done | runs key-less (marks AI checks pending) — see §4 for the one key that lights it up |
-| Documentation | ✅ done | README + docs/architecture, design, approach, progress, getting-started |
-| Deployment to a public URL | ⏳ pending | local twin servers today; see §5 for the deployment checklist to close before submitting |
+| Documentation | ✅ done | README + docs/architecture, design, approach, progress, getting-started, tutorial, changelog, disclosure-log, deployment, usability kit |
+| Test suites (`engine/tests/`, 10 suites + evaluation gate) | ✅ done | checks over validation, insights shape, number formats, counts, rule preview |
+| Evaluation baseline (Appendix B) | ✅ done | `engine/evaluation/evaluate.py` + `eval_set.jsonl` (20 samples, ~30% frozen) + `eval_baseline.json`; every run stored in `eval_runs` |
+| CI gates (Section 11.5) | ✅ done | `.github/workflows/ci.yml`: six suites, evaluation gate, type-check, production build, `pip-audit`, `npm audit` |
+| Deployment to a public URL | ⏳ pending (accounts needed) | artifacts ready: `engine/Dockerfile`, `render.yaml`, `docs/deployment.md` with verify steps; only the host accounts are missing |
 
 ## 2. Demo journey — verified end to end (both via HTTP and in the browser)
 
@@ -87,16 +90,20 @@ committed.
    saving, show *which shipped content would newly break* under the proposed
    rule (the "impacted approved content" the engine already computes on the
    rule-test endpoint), so owners know what a rule change unstitches.
-3. **Reviewer-inbox with SLA timers + reviewer workload balancing** — router
-   stamps already carry SLA minutes; showing queues per reviewer, escalation
-   after deadline, and post-hoc reviewer-agreement stats (which findings
+3. **Reviewer-inbox with SLA timers + reviewer workload balancing** — the router
+   already assigns risk and reviewer level; adding SLA deadlines, queues per
+   reviewer, escalation after a deadline, and post-hoc reviewer-agreement stats (which findings
    reviewers actually override) closes the loop into rule and model tuning.
 
 ## 6. Verification commands (run any time)
 
 ```bash
-# engine end-to-end suite (fresh test DB; never touches the live DB)
-cd engine && ../.venv/Scripts/python test_engine.py
+# every suite (each on its own fresh DB) + the evaluation gate
+.venv/Scripts/python engine/tests/run_tests.py
+
+# evaluation baseline and the CI gate (Appendix B, frozen split)
+.venv/Scripts/python engine/evaluation/evaluate.py           # full report, all splits
+.venv/Scripts/python engine/evaluation/evaluate.py --check   # exit 1 on regression or a missed target
 
 # API smoke without the browser
 curl -s http://localhost:8000/ai-status | head -c 300
@@ -110,13 +117,53 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3000/verify/<poc_id>
 The test suite boots its own `db/canonry_test.db` from the seed CSVs, so it
 never disturbs the demo state in `db/canonry.db`.
 
-## 7. Known small gaps (honesty list)
+## 7. Hardening pass — 2026-10-27 (bugs found by testing, all fixed)
 
-- AI checks stay `pending` until a key exists in the root `.env` (by design;
-  see §4).
+Eight defects were found by adding `engine/tests/test_edge_cases.py` (29 checks) and
+probing the API where the original suites had no coverage. Each fix is covered
+by that suite, and the five older suites still pass unchanged.
+
+| # | Bug (before) | Fix |
+|---|--------------|-----|
+| 1 | `POST /login` accepted any string — an empty or malformed email created a user with a blank name | email format + length validated (422) |
+| 2 | An unknown `resolve` action crashed with a 500 (KeyError) | validated up front (422); refused actions write nothing |
+| 3 | `edit` without replacement text silently recorded a no-op decision | refused (422) |
+| 4 | `accept` on a finding with no automatic fix recorded a no-op and re-queued the same check forever | refused (409) with a pointer to edit/dispute |
+| 5 | Reviewer `override` accepted a finding id that did not exist on the current revision — decision + approval rows were written for a ghost | 404 (unknown) / 409 (already decided) before any write |
+| 6 | `/insights` returned only the first decision row in the wrong shape (`{"action": "accept", "c": 12}`) instead of an action→count map | full grouped map, matching the web type |
+| 7 | Number formatting was treated as a claim difference: “2300+ teams” was flagged *contradicted* against the fact “2,300+ teams” | numbers compared by value (`2300 == 2,300`) |
+| 8 | Dashboard `open_findings` summed findings across **all** revisions, so a Signed item could show a stale “15 open findings” | counts the latest revision only |
+| 9 | A sentence containing a decimal (“4.2 crore”) was split at the dot, so long-sentence readability checks missed real cases | one sentence splitter everywhere (a full stop ends a sentence only before whitespace) |
+| 10 | Next 16 dev console logged “Could not validate that a segment … has instant navigation” for every gated route | documented opt-out: `experimental.instantInsights.validationLevel: "manual-warning"` (the app renders behind `<IdentityGate>`, so no route claims an instant shell) |
+
+## 8. Review pass — 2026-10-28 (found by a code review and browser checks; each proven by a failing test or screenshot first)
+
+| # | Defect (before) | Fix | Test |
+|---|---|---|---|
+| 1 | Checks cited rule ids written into the code (CLM-01, VOICE-3.2, SOC-01, MSG-03 ...). In any rulebook other than the demo's, the citation check discarded most claim, tone and readability findings | rule bindings (`engine/policy.py`): each check cites the workspace's own rule; baseline rules for a fresh workspace; a retired rule switches its check off | `test_policy.py` |
+| 2 | The agency role read other creators' titles and dispute reasons in `/insights`, others' work in stale approvals and the AI-pending list, and confidential fact text in `/alerts/expiry` | one scoping helper in `access.py` used by every cross-submission query; confidential text redacted | `test_access.py` |
+| 3 | A signed item could still take new revisions (and stayed "Signed"); an item in review could be edited after the router had assessed it | lifecycle rules in `engine/workflow.py`; the UI shows only what the engine allows | `test_workflow.py` |
+| 4 | The public verify page compared the seal with its own stored copy, so it could never answer "Modified"; it also showed the approver's email | paste the published text to check it; role shown, email never | `test_workflow.py` |
+| 5 | A creator's check sent confidential facts to free AI providers | claims are verified against publishable facts only | `test_gateway.py` |
+| 6 | A rate-limited Gemini reply was logged as a successful call and never fell back to Groq; the AI path had never run in a test | provider adapters, explicit error handling, one retry, Ollama as local fallback, faked-provider suite in CI | `test_gateway.py` |
+| 7 | The finding contract was documented but not enforced, and had drifted from the code | every finding validated against `finding@1` before storage | all suites |
+| 8 | The "no sign-in" public verify page was behind the web app's sign-in screen | public routes render for signed-out visitors; everything else stays gated | browser check of the production build |
+| 9 | Insights counted an unresolved issue once per revision (one post showed "14 claim findings"), inflating the repeated-mistakes view | each issue counted once per submission | `test_access.py` |
+
+## 9. Known small gaps (honesty list)
+
+- AI checks stay `pending` until a provider is configured (by design; see §4).
+  The AI path is tested with faked providers; free model names change, so set
+  `CANONRY_<PROVIDER>_MODEL` if a default is retired.
 - First-run `next dev` can pick a different port when 3000 is busy — the
   engine URL is fixed at 8000, so the web proxy setting is the only thing
   to double-check in that case.
-- PoC verify answers `modified` (not `failed`) when live content no longer
-  matches the fingerprint — that is correct semantics, but worth reading as
-  reviewer: someone changed the copy after signing.
+- The evaluation set is 20 hand-built samples over the demo brand: it measures
+  the deterministic engine exactly, but it is small, it is not independently
+  double-labelled yet, and the AI-only paths (implicit claims, tone) are
+  excluded while no provider key is configured. The harness reports that split
+  rather than hiding it; growing the set is a Round 3 item.
+- Free-tier hosting has an ephemeral disk, so seals signed before a restart
+  verify as `unknown` — the deployment guide explains the persistent options.
+- Demo mode lets anyone act as any role; it is for judging and usability tests,
+  never real brand material (production mode uses passwords and invitations).

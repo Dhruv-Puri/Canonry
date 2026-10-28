@@ -1,13 +1,17 @@
 """Regression tests for bugs found in the Round 2 review (fresh test DB).
 
-Run:  .venv/Scripts/python engine/test_regressions.py
+Run:  .venv/Scripts/python engine/tests/test_regressions.py
 """
 import json
 import os
 import subprocess
 import sys
 
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # the engine package
+
+# Print rupee signs and other non-ASCII output on any console encoding.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 import db as _db
 
@@ -26,6 +30,10 @@ init_schema()
 seed()
 
 import main as engine  # noqa: E402
+
+# Test clients use localhost HTTP with password-free demo login.
+engine.COOKIE_SECURE = False
+engine.DEMO_MODE = True
 
 # the launch post exactly as written in plan Section 1
 PLAN_POST = ("Meet Quillmark Insights 2.0 — India's #1 analytics platform, trusted by 5,000+ teams "
@@ -131,10 +139,9 @@ expect((detail.get("check") or {}).get("status") == "ai_pending",
 # a connected provider that finds no implied claims is a finished check, not a pending one
 import claims as _claims  # noqa: E402
 import gateway as _gateway  # noqa: E402
-import pipeline as _pipeline  # noqa: E402
 
-_saved = (_gateway.provider_list, _claims.ai_implicit_claims, _gateway.gateway_call)
-_gateway.provider_list = lambda: [{"provider": "stub", "available": True, "model": "stub"}]
+_saved = (_gateway.any_available, _claims.ai_implicit_claims, _gateway.gateway_call)
+_gateway.any_available = lambda: True
 _claims.ai_implicit_claims = lambda text, budget, conn: []
 _gateway.gateway_call = lambda *a, **k: {"text": '{"tone_findings": []}', "model": "stub"}
 try:
@@ -144,10 +151,11 @@ try:
     rr = submit(arjun, "Quillmark Pulse helps team members see their numbers today.").json()
     expect(rr.get("ai_pending") is True, f"a failed tone call is 'pending' (ai_pending={rr.get('ai_pending')})")
 finally:
-    _gateway.provider_list, _claims.ai_implicit_claims, _gateway.gateway_call = _saved
+    _gateway.any_available, _claims.ai_implicit_claims, _gateway.gateway_call = _saved
 
 # --- 9. small endpoints ------------------------------------------------------
 expect(maya.get("/alerts/claims-in-review").status_code == 200, "/alerts/claims-in-review answers")
+expect(TestClient(engine.app).get("/health").json().get("ok") is True, "/health answers without sign-in")
 # approve the cleaned launch post, which fixed a price claim citing X-101
 arjun.post(f"/submissions/{sid}/submit-review")
 maya.post(f"/submissions/{sid}/review", json={"action": "approve"})
@@ -162,7 +170,7 @@ msgs = "\n".join(json.dumps(m) for m in [
      "params": {"name": "check_claim", "arguments": {"claim": "trusted by 5,000+ teams"}}},
 ]) + "\n"
 env = dict(os.environ, CANONRY_DB_PATH=os.path.abspath(_db.DB_PATH), PYTHONIOENCODING="utf-8")
-out = subprocess.run([sys.executable, os.path.join(os.path.dirname(__file__), "mcp_server.py")],
+out = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "mcp_server.py")],
                      input=msgs, capture_output=True, text=True, env=env, encoding="utf-8").stdout
 lines = [json.loads(line) for line in out.splitlines() if line.strip()]
 res = lines[-1]["result"] if lines else {"isError": True, "content": [{"text": "{}"}]}

@@ -10,11 +10,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 CONTRACT_VERSION = "finding@1"
 
-Checker = Literal["terminology", "readability", "claims", "tone", "accessibility", "image"]
+Checker = Literal["terminology", "readability", "claims", "tone", "confidential", "accessibility", "image"]
 Tier = Literal["definite", "likely", "consider"]
 Severity = Literal["high", "medium", "low"]
 
@@ -34,7 +34,7 @@ class Span(BaseModel):
 
 
 class Citation(BaseModel):
-    type: Literal["fact", "rule", "pack"]
+    type: Literal["fact", "rule", "pack", "term"]
     id: str
     version: Optional[int] = None
     # facts may expire; rules may be superseded; citation check guards this
@@ -73,3 +73,12 @@ class Finding(BaseModel):
 
 def finding_to_dict(f: Finding) -> Dict[str, Any]:
     return f.model_dump(exclude_none=False)
+
+
+def conforms(finding: Dict[str, Any]) -> bool:
+    """True when a checker's finding has the contract shape (checked before it is stored)."""
+    try:
+        Finding.model_validate(finding)
+        return True
+    except ValidationError:
+        return False

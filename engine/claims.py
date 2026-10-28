@@ -13,11 +13,10 @@ import hashlib
 import json
 import re
 import sqlite3
-from datetime import date, datetime
+from datetime import date
 from typing import Any, Dict, List, Optional, Tuple
 
 import gateway
-from contract import CONTRACT_VERSION
 from db import _now, gen_id
 
 
@@ -65,9 +64,6 @@ def find_claims(text: str) -> List[Dict[str, Any]]:
             taken.append((s, m.end()))
             claims.append({"kind": kind, "trigger": m.group(0), "start": s,
                            "end": m.end(), "snippet": snippet})
-        if kind in ("superlative", "certification"):
-            # these already match whole phrases; narrow start
-            pass
     return claims
 
 
@@ -112,10 +108,15 @@ def _significant(n: str) -> bool:
     return len(n) >= 3 or "," in n or "." in n or n.isdigit() and len(n) >= 3
 
 
+def _canon_num(n: str) -> str:
+    """Compare numbers by value, not formatting: 2300 and 2,300 are the same claim."""
+    return n.replace(",", "")
+
+
 def _norm_claim_key(kind: str, snippet: str) -> str:
     """VCM key: kind + numbers + units + names only (doc 5.4: '2,300+' never
     confirms '3,200+')."""
-    numbers = sorted({n.replace(",", ",") for n in _extract_numbers(snippet)})
+    numbers = sorted(set(_extract_numbers(snippet)))
     units = set()
     if kind == "price":
         units |= {"/month", "/year"} & ({u.lower() for u in snippet.split()} | {"slash"})
@@ -183,9 +184,11 @@ def _tokens(s: str) -> set:
 
 # ---- verification ------------------------------------------------------------
 
-def classify_match(claim_kind: str, snippet: str, facts: List[sqlite3.Row]) -> Dict[str, Any]:
+def classify_match(claim_kind: str, snippet: str, facts: List[sqlite3.Row],
+                   cert_rule: Optional[str] = None) -> Dict[str, Any]:
     """Deterministic verdict against approved facts. Returns
-    {verdict, fact_ids, explanation, suggestion} or {'verdict': None}."""
+    {verdict, fact_ids, explanation, suggestion} or {'verdict': None}.
+    `cert_rule` is the workspace rule that governs certification claims."""
     claim_numbers = _extract_numbers(snippet)
     today = date.today()
     if claim_kind == "superlative":
@@ -194,7 +197,7 @@ def classify_match(claim_kind: str, snippet: str, facts: List[sqlite3.Row]) -> D
 
     for f in facts:
         fn = _extract_numbers(f["text"])
-        shared = [c for c in shared_nums if c in {x for x in fn}]
+        shared = [c for c in shared_nums if any(_canon_num(c) == _canon_num(x) for x in fn)]
         if not shared and claim_kind not in ("superlative", "certification"):
             continue
         active = _fact_active(f)
@@ -207,7 +210,7 @@ def classify_match(claim_kind: str, snippet: str, facts: List[sqlite3.Row]) -> D
             if expired or legacy or "expired" in f["text"].lower():
                 return (
                     {"verdict": "outdated", "fact_ids": [f["id"]], "operation": "remove",
-                     "explanation": f'Certificate status: {f["text"]} (fact {f["id"]}); rule CLM-05 only allows certifications that are current. Remove the claim until renewal is approved.',
+                     "explanation": f'Certificate status: {f["text"]} (fact {f["id"]}); rule {cert_rule or "on certifications"} only allows certifications that are current. Remove the claim until renewal is approved.',
                      "suggestion": None}
                 )
             if active:
@@ -236,7 +239,10 @@ def classify_match(claim_kind: str, snippet: str, facts: List[sqlite3.Row]) -> D
             if not _fact_active(f):
                 continue
             f_tokens = _tokens(f["text"])
-            if len(concept_tokens & f_tokens) >= 2 and not (_extract_numbers(snippet) and any(n in _extract_numbers(f["text"]) for n in _extract_numbers(snippet))):
+            if len(concept_tokens & f_tokens) >= 2 and not any(
+                _canon_num(n) == _canon_num(x)
+                for n in _extract_numbers(snippet) for x in _extract_numbers(f["text"])
+            ):
                 if claim_kind == "count" and any(
                     ("team" in t or "customer" in t) for t in concept_tokens
                 ) and any(("team" in t or "customer" in t) for t in f_tokens):
@@ -246,12 +252,13 @@ def classify_match(claim_kind: str, snippet: str, facts: List[sqlite3.Row]) -> D
     return {"verdict": None}
 
 
-def superlative_verdict(snippet: str, facts: List[sqlite3.Row], trigger: str = "") -> Optional[Dict[str, Any]]:
-    """Superlatives: Likely — no approved source exists behind it (rule CLM-02;
-    India pack CCPA)."""
+def superlative_verdict(snippet: str, facts: List[sqlite3.Row], trigger: str = "",
+                        rule: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Superlatives: Likely — no approved source exists behind it (the workspace's
+    superlative rule; India pack CCPA)."""
     fix = superlative_fix(snippet, trigger)
     return {"verdict": "unsupported", "fact_ids": [], "operation": "replace" if fix else "remove",
-            "explanation": 'No approved source supports this superlative claim (rule CLM-02; India pack: CCPA 2022 requires substantiation). Drop the ranking claim or use the approved customer-count phrasing from the Fact Library.',
+            "explanation": f'No approved source supports this superlative claim (rule {rule or "on superlatives"}; India pack: CCPA 2022 requires substantiation). Drop the ranking claim or use the approved customer-count phrasing from the Fact Library.',
             "suggestion": fix}
 
 
@@ -287,7 +294,7 @@ def vcm_lookup(conn: sqlite3.Connection, ws: str, key: str, claim_numbers: List[
     if not row:
         return None
     stored = set(json.loads(row["numbers_json"]))
-    if stored != set(n.replace(",", ",") for n in claim_numbers):
+    if stored != set(claim_numbers):
         return None  # never reuse across different numbers
     conn.execute("UPDATE claim_memory SET created_at = ? WHERE id = ?", (_now(), row["id"]))
     conn.commit()
@@ -334,7 +341,7 @@ def ai_implicit_claims(text: str, budget_ok: bool, conn: sqlite3.Connection) -> 
         "extract_implicit_claims",
         [{"role": "system", "content": CLAIM_EXTRACT_SYSTEM},
          {"role": "user", "content": text[:4000]}],
-        rev_id=None, conn=conn, budget_ok=budget_ok,
+        conn=conn, budget_ok=budget_ok,
     )
     if out is None:
         return None
@@ -360,7 +367,7 @@ def ai_verify_claims(text: str, pending: List[Dict[str, Any]], facts: List[sqlit
         [{"role": "system", "content": VERIFY_SYSTEM},
          {"role": "user", "content": "APPROVED FACTS:\n" + facts_blob + "\n\nCLAIMS:\n" +
           "\n".join("- " + c["snippet"] for c in pending)}],
-        rev_id=None, conn=conn, budget_ok=budget_ok,
+        conn=conn, budget_ok=budget_ok,
     )
     if out is None:
         return []

@@ -10,18 +10,19 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import sqlite3
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import checkers
 import claims
+import contract
 import gateway
 import knowledge
-from contract import CONTRACT_VERSION
 from db import _now, gen_id, get_knowledge_version
 
 PROMPT_VERSION = "claims@4"
+CLAIM_TITLES = {"contradicted": "Contradicted claim", "outdated": "Outdated claim",
+                "unsupported": "Unsupported claim"}
 TONE_PROMPT_VERSION = "tone@1"
 
 TONE_SYSTEM = (
@@ -46,21 +47,21 @@ def _pin_citation_versions(conn: sqlite3.Connection, ws: str, citations: List[Di
                 c["version"] = v
 
 
-def run_check(conn: sqlite3.Connection, revision_id: str, actor_role: str) -> Dict[str, Any]:
+def run_check(conn: sqlite3.Connection, revision_id: str) -> Dict[str, Any]:
     rev = conn.execute("SELECT * FROM revisions WHERE id = ?", (revision_id,)).fetchone()
     sub = conn.execute("SELECT * FROM submissions WHERE id = ?", (rev["submission_id"],)).fetchone()
     ws = sub["workspace_id"]
     text = rev["content"]
     words = len(text.split())
     kv_bumped = get_knowledge_version(conn)
-    ctx = checkers.Ctx(conn, revision_id, sub["channel"], sub["source_type"], kv_bumped)
+    ctx = checkers.Ctx(conn, revision_id, sub["channel"], sub["source_type"], kv_bumped, ws=ws)
 
     run_id = gen_id("run")
     conn.execute(
         "INSERT INTO check_runs (id, revision_id, started_at, status, knowledge_version) VALUES (?,?,?,?,?)",
         (run_id, revision_id, _now(), "running", kv_bumped),
     )
-    ai_calls_before = conn.execute("SELECT COUNT(*) c FROM ai_calls").fetchone()["c"]
+    ai_calls_before = gateway.successful_calls(conn)
 
     findings: List[Dict[str, Any]] = []
     findings += checkers.check_terminology(ctx, text)
@@ -68,17 +69,24 @@ def run_check(conn: sqlite3.Connection, revision_id: str, actor_role: str) -> Di
     findings += checkers.check_tone_rules(ctx, text)
     findings += checkers.check_confidential(ctx, text)
 
-    include_confidential = actor_role in ("reviewer", "admin", "creator")
-    facts = claims.visible_facts(conn, ws, include_confidential)
+    # claims are verified against publishable facts only: a confidential fact can
+    # never support public copy, and its text must never reach an explanation or
+    # an AI provider (leaks of confidential facts are check_confidential's job)
+    facts = claims.visible_facts(conn, ws, include_confidential=False)
 
     # --- explicit claims (no AI call) -------------------------------------
-    pending_for_ai: List[Dict[str, Any]] = []
+    # each claim kind is enforced by a workspace rule; a retired rule = check off
+    stat_rule = ctx.rule("claims.statistic")
+    kind_rule = {"superlative": ctx.rule("claims.superlative"),
+                 "certification": ctx.rule("claims.certification")}
     seen_spans: set = set()
     all_claim_spans: List[tuple] = []  # including supported claims
     for c in claims.find_claims(text):
         s, e = claims._widen_to_claim(text, (c["start"], c["end"]))
         span_text = text[s:e]
         if not span_text or span_text in seen_spans:
+            continue
+        if not kind_rule.get(c["kind"], stat_rule):
             continue
         seen_spans.add(span_text)
         all_claim_spans.append((s, e))
@@ -91,16 +99,15 @@ def run_check(conn: sqlite3.Connection, revision_id: str, actor_role: str) -> Di
             explanation, suggestion = cached["explanation"], cached["suggestion"]
             op = (cached["operation"] if ("operation" in cached.keys() and cached["operation"]) else "replace")
             model_note = f'claim-memory:{cached["model"]}'
-            hits_vcm = True
         else:
             retrieved = claims.retrieve_facts(span_text, facts)
-            v = claims.classify_match(c["kind"], span_text, retrieved)
+            v = claims.classify_match(c["kind"], span_text, retrieved, cert_rule=kind_rule["certification"])
             if v["verdict"] is None:
                 if c["kind"] == "superlative":
-                    v = claims.superlative_verdict(span_text, retrieved, c["trigger"])
+                    v = claims.superlative_verdict(span_text, retrieved, c["trigger"], rule=kind_rule["superlative"])
                 else:
                     v = {"verdict": "unsupported", "fact_ids": [],
-                         "explanation": "No approved fact in the Fact Library supports this figure or claim (rule CLM-01 requires every statistic to trace to an approved fact).",
+                         "explanation": f"No approved fact in the Fact Library supports this figure or claim (rule {stat_rule} requires every statistic to trace to an approved fact).",
                          "suggestion": None}
             verdict, fact_ids = v["verdict"], v["fact_ids"]
             explanation, suggestion = v["explanation"], v.get("suggestion")
@@ -108,20 +115,13 @@ def run_check(conn: sqlite3.Connection, revision_id: str, actor_role: str) -> Di
             claims.vcm_store(conn, ws, key, numbers, verdict, fact_ids, explanation, suggestion, "rule-patterns", op,
                               kv=kv_bumped)
             model_note = "rule-patterns+retrieval"
-            hits_vcm = False
         if verdict == "supported":
             # verified claim: reviewer collapses it (doc 5.4 review-by-exception)
             continue
         citations = [{"type": "fact", "id": fid} for fid in fact_ids]
-        if not citations and verdict == "unsupported":
-            citations = [{"type": "rule", "id": "CLM-01"}]
-            if c["kind"] == "superlative":
-                citations.append({"type": "rule", "id": "CLM-02"})
-        title_map = {
-            "contradicted": "Contradicted claim",
-            "outdated": "Outdated claim",
-            "unsupported": "Unsupported claim",
-        }
+        rule = kind_rule.get(c["kind"], stat_rule)
+        if c["kind"] in kind_rule or not citations:
+            citations.append({"type": "rule", "id": rule})
         findings.append({
             "id": gen_id("fnd"), "revision_id": revision_id, "checker": "claims",
             "category": verdict + "_claim", "span": {"start": s, "end": e, "text": span_text},
@@ -129,29 +129,33 @@ def run_check(conn: sqlite3.Connection, revision_id: str, actor_role: str) -> Di
                 "high" if verdict in ("contradicted", "outdated") else "medium",
             "citations": citations, "explanation": explanation,
             "suggestion": {"replace": suggestion, "operation": op} if (suggestion or op != "replace") else None,
+            "title": CLAIM_TITLES.get(verdict, "Claim issue"),
             "provenance": {"model": model_note, "prompt_version": PROMPT_VERSION,
                            "knowledge_version": kv_bumped},
-            "_vcm": hits_vcm,
         })
 
     # --- AI: implicit claims + tone (one batched call each, strict JSON) ----
-    calls_used = conn.execute("SELECT COUNT(*) c FROM ai_calls").fetchone()["c"] - ai_calls_before
+    def budget_left() -> bool:
+        return gateway.call_budget_ok(words, gateway.successful_calls(conn) - ai_calls_before)
+
     ai_pending = False
-    budget = gateway.call_budget_ok(words, calls_used)
-    providers = any(p["available"] for p in gateway.provider_list())
+    budget = budget_left()
+    providers = gateway.any_available()
     implicit = claims.ai_implicit_claims(text, budget, conn) if providers else None
     if implicit is None and providers and not budget:
         ai_pending = True
     if implicit:
-        budget = gateway.call_budget_ok(words, conn.execute(
-            "SELECT COUNT(*) c FROM ai_calls").fetchone()["c"] - ai_calls_before)
         verified = claims.ai_verify_claims(
-            text, [{"snippet": i["claim"]} for i in implicit], facts, budget, conn)
+            text, [{"snippet": i["claim"]} for i in implicit], facts, budget_left(), conn)
         for v in verified:
             if v["verdict"] == "supported":
                 continue
             pos = text.find(v["snippet"])
-            cits = [{"type": "fact", "id": fid} for fid in v["fact_ids"]] or [{"type": "rule", "id": "CLM-01"}]
+            cits = [{"type": "fact", "id": fid} for fid in v["fact_ids"]]
+            if not cits and stat_rule:
+                cits = [{"type": "rule", "id": stat_rule}]
+            if not cits:
+                continue  # the statistic rule is retired: nothing to cite, no finding
             findings.append({
                 "id": gen_id("fnd"), "revision_id": revision_id, "checker": "claims",
                 "category": v["verdict"] + "_claim",
@@ -160,17 +164,15 @@ def run_check(conn: sqlite3.Connection, revision_id: str, actor_role: str) -> Di
                 "severity": "high" if v["verdict"] in ("contradicted", "outdated") else "medium",
                 "citations": cits, "explanation": v["explanation"],
                 "suggestion": {"replace": v["suggestion"], "operation": "replace"} if v.get("suggestion") else None,
-                "title": {"contradicted": "Contradicted claim", "outdated": "Outdated claim",
-                          "unsupported": "Unsupported claim"}.get(v["verdict"], "Claim issue"),
+                "title": CLAIM_TITLES.get(v["verdict"], "Claim issue"),
                 "provenance": {"model": v["model"], "prompt_version": PROMPT_VERSION,
                                "knowledge_version": kv_bumped},
             })
     elif implicit is None:
         ai_pending = True  # no provider or call refused: implicit checks pending ([] = ran, found none)
 
-    if providers:
-        budget = gateway.call_budget_ok(words, conn.execute(
-            "SELECT COUNT(*) c FROM ai_calls").fetchone()["c"] - ai_calls_before)
+    tone_rule = ctx.rule("voice.tone")
+    if providers and tone_rule:
         tone_out = gateway.gateway_call(
             "tone_check",
             [{"role": "system", "content": TONE_SYSTEM},
@@ -182,7 +184,7 @@ def run_check(conn: sqlite3.Connection, revision_id: str, actor_role: str) -> Di
                       "WHERE workspace_id = ? AND category = 'Voice' AND status='approved'",
                       (ws,)).fetchall())
               + "\n\nCONTENT:\n" + text}],
-            conn=conn, budget_ok=budget,
+            conn=conn, budget_ok=budget_left(), prompt_version=TONE_PROMPT_VERSION,
         )
         if not tone_out:
             ai_pending = True  # provider listed but the tone call failed or was over budget
@@ -197,7 +199,7 @@ def run_check(conn: sqlite3.Connection, revision_id: str, actor_role: str) -> Di
                         "category": "tone",
                         "span": {"start": pos, "end": pos + len(span_text), "text": span_text},
                         "tier": "consider", "severity": "medium",
-                        "citations": [{"type": "rule", "id": "VOICE-3.2"}],
+                        "citations": [{"type": "rule", "id": tone_rule}],
                         "explanation": t.get("explanation", "Tone conflicts with the brand voice rules."),
                         "suggestion": {"replace": t.get("fix"), "operation": "replace"} if t.get("fix") else None,
                         "title": "Tone: judgement call",
@@ -245,6 +247,12 @@ def run_check(conn: sqlite3.Connection, revision_id: str, actor_role: str) -> Di
         if span_text and span_key in seen_final:
             discarded += 1
             continue
+        f["status"] = decided.get((f["checker"], f["category"], f["span"]["text"]), "open")
+        if not contract.conforms(f):
+            discarded += 1
+            if os.environ.get("CANON_DEBUG"):
+                print("[discard:contract]", f["checker"], f["category"])
+            continue
         if not claims.citation_check(conn, ws, f, text):
             discarded += 1
             if os.environ.get("CANON_DEBUG"):
@@ -253,9 +261,7 @@ def run_check(conn: sqlite3.Connection, revision_id: str, actor_role: str) -> Di
             continue
         if span_text:
             seen_final.add(span_key)
-        f.pop("_vcm", None)
         _pin_citation_versions(conn, ws, f["citations"])
-        f["status"] = decided.get((f["checker"], f["category"], f["span"]["text"]), "open")
         conn.execute(
             "INSERT INTO findings (id, revision_id, checker, category, span_start, span_end, "
             "span_text, tier, severity, citations_json, explanation, suggestion_json, "
@@ -270,7 +276,7 @@ def run_check(conn: sqlite3.Connection, revision_id: str, actor_role: str) -> Di
         )
         kept.append(f)
 
-    calls_after = conn.execute("SELECT COUNT(*) c FROM ai_calls").fetchone()["c"]
+    calls_after = gateway.successful_calls(conn)
     status = "ai_pending" if ai_pending else "done"
     conn.execute(
         "UPDATE check_runs SET finished_at = ?, ai_calls = ?, discarded = ?, status = ? WHERE id = ?",

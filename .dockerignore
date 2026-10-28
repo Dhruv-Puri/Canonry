@@ -1,0 +1,12 @@
+# Only engine/ and data/ go into the engine image (see engine/Dockerfile).
+.git
+.github
+web
+docs
+db
+**/__pycache__
+**/*.py[cod]
+engine/tests
+engine/evaluation
+.env
+.env.*

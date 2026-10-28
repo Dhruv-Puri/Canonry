@@ -1,12 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Archive, History, Pencil, Plus, RotateCcw, Search } from "lucide-react";
+import { Archive, FileText, History, Pencil, Plus, RotateCcw, Search, Upload, X } from "lucide-react";
 import {
   api,
   isRetired,
   type Fact,
   type ImpactItem,
+  type ImportedRule,
+  type RuleImportPreview,
   type KBEntity,
   type KBKind,
   type KBWriteResult,
@@ -40,6 +42,7 @@ export default function KBPage() {
   const [retiring, setRetiring] = useState<{ kind: KBKind; entity: KBEntity } | null>(null);
   const [impact, setImpact] = useState<{ factId: string; items: ImpactItem[] } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -91,9 +94,12 @@ export default function KBPage() {
           </p>
         </div>
         {canEdit && (
-          <button className="btn btn-primary" onClick={() => setEditing({ kind: tab, entity: null })}>
-            <Plus className="size-4" aria-hidden /> New {NOUN[tab]}
-          </button>
+          <div className="flex flex-wrap gap-2">
+            {tab === "rules" && <button className="btn btn-secondary" onClick={() => setImportOpen((open) => !open)}><Upload className="size-4" aria-hidden /> Import rulebook</button>}
+            <button className="btn btn-primary" onClick={() => setEditing({ kind: tab, entity: null })}>
+              <Plus className="size-4" aria-hidden /> New {NOUN[tab]}
+            </button>
+          </div>
         )}
       </div>
 
@@ -104,6 +110,7 @@ export default function KBPage() {
         </p>
       )}
       {impact && <ImpactNotice factId={impact.factId} items={impact.items} onClose={() => setImpact(null)} />}
+      {importOpen && canEdit && tab === "rules" && <RuleDocumentImporter onImported={(count) => { setImportOpen(false); setNotice(`${count} reviewed rule draft${count === 1 ? "" : "s"} added. Edit each draft and approve it before it is used in checks.`); void load(); }} onCancel={() => setImportOpen(false)} />}
       {me && !canEdit && (
         <p className="text-sm text-muted-foreground">You can read the knowledge base. Reviewers and admins change it.</p>
       )}
@@ -216,6 +223,81 @@ export default function KBPage() {
         />
       )}
     </div>
+  );
+}
+
+function RuleDocumentImporter({ onImported, onCancel }: { onImported: (count: number) => void; onCancel: () => void }) {
+  const [preview, setPreview] = useState<RuleImportPreview | null>(null);
+  const [rules, setRules] = useState<ImportedRule[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function inspect(file?: File) {
+    if (!file) return;
+    setBusy(true);
+    setError(null);
+    setPreview(null);
+    try {
+      const result = await api<RuleImportPreview>(`/rules/import-document?filename=${encodeURIComponent(file.name)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/octet-stream" },
+        body: file,
+      });
+      setPreview(result);
+      setRules(result.proposals);
+      if (!result.proposals.length) setError("No rule-sized paragraphs were found. Try a Markdown or DOCX document with one guideline per paragraph.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveDrafts() {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await api<{ count: number }>("/rules/import-drafts", { method: "POST", json: { proposals: rules } });
+      onImported(result.count);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="surface space-y-4 p-5" aria-label="Import a guideline document">
+      <div className="flex items-start gap-3">
+        <FileText className="mt-1 size-5 shrink-0 text-brand" aria-hidden />
+        <div className="min-w-0 flex-1">
+          <h2 className="font-semibold text-foreground">Import a rulebook as drafts</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Choose a Markdown, text, or Word (.docx) file up to 5 MB. Canonry groups paragraphs into editable suggestions; nothing is made active until a reviewer approves each rule.</p>
+        </div>
+        <button className="btn btn-ghost btn-sm size-8 px-0" onClick={onCancel} aria-label="Close import"><X className="size-4" /></button>
+      </div>
+      <label className="flex cursor-pointer flex-wrap items-center gap-3 rounded-xl border border-dashed border-border-strong p-4 text-sm">
+        <Upload className="size-4 text-brand" aria-hidden />
+        <span className="font-medium">{busy ? "Reading document…" : preview ? `Selected: ${preview.source}` : "Choose a .md, .txt, or .docx file"}</span>
+        <input type="file" accept=".md,.markdown,.txt,.docx" className="sr-only" disabled={busy} onChange={(event) => void inspect(event.target.files?.[0])} />
+      </label>
+      {preview && rules.length > 0 && (
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">Review each extracted paragraph, change its category or wording, and remove anything that is not a rule. {preview.ignored > 0 ? `${preview.ignored} short or excess paragraphs were skipped.` : ""}</p>
+          {rules.map((rule, index) => (
+            <article key={index} className="rounded-xl border border-border bg-background p-3">
+              <div className="flex items-center justify-between gap-3"><span className="text-xs font-semibold text-warning-fg">Draft suggestion {index + 1}</span><button className="text-xs text-muted-foreground underline" onClick={() => setRules((current) => current.filter((_, i) => i !== index))}>Remove</button></div>
+              <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto]">
+                <input className="field h-9 px-3" aria-label={`Category for draft ${index + 1}`} value={rule.category} onChange={(e) => setRules((current) => current.map((item, i) => i === index ? { ...item, category: e.target.value } : item))} />
+                <select className="field h-9 px-3 capitalize" aria-label={`Severity for draft ${index + 1}`} value={rule.severity} onChange={(e) => setRules((current) => current.map((item, i) => i === index ? { ...item, severity: e.target.value } : item))}><option>low</option><option>medium</option><option>high</option></select>
+              </div>
+              <textarea className="field mt-2 w-full px-3 py-2 text-sm" aria-label={`Rule statement for draft ${index + 1}`} rows={2} value={rule.statement} onChange={(e) => setRules((current) => current.map((item, i) => i === index ? { ...item, statement: e.target.value } : item))} />
+            </article>
+          ))}
+          <div className="flex justify-end gap-2"><button className="btn btn-secondary" onClick={onCancel}>Cancel</button><button className="btn btn-primary" disabled={busy || !rules.length || rules.some((rule) => !rule.category.trim() || rule.statement.trim().length < 10)} onClick={() => void saveDrafts()}>{busy ? "Saving drafts…" : `Save ${rules.length} as drafts`}</button></div>
+        </div>
+      )}
+      {error && <p role="alert" className="rounded-xl border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger-fg">{error}</p>}
+    </section>
   );
 }
 

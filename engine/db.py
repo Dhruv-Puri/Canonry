@@ -13,7 +13,7 @@ import os
 import secrets
 import sqlite3
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Optional
 
 DB_PATH = os.environ.get("CANONRY_DB_PATH") or os.path.join(os.path.dirname(__file__), "..", "db", "canonry.db")
 
@@ -24,11 +24,17 @@ CREATE TABLE IF NOT EXISTS workspaces (
 );
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, email TEXT UNIQUE NOT NULL,
-  name TEXT NOT NULL, role TEXT NOT NULL, created_at TEXT NOT NULL
+  name TEXT NOT NULL, role TEXT NOT NULL, created_at TEXT NOT NULL,
+  password_hash TEXT
 );
 CREATE TABLE IF NOT EXISTS sessions (
   token TEXT PRIMARY KEY, user_id TEXT NOT NULL, created_at TEXT NOT NULL,
   expires_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS invitations (
+  token_hash TEXT PRIMARY KEY, email TEXT NOT NULL, role TEXT NOT NULL,
+  created_by TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL,
+  consumed_at TEXT
 );
 CREATE TABLE IF NOT EXISTS rules (
   id TEXT NOT NULL, workspace_id TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1,
@@ -51,6 +57,10 @@ CREATE TABLE IF NOT EXISTS terms (
   preferred TEXT, banned_or_check TEXT, note TEXT,
   severity TEXT NOT NULL DEFAULT 'medium',
   version INTEGER NOT NULL DEFAULT 1, status TEXT NOT NULL DEFAULT 'active'
+);
+CREATE TABLE IF NOT EXISTS rule_bindings (
+  workspace_id TEXT NOT NULL, check_key TEXT NOT NULL, rule_id TEXT NOT NULL,
+  PRIMARY KEY (workspace_id, check_key)
 );
 CREATE TABLE IF NOT EXISTS knowledge_history (
   id INTEGER PRIMARY KEY AUTOINCREMENT, workspace_id TEXT NOT NULL,
@@ -151,6 +161,7 @@ def init_schema() -> None:
         conn.executescript(SCHEMA)
         # migrations for databases created before these columns existed
         for table, column, ddl in (
+            ("users", "password_hash", "password_hash TEXT"),
             ("claim_memory", "operation", "operation TEXT"),
             ("claim_memory", "knowledge_version", "knowledge_version INTEGER"),
             ("facts", "version", "version INTEGER NOT NULL DEFAULT 1"),
@@ -232,11 +243,12 @@ def bump_knowledge(conn: sqlite3.Connection) -> None:
 # ---- users & sessions -------------------------------------------------------
 
 def create_session(conn: sqlite3.Connection, user_id: str, ttl_hours: int = 24) -> str:
-    token = secrets.token_urlsafe(24)
+    token = secrets.token_urlsafe(32)
     expires = datetime.now(timezone.utc).timestamp() + ttl_hours * 3600
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
     conn.execute(
         "INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?,?,?,?)",
-        (token, user_id, _now(), datetime.fromtimestamp(expires, timezone.utc).isoformat()),
+        (token_hash, user_id, _now(), datetime.fromtimestamp(expires, timezone.utc).isoformat()),
     )
     conn.commit()
     return token
@@ -245,10 +257,11 @@ def create_session(conn: sqlite3.Connection, user_id: str, ttl_hours: int = 24) 
 def resolve_session(conn: sqlite3.Connection, token: Optional[str]) -> Optional[sqlite3.Row]:
     if not token:
         return None
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
     row = conn.execute(
         "SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id "
         "WHERE s.token = ? AND s.expires_at > ?",
-        (token, _now()),
+        (token_hash, _now()),
     ).fetchone()
     return row
 

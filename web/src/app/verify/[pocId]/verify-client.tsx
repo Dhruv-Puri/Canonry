@@ -6,17 +6,22 @@ import { SealGraphic } from "@/components/brand";
 
 type VerifyResult = {
   status: "verified" | "modified" | "unknown" | "signature_invalid";
-  record: Record<string, unknown>;
+  content_checked: boolean;
+  record?: Record<string, unknown>;
   reason?: string;
 };
 
 const HEADLINE: Record<string, { title: string; cls: string }> = {
+  genuine: {
+    title: "Genuine seal: this approval is on record",
+    cls: "bg-success-bg border-success-border text-success-fg",
+  },
   verified: {
-    title: "Verified: this approval is intact",
+    title: "Verified: this is the approved text",
     cls: "bg-success-bg border-success-border text-success-fg",
   },
   modified: {
-    title: "Modified: the content changed after approval",
+    title: "Modified: this text is not what was approved",
     cls: "bg-danger-bg border-danger-border text-danger-fg",
   },
   signature_invalid: {
@@ -32,6 +37,8 @@ const HEADLINE: Record<string, { title: string; cls: string }> = {
 export function VerifyClient({ pocId }: { pocId: string }) {
   const [r, setR] = useState<VerifyResult | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [text, setText] = useState("");
+  const [checking, setChecking] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -44,7 +51,25 @@ export function VerifyClient({ pocId }: { pocId: string }) {
     })();
   }, [pocId]);
 
-  const head = r ? HEADLINE[r.status] : null;
+  async function checkText() {
+    setChecking(true);
+    setErr(null);
+    try {
+      const res = await fetch(`/engine/verify/${pocId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: text }),
+      });
+      if (!res.ok) throw new Error(res.status === 422 ? "That text is too long to check." : `Check failed (${res.status}).`);
+      setR((await res.json()) as VerifyResult);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  const head = r ? HEADLINE[r.status === "verified" && !r.content_checked ? "genuine" : r.status] : null;
 
   return (
     <div className="mx-auto max-w-2xl space-y-5">
@@ -69,6 +94,33 @@ export function VerifyClient({ pocId }: { pocId: string }) {
             <p className="mt-1.5 font-mono text-xs opacity-80">POC {pocId}</p>
           </div>
 
+          {r.status !== "unknown" && (
+            <div className="surface space-y-3 p-6">
+              <h2 className="section-title">Check the published text</h2>
+              <p className="text-sm text-muted-foreground">
+                Paste the text exactly as it was published. Canonry compares its fingerprint with the approved
+                version; the approved text itself is never shown here.
+              </p>
+              <textarea
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                rows={5}
+                aria-label="Published text"
+                className="field p-3 text-sm"
+                placeholder="Paste the published copy…"
+              />
+              <button
+                type="button"
+                onClick={() => void checkText()}
+                disabled={!text.trim() || checking}
+                className="btn btn-primary"
+              >
+                {checking ? "Checking…" : "Check this text"}
+              </button>
+            </div>
+          )}
+
+          {r.record && (
           <div className="surface p-6">
             <h2 className="section-title mb-4">Signed record</h2>
             <dl className="divide-y divide-border rounded-lg border border-border bg-background font-mono text-[13px]">
@@ -80,10 +132,11 @@ export function VerifyClient({ pocId }: { pocId: string }) {
               ))}
             </dl>
           </div>
+          )}
 
           <p className="text-center text-xs text-muted-foreground">
-            The seal covers the exact content SHA-256 of the approved revision, the approver and the
-            rules version at decision time. Back to{" "}
+            The seal covers the SHA-256 fingerprint of the approved text, the approver&apos;s role and the
+            knowledge version at decision time. Back to{" "}
             <Link href="/" className="link">
               Canonry
             </Link>
