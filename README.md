@@ -16,7 +16,7 @@ key at all.
 
 | | |
 |---|---|
-| **Live demo** | _link added after deployment_ — one-command free deploy in [docs/deployment.md](docs/deployment.md) |
+| **Live demo** | **<https://canonry-sigma.vercel.app>** — choose a role, *Continue as guest* (engine: <https://canonry-engine.onrender.com/health>; free tier, the first visit after idle can take ~50 s). Deploy your own: [docs/deployment.md](docs/deployment.md) |
 | **Run locally** | [Quick start](#4-quick-start) (about 5 minutes, no accounts, no keys) |
 | **Source** | <https://github.com/Dhruv-Puri/Canonry> |
 | **Round 1 plan** | `Canonry_Round1_Plan_vaidvansh6.pdf` (submitted in Round 1) |
@@ -235,7 +235,7 @@ Commit history on GitHub shows who changed what and when.
 
 ## 10. Known limitations
 
-- **AI checks need a key**: without one, implied claims and tone are marked *pending*. The AI path is tested with faked providers, not yet with live models in CI.
+- **AI checks depend on free tiers**: the live demo runs Gemini with Groq as fallback, capped per person per day; when every provider is busy, implied claims and tone are marked *pending* and the rule-based findings still show. CI tests the AI path with faked providers only.
 - **Small evaluation set**: 20 hand-built samples (6 frozen), labelled by the team, over the demo brand. It measures the deterministic engine exactly; independent double-labelling and a larger set are Round 3 work.
 - **Text only**: images, DOCX/PDF review and accessibility checks are planned for Round 3 (plan Section 11).
 - **Demo identity**: demo mode lets anyone act as any role. Production mode (passwords, one-use invitations, no self-approval) exists but is not the judge deployment.
