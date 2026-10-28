@@ -107,10 +107,11 @@ Needs Python 3.11+ and Node.js 20+. Run from this folder.
 ```bash
 # 1. Engine (FastAPI, port 8000) — demo mode seeds the Quillmark workspace
 python -m venv .venv
-.venv/Scripts/pip install -r engine/requirements.txt        # mac/linux: .venv/bin/pip
-cd engine
-CANONRY_DEMO_MODE=true ../.venv/Scripts/python -m uvicorn main:app --port 8000
-#   PowerShell: $env:CANONRY_DEMO_MODE="true"; ..\.venv\Scripts\python -m uvicorn main:app --port 8000
+.venv/Scripts/pip install -r engine/requirements.txt        # macOS / Linux: .venv/bin/pip
+# start the engine: demo mode, port 8000, auto-reload (no shell variables needed)
+.venv/Scripts/python engine/run_local.py        # Windows: PowerShell or Git Bash
+.venv\Scripts\python engine\run_local.py        # Windows: Command Prompt
+.venv/bin/python engine/run_local.py            # macOS / Linux
 
 # 2. Web (Next.js 16, port 3000), in a second terminal
 cd web

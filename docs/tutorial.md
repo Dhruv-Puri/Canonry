@@ -53,9 +53,10 @@ Requirements: **Python 3.11+** and **Node 20+**.
 # terminal 1 — FastAPI engine on port 8000
 python -m venv .venv
 .venv/Scripts/pip install -r engine/requirements.txt     # mac/linux: .venv/bin/pip
-cd engine
-CANONRY_DEMO_MODE=true ../.venv/Scripts/python -m uvicorn main:app --port 8000 --reload  # mac/linux: ../.venv/bin/python
-# PowerShell: $env:CANONRY_DEMO_MODE="true"; ..\.venv\Scripts\python -m uvicorn main:app --port 8000 --reload
+# start the engine: demo mode, port 8000, auto-reload (no shell variables needed)
+.venv/Scripts/python engine/run_local.py        # Windows: PowerShell or Git Bash
+.venv\Scripts\python engine\run_local.py        # Windows: Command Prompt
+.venv/bin/python engine/run_local.py            # macOS / Linux
 
 # terminal 2 — Next.js web app, from the project folder
 cd web

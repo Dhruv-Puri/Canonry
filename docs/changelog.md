@@ -73,6 +73,7 @@ then fixed (table in [progress.md](progress.md) §8, decisions D43–D52 in the
 | AI gateway | Daily allowance: 5 AI-assisted checks per person, 50 per workspace (configurable); failed provider calls never charged; admins not exempt (D53) | `test_quota.py` |
 | Web | The "AI checks are pending" banner now says exactly why (no key, your allowance, workspace allowance, provider busy, per-check budget) and when it resets; an "AI checks today: n of 5" counter | browser check of the production build |
 | Startup | Clearer error when production mode lacks an admin: it now points to `CANONRY_DEMO_MODE=true` for local demos | — |
+| Local start | `engine/run_local.py`: one start command for PowerShell, cmd, Git Bash and macOS (demo mode, port 8000, auto-reload); the README's shell-specific command failed in PowerShell | started from PowerShell with no variables set |
 
 **Deliberately deferred to Round 3** (unchanged from plan M7–M10): pgvector
 retrieval on managed Postgres, rule editor impact preview for *create* flows,
