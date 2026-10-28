@@ -66,6 +66,16 @@ then fixed (table in [progress.md](progress.md) §8, decisions D43–D52 in the
 | Contract | Every finding validated against `finding@1` before storage | all suites |
 | Repository | Tests in `engine/tests/` with one runner, evaluation in `engine/evaluation/`, decision log in `docs/`, dead code removed, judge-demo blueprint (`render.yaml`), `/health` endpoint, deployment guide rewritten | `run_tests.py` → 11/11; `npm run build` |
 
+## 2026-10-28 · Daily AI allowance
+
+| Area | What | Verified by |
+|---|---|---|
+| AI gateway | Daily allowance: 5 AI-assisted checks per person, 50 per workspace (configurable); failed provider calls never charged; admins not exempt (D53) | `test_quota.py` |
+| Web | The "AI checks are pending" banner now says exactly why (no key, your allowance, workspace allowance, provider busy, per-check budget) and when it resets; an "AI checks today: n of 5" counter | browser check of the production build |
+| Startup | Clearer error when production mode lacks an admin: it now points to `CANONRY_DEMO_MODE=true` for local demos | — |
+| Tests | Suites and the evaluation never reach a real AI provider (`CANONRY_ENV_FILE=""`, provider keys cleared); a local `.env` with a real key had made the suites call Gemini | full run with a real key present: 12/12, zero real calls |
+| Local start | `engine/run_local.py`: one start command for PowerShell, cmd, Git Bash and macOS (demo mode, port 8000, auto-reload); the README's shell-specific command failed in PowerShell | started from PowerShell with no variables set |
+
 **Deliberately deferred to Round 3** (unchanged from plan M7–M10): pgvector
 retrieval on managed Postgres, rule editor impact preview for *create* flows,
 reviewer inbox with SLA timers, image checks, Brand Blast Radius.

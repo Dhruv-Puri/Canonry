@@ -37,6 +37,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
+# the evaluation measures the deterministic engine and must never spend a real AI key
+os.environ["CANONRY_ENV_FILE"] = ""
+for _key in ("GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY", "OLLAMA_URL"):
+    os.environ.pop(_key, None)
+
 import db as _db  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))

@@ -83,7 +83,7 @@ Why this order (and why it mattered at hackathon pace):
 | Anti-hallucination | returned spans are only accepted if found **verbatim** in the text | Prevents any AI-fabricated issue from reaching the reviewer. |
 | State model | immutable revisions + issue statuses (open/accepted/edited/disputed) + decisions | Reasoning must be reconstructable: this finding, on that text, resolved by this human, with reason. |
 | Work artifacts | seeded SQLite; hash-chained audit; Ed25519 PoC | The "prove" quarter of the plan, all local, no infra to deploy. |
-| Demo access | demo mode: seeded personas sign in without a password through a real engine `POST /login`; production mode uses passwords and invitations | A judge opens the link and uses the product without help; real sessions and role rules under the hood. |
+| Demo access | demo mode: a guest picks a role and continues, creating a real engine session (`POST /join`), no account; production mode uses passwords and invitations | A judge opens the link and uses the product without help; real sessions and role rules under the hood. |
 
 ## 4. Deviations from the Round 1 plan
 
@@ -144,7 +144,7 @@ Checked against the Round 2 judging criteria:
 - **A judge can use it without help**: in demo mode there is no password; the
   dashboard already lists a deliberately broken Quillmark post and the seeded
   knowledge base, and each role is one seeded sign-in away.
-- **Reliability**: 10 suites and an evaluation gate run in CI on every push
+- **Reliability**: 11 suites and an evaluation gate run in CI on every push
   (see the [README](../README.md#7-tests-and-reliability)).
 - **Round 3**: the plan's milestones M7–M10 are unchanged; see
   [progress.md §5](progress.md#5-round-3-improvements-planned).

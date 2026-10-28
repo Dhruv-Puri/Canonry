@@ -30,6 +30,7 @@ import gateway
 import knowledge
 import pipeline
 import policy
+import quota
 import signing
 import workflow
 from db import (
@@ -63,6 +64,7 @@ async def no_store_sensitive_responses(request: Request, call_next):
 
 @app.on_event("startup")
 def _startup() -> None:
+    quota.limits()  # a malformed CANONRY_AI_DAILY_* setting stops the boot with a clear message
     init_schema()
     if not DEMO_MODE:
         _ensure_production_workspace()
@@ -125,9 +127,11 @@ def _ensure_bootstrap_admin() -> None:
     email = os.environ.get("CANONRY_BOOTSTRAP_ADMIN_EMAIL", "").strip().lower()
     password = os.environ.get("CANONRY_BOOTSTRAP_ADMIN_PASSWORD", "")
     if not email or len(email) > 254 or not EMAIL_RE.match(email):
-        raise RuntimeError("Set CANONRY_BOOTSTRAP_ADMIN_EMAIL to a valid initial administrator address.")
+        raise RuntimeError("Set CANONRY_BOOTSTRAP_ADMIN_EMAIL to a valid initial administrator address "
+                           "(production mode), or set CANONRY_DEMO_MODE=true for a local demo.")
     if len(password) < 12:
-        raise RuntimeError("Set CANONRY_BOOTSTRAP_ADMIN_PASSWORD to at least 12 characters.")
+        raise RuntimeError("Set CANONRY_BOOTSTRAP_ADMIN_PASSWORD to at least 12 characters "
+                           "(production mode), or set CANONRY_DEMO_MODE=true for a local demo.")
     conn = connect()
     try:
         existing = conn.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
@@ -868,7 +872,7 @@ def submit(req: Request, body: SubmitIn):
             (sid, _ws(conn), body.title, body.channel, body.source_type, user["email"], _now()),
         )
         audit(conn, user["email"], "submit_content", f"{sid}: {body.title}")
-        result = run_check_for_submission(conn, sid, body.content)
+        result = run_check_for_submission(conn, sid, body.content, user["email"])
         resp = {"submission_id": sid, "revision_id": result["revision_id"], **{
             k: v for k, v in result.items() if k != "revision_id"}}
         conn.commit()
@@ -877,7 +881,8 @@ def submit(req: Request, body: SubmitIn):
         conn.close()
 
 
-def run_check_for_submission(conn: sqlite3.Connection, sid: str, content: str) -> Dict[str, Any]:
+def run_check_for_submission(conn: sqlite3.Connection, sid: str, content: str,
+                             actor: Optional[str] = None, reuse_ai_from: Optional[str] = None) -> Dict[str, Any]:
     rev_no = conn.execute("SELECT COALESCE(MAX(revision_no),0)+1 AS n FROM revisions WHERE submission_id=?", (sid,)).fetchone()["n"]
     rid = gen_id("rev")
     conn.execute(
@@ -885,7 +890,7 @@ def run_check_for_submission(conn: sqlite3.Connection, sid: str, content: str) -
         (rid, sid, content, rev_no, _now()),
     )
     conn.execute("UPDATE submissions SET status = CASE WHEN status='Draft' THEN 'Checked' ELSE status END WHERE id=?", (sid,))
-    result = pipeline.run_check(conn, rid)
+    result = pipeline.run_check(conn, rid, actor, reuse_ai_from)
     result["revision_id"] = rid
     return result
 
@@ -960,12 +965,13 @@ def get_submission(req: Request, sid: str):
         poc = conn.execute("SELECT id, created_at FROM proof_of_compliance WHERE submission_id=? ORDER BY created_at DESC LIMIT 1", (sid,)).fetchone()
         # latest check run on the latest revision, so the UI can say when AI checks are still pending
         check = conn.execute(
-            "SELECT status, started_at, finished_at, ai_calls, discarded, knowledge_version FROM check_runs "
+            "SELECT status, started_at, finished_at, ai_calls, discarded, knowledge_version, ai_reason FROM check_runs "
             "WHERE revision_id = ? ORDER BY started_at DESC LIMIT 1", (latest["id"] if latest else "",)).fetchone()
         return {"submission": dict(sub), "revisions": revs, "latest_revision": latest,
                 "findings": findings, "decisions": decisions, "approvals": approvals,
                 "poc": dict(poc) if poc else None, "check": dict(check) if check else None, "me": _public_user(user),
-                "allowed": workflow.allowed(sub["status"])}
+                "allowed": workflow.allowed(sub["status"]),
+                "ai_allowance": quota.usage(conn, sub["workspace_id"], user["email"])}
     finally:
         conn.close()
 
@@ -1020,10 +1026,12 @@ def resolve_finding(req: Request, sid: str, body: ResolveIn):
             (gen_id("dec"), body.revision_id, body.finding_id, body.action, body.replacement, body.reason, user["email"], _now()),
         )
         conn.execute("UPDATE findings SET status=? WHERE id=?", (RESOLVE_ACTIONS[body.action], body.finding_id))
-        result = run_check_for_submission(conn, sid, content)
+        # rules re-run now; the AI's findings carry over (Re-check runs the AI again)
+        result = run_check_for_submission(conn, sid, content, user["email"], reuse_ai_from=body.revision_id)
         audit(conn, user["email"], f"finding_{body.action}", f"{body.finding_id} reason={body.reason or ''}")
         conn.commit()
-        return {"ok": True, "revision_id": result["revision_id"], "ai_pending": result["ai_pending"]}
+        return {"ok": True, "revision_id": result["revision_id"], "ai_pending": result["ai_pending"],
+                "ai_reason": result["ai_reason"]}
     finally:
         conn.close()
 
@@ -1055,7 +1063,7 @@ def recheck(req: Request, sid: str):
         _visible_sub(conn, user, sid, "edit")
         rev = conn.execute(
             "SELECT * FROM revisions WHERE submission_id=? ORDER BY revision_no DESC LIMIT 1", (sid,)).fetchone()
-        result = run_check_for_submission(conn, sid, rev["content"])
+        result = run_check_for_submission(conn, sid, rev["content"], user["email"])
         conn.commit()
         return result
     finally:

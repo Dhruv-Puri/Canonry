@@ -44,3 +44,15 @@ services:
       # optional free-tier AI key; without one AI checks are marked pending
       - key: GEMINI_API_KEY
         sync: false
+      # optional free Groq key: fast fallback when Gemini is busy
+      - key: GROQ_API_KEY
+        sync: false
+      # Vercel's proxy drops a request after 120 s and a cold start eats into
+      # that: give a check's AI part 60 s, then show the rule-based results
+      - key: CANONRY_AI_DEADLINE_SECONDS
+        value: "60"
+      # daily AI allowance (defaults shown); protects the free key during judging
+      - key: CANONRY_AI_DAILY_PER_USER
+        value: "5"
+      - key: CANONRY_AI_DAILY_PER_WORKSPACE
+        value: "50"

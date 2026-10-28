@@ -156,10 +156,13 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-h1,
-h2,
-h3 {
-  color: var(--foreground);
+/* in the base layer so a text-* utility on a heading can still set its colour */
+@layer base {
+  h1,
+  h2,
+  h3 {
+    color: var(--foreground);
+  }
 }
 
 ::selection {

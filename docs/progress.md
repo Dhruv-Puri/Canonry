@@ -20,7 +20,7 @@
 | Guest access — no sign-in needed | ✅ done | persona switcher performs real engine login; judge clicks and works |
 | AI gateway (3 providers, key-less honest mode) | ✅ done | runs key-less (marks AI checks pending) — see §4 for the one key that lights it up |
 | Documentation | ✅ done | README + docs/architecture, design, approach, progress, getting-started, tutorial, changelog, disclosure-log, deployment, usability kit |
-| Test suites (`engine/tests/`, 10 suites + evaluation gate) | ✅ done | checks over validation, insights shape, number formats, counts, rule preview |
+| Test suites (`engine/tests/`, 11 suites + evaluation gate) | ✅ done | checks over validation, insights shape, number formats, counts, rule preview |
 | Evaluation baseline (Appendix B) | ✅ done | `engine/evaluation/evaluate.py` + `eval_set.jsonl` (20 samples, ~30% frozen) + `eval_baseline.json`; every run stored in `eval_runs` |
 | CI gates (Section 11.5) | ✅ done | `.github/workflows/ci.yml`: six suites, evaluation gate, type-check, production build, `pip-audit`, `npm audit` |
 | Deployment to a public URL | ⏳ pending (accounts needed) | artifacts ready: `engine/Dockerfile`, `render.yaml`, `docs/deployment.md` with verify steps; only the host accounts are missing |

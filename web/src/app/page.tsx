@@ -22,12 +22,16 @@ import {
   Tag,
   Type,
 } from "lucide-react";
-import { api, CATEGORY_LABEL, type Submission, type User } from "@/lib/api";
+import { api, CATEGORY_LABEL, type Submission } from "@/lib/api";
 import { RiskBadge, StatusBadge } from "@/components/fx";
 import { EmptyIllustration } from "@/components/brand";
+import { AiLoadingScreen } from "@/components/ai-loading";
+import { ProductTour } from "@/components/tour";
 import { HeroDemo } from "@/components/hero-demo";
 import { CountUp, Reveal } from "@/components/motion";
 import { Tilt } from "@/components/effects";
+import { useIdentity } from "@/components/identity";
+import { roleHome } from "@/lib/roles";
 
 type Workspace = {
   workspace: string;
@@ -90,28 +94,59 @@ function flowIndex(status: string): number {
 const CHANNELS = ["social", "web", "blog", "email", "sales"];
 const HEADLINE = ["Every", "word,"];
 const HEADLINE_INK = ["on", "brand."];
+const TOUR_KEY = "canonry.tour.v1";
 
 export default function HomePage() {
   const router = useRouter();
+  const { me } = useIdentity();
   const [subs, setSubs] = useState<Submission[] | null>(null);
   const [ws, setWs] = useState<Workspace | null>(null);
-  const [me, setMe] = useState<User | null>(null);
   const [cats, setCats] = useState<Category[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [channel, setChannel] = useState("social");
   const [busy, setBusy] = useState(false);
+  const [tourOpen, setTourOpen] = useState(false);
+
+  // Show the tour once per browser, shortly after the workspace settles in.
+  // Only creators work on this page; every other role has its own home.
+  useEffect(() => {
+    if (me && me.role !== "creator") return;
+    let seen = false;
+    try {
+      seen = window.localStorage.getItem(TOUR_KEY) === "1";
+    } catch {
+      // Storage can be blocked; the button below still opens the tour.
+    }
+    if (seen) return;
+    const timer = window.setTimeout(() => setTourOpen(true), 700);
+    return () => window.clearTimeout(timer);
+  }, [me]);
+
+  function closeTour() {
+    setTourOpen(false);
+    try {
+      window.localStorage.setItem(TOUR_KEY, "1");
+    } catch {
+      // Ignore storage failures; the current session still knows it was seen.
+    }
+  }
+
+  function finishTour() {
+    closeTour();
+    window.setTimeout(() => {
+      document.getElementById("check")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 220);
+  }
 
   const load = useCallback(async () => {
     try {
-      const [s, w, m] = await Promise.all([
+      const [s, w] = await Promise.all([
         api<{ submissions: Submission[] }>("/submissions"),
         api<Workspace>("/workspace"),
-        api<User>("/me"),
       ]);
       setSubs(s.submissions);
       setWs(w);
-      setMe(m);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -123,8 +158,14 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
+    if (me && me.role !== "creator") return;
     void load();
-  }, [load]);
+  }, [load, me?.role]);
+
+  // `/` is the creator workspace now; everyone else has a dedicated home.
+  useEffect(() => {
+    if (me && me.role !== "creator") router.replace(roleHome(me.role));
+  }, [me, router]);
 
   async function check() {
     const content = draft.trim();
@@ -136,13 +177,21 @@ export default function HomePage() {
       const title = words.slice(0, 6).join(" ") + (words.length > 6 ? "…" : "");
       const r = await api<{ submission_id: string }>("/submissions", {
         method: "POST",
-        json: { title, channel, source_type: me?.role === "agency" ? "agency" : "in-house", content },
+        json: { title, channel, source_type: "in-house", content },
       });
       router.push(`/submissions/${r.submission_id}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setBusy(false);
     }
+  }
+
+  if (me && me.role !== "creator") {
+    return (
+      <div className="grid min-h-[50vh] place-items-center" role="status" aria-live="polite">
+        <p className="text-sm text-muted-foreground">Opening your workspace…</p>
+      </div>
+    );
   }
 
   const firstName = me ? me.name.split(" ")[0] : null;
@@ -497,12 +546,18 @@ export default function HomePage() {
             ))}
           </ol>
         </div>
-        <Reveal className="mt-16 text-center">
+        <Reveal className="mt-16 flex flex-wrap items-center justify-center gap-3">
           <a href="#check" className="btn btn-primary btn-lg shadow-card">
             Try it on your own copy <span aria-hidden className="btn-arrow">→</span>
           </a>
+          <button type="button" onClick={() => setTourOpen(true)} className="btn btn-secondary btn-lg">
+            Take the tour
+          </button>
         </Reveal>
       </section>
+
+      <ProductTour open={tourOpen} onClose={closeTour} onFinish={finishTour} />
+      <AiLoadingScreen open={busy} title="Checking your draft" />
     </div>
   );
 }

@@ -8,6 +8,7 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # the engine package
+import offline_ai  # noqa: E402,F401  (first: tests never reach a real AI provider)
 
 # Print rupee signs and other non-ASCII output on any console encoding.
 if hasattr(sys.stdout, "reconfigure"):
@@ -142,7 +143,7 @@ import gateway as _gateway  # noqa: E402
 
 _saved = (_gateway.any_available, _claims.ai_implicit_claims, _gateway.gateway_call)
 _gateway.any_available = lambda: True
-_claims.ai_implicit_claims = lambda text, budget, conn: []
+_claims.ai_implicit_claims = lambda text, budget, conn, **_: []
 _gateway.gateway_call = lambda *a, **k: {"text": '{"tone_findings": []}', "model": "stub"}
 try:
     rr = submit(arjun, "Quillmark Pulse helps team members see their numbers.").json()

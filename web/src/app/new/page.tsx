@@ -1,8 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { api, type Submission } from "@/lib/api";
+import { ShieldCheck } from "lucide-react";
+import { api } from "@/lib/api";
+import { AiLoadingScreen } from "@/components/ai-loading";
+import { useIdentity } from "@/components/identity";
+import { canReview } from "@/lib/roles";
 
 const SAMPLE_POST =
   "Meet Quillmark Pulse — India's most trusted analytics platform. " +
@@ -10,6 +15,8 @@ const SAMPLE_POST =
 
 export default function NewSubmissionPage() {
   const router = useRouter();
+  const { me } = useIdentity();
+  const isAgency = me?.role === "agency";
   const [title, setTitle] = useState("Launch post — Pulse 2.0");
   const [channel, setChannel] = useState("social");
   const [source, setSource] = useState("ai-assisted");
@@ -26,7 +33,7 @@ export default function NewSubmissionPage() {
     try {
       const r = await api<{ submission_id: string }>("/submissions", {
         method: "POST",
-        json: { title, channel, source_type: source, content },
+        json: { title, channel, source_type: isAgency ? "agency" : source, content },
       });
       router.push(`/submissions/${r.submission_id}`);
     } catch (e) {
@@ -35,13 +42,33 @@ export default function NewSubmissionPage() {
     }
   }
 
+  if (canReview(me?.role)) {
+    return (
+      <section className="surface mx-auto max-w-xl p-8 text-center">
+        <span className="mx-auto grid size-14 place-items-center rounded-2xl bg-muted text-brand">
+          <ShieldCheck className="size-6" aria-hidden />
+        </span>
+        <p className="eyebrow mt-5">Reviewer workspace</p>
+        <h1 className="mt-1 text-3xl font-bold tracking-tight">Drafts come from creators</h1>
+        <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-foreground-secondary">
+          Reviewers and brand admins decide on submitted work; they do not need a draft box. Open the queue to review
+          what is waiting for a decision.
+        </p>
+        <Link href="/review" className="btn btn-primary mt-6">
+          Open review queue <span aria-hidden className="btn-arrow">→</span>
+        </Link>
+      </section>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-2xl space-y-5">
       <div>
-        <p className="eyebrow">New submission</p>
-        <h1 className="page-title mt-1.5">Submit content</h1>
+        <p className="eyebrow">{isAgency ? "Agency submission" : "New submission"}</p>
+        <h1 className="page-title mt-1.5">{isAgency ? "Submit client work" : "Submit content"}</h1>
         <p className="page-lede">
           Checks run on save — no separate “run check” step to forget.
+          {isAgency ? " This goes to the client’s review queue under your agency source." : ""}
         </p>
       </div>
 
@@ -66,15 +93,21 @@ export default function NewSubmissionPage() {
             </select>
           </Field>
           <Field label="Source">
-            <select
-              className="field h-[38px] px-2 capitalize"
-              value={source}
-              onChange={(e) => setSource(e.target.value)}
-            >
-              {["in-house", "agency", "ai-assisted"].map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
+            {isAgency ? (
+              <p className="field flex h-[38px] items-center px-3 text-sm capitalize text-muted-foreground">
+                agency
+              </p>
+            ) : (
+              <select
+                className="field h-[38px] px-2 capitalize"
+                value={source}
+                onChange={(e) => setSource(e.target.value)}
+              >
+                {["in-house", "ai-assisted"].map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            )}
           </Field>
         </div>
 
@@ -110,6 +143,8 @@ export default function NewSubmissionPage() {
         a contradicted count, an unsupported superlative and an old price — so you can see the
         finding → fix → review → approve loop in one pass.
       </p>
+
+      <AiLoadingScreen open={busy} title="Checking your submission" />
     </div>
   );
 }

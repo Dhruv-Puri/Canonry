@@ -12,7 +12,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 EVALUATE = os.path.join(HERE, "..", "evaluation", "evaluate.py")
 SUITES = ["test_engine", "test_identity", "test_knowledge", "test_regressions", "test_seed_data",
-          "test_edge_cases", "test_policy", "test_access", "test_workflow", "test_gateway"]
+          "test_edge_cases", "test_policy", "test_access", "test_workflow", "test_gateway", "test_quota"]
 
 
 def main() -> int:
@@ -25,7 +25,11 @@ def main() -> int:
     failed = []
     for name, cmd in steps:
         t = time.perf_counter()
-        r = subprocess.run(cmd, cwd=HERE, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        # no suite may spend a real AI key: read no .env, drop provider settings
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY", "OLLAMA_URL")}
+        env["CANONRY_ENV_FILE"] = ""
+        r = subprocess.run(cmd, cwd=HERE, capture_output=True, text=True, encoding="utf-8", errors="replace", env=env)
         ok = r.returncode == 0
         print(f"{'PASS' if ok else 'FAIL'}  {name}  ({time.perf_counter() - t:.1f}s)")
         if not ok:

@@ -6,6 +6,9 @@ const nextConfig: NextConfig = {
   cacheComponents: true,
   partialPrefetching: true,
   experimental: {
+    // AI checks can legitimately take 30–120 s. Next's dev rewrite proxy gives
+    // up after 30 s by default and turns a slow check into "Internal Server Error".
+    proxyTimeout: 180_000,
     // The whole app renders behind <IdentityGate> (welcome screen until someone
     // identifies themselves), so no route can promise an instantly rendered
     // shell. Validate instant navigation only where a page opts in with

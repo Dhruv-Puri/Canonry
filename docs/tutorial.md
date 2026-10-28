@@ -53,9 +53,10 @@ Requirements: **Python 3.11+** and **Node 20+**.
 # terminal 1 — FastAPI engine on port 8000
 python -m venv .venv
 .venv/Scripts/pip install -r engine/requirements.txt     # mac/linux: .venv/bin/pip
-cd engine
-CANONRY_DEMO_MODE=true ../.venv/Scripts/python -m uvicorn main:app --port 8000 --reload  # mac/linux: ../.venv/bin/python
-# PowerShell: $env:CANONRY_DEMO_MODE="true"; ..\.venv\Scripts\python -m uvicorn main:app --port 8000 --reload
+# start the engine: demo mode, port 8000, auto-reload (no shell variables needed)
+.venv/Scripts/python engine/run_local.py        # Windows: PowerShell or Git Bash
+.venv\Scripts\python engine\run_local.py        # Windows: Command Prompt
+.venv/bin/python engine/run_local.py            # macOS / Linux
 
 # terminal 2 — Next.js web app, from the project folder
 cd web
@@ -172,7 +173,7 @@ Each suite boots its own database file, so your demo data is never touched.
 # every suite on its own fresh database, then the evaluation gate
 .venv/Scripts/python engine/tests/run_tests.py          # Windows
 .venv/bin/python engine/tests/run_tests.py              # mac/linux
-# → 11/11 passed
+# → 12/12 passed
 
 .venv/Scripts/python engine/tests/run_tests.py access   # only suites whose name contains "access"
 ```
@@ -189,6 +190,7 @@ Each suite boots its own database file, so your demo data is never touched.
 | `test_access` | agency partners see only their own work; confidential text stays hidden |
 | `test_workflow` | content is locked in review and after approval; public verification |
 | `test_gateway` | AI fallback chain, honest call ledger, nothing confidential sent (faked providers, no network) |
+| `test_quota` | daily AI allowance: 5 per person, 50 per workspace, clear reasons when out of tries, failed provider calls never charged |
 
 Each prints `ALL … TESTS PASSED` and exits 0 when healthy.
 

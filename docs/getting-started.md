@@ -21,13 +21,14 @@ python -m venv .venv
 .venv/Scripts/pip install -r engine/requirements.txt    # Windows
 .venv/bin/pip install -r engine/requirements.txt        # mac/linux
 
-# start the API on port 8000 in demo mode (seeded workspace, one-click personas)
-cd engine
-CANONRY_DEMO_MODE=true ../.venv/bin/python -m uvicorn main:app --port 8000     # mac/linux, Git Bash
-$env:CANONRY_DEMO_MODE="true"; ..\.venv\Scripts\python -m uvicorn main:app --port 8000   # PowerShell
+# start the engine: demo mode, port 8000, auto-reload (no shell variables needed)
+.venv/Scripts/python engine/run_local.py        # Windows: PowerShell or Git Bash
+.venv\Scripts\python engine\run_local.py        # Windows: Command Prompt
+.venv/bin/python engine/run_local.py            # macOS / Linux
 ```
 
-Without `CANONRY_DEMO_MODE=true` the engine starts in production mode, which
+`engine/run_local.py` switches on demo mode for you (seeded workspace, password-free
+personas). Starting uvicorn directly without `CANONRY_DEMO_MODE=true` runs production mode, which
 needs a first administrator (`CANONRY_BOOTSTRAP_ADMIN_EMAIL` and
 `CANONRY_BOOTSTRAP_ADMIN_PASSWORD`) and refuses to start without one; see
 [deployment.md](deployment.md) §5.
@@ -81,7 +82,7 @@ terminal; the app itself doesn't care.
 # every suite on its own fresh database, then the evaluation gate
 .venv/Scripts/python engine/tests/run_tests.py          # Windows
 .venv/bin/python engine/tests/run_tests.py              # mac/linux
-# → 11/11 passed
+# → 12/12 passed
 
 .venv/Scripts/python engine/tests/run_tests.py access   # only suites whose name contains "access"
 ```

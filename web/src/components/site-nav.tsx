@@ -1,25 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, Copy, LogOut, Menu, PencilLine, X } from "lucide-react";
 import { BrandMark } from "@/components/brand";
 import { useIdentity } from "@/components/identity";
 import { api } from "@/lib/api";
-import { initials, ROLE_LABEL, ROLES } from "@/lib/roles";
-
-const LINKS = [
-  { href: "/", label: "Home" },
-  { href: "/new", label: "Write" },
-  { href: "/kb", label: "Knowledge base" },
-  { href: "/insights", label: "Insights" },
-] as const;
+import { canReview, initials, navLinksFor, ROLE_LABEL, ROLES, roleHome } from "@/lib/roles";
 
 export function SiteNav() {
+  const { me } = useIdentity();
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const pathname = usePathname();
+  const links = navLinksFor(me?.role);
+  const home = roleHome(me?.role);
 
   useEffect(() => setOpen(false), [pathname]);
 
@@ -30,8 +26,15 @@ export function SiteNav() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  const isActive = (href: string) =>
-    href === "/" ? pathname === "/" || pathname.startsWith("/submissions") : pathname.startsWith(href);
+  // Who owns a submission detail depends on the role opening it.
+  const onSubmission = pathname.startsWith("/submissions");
+  const isActive = (href: string) => {
+    if (href === "/review") return pathname.startsWith("/review") || (canReview(me?.role) && onSubmission);
+    if (href === "/admin") return pathname.startsWith("/admin");
+    if (href === "/agency") return pathname.startsWith("/agency") || (me?.role === "agency" && onSubmission);
+    if (href === "/") return pathname === "/" || (me?.role === "creator" && onSubmission);
+    return pathname.startsWith(href);
+  };
 
   return (
     <header className="sticky top-0 z-40 px-4 pt-3 sm:px-6">
@@ -40,13 +43,13 @@ export function SiteNav() {
           scrolled ? "capsule" : "border border-transparent"
         }`}
       >
-        <Link href="/" className="flex items-center gap-2 pl-1 pr-2">
+        <Link href={home} className="flex items-center gap-2 pl-1 pr-2">
           <BrandMark className="size-7" />
           <span className="text-[17px] font-bold tracking-tight text-foreground">Canonry</span>
         </Link>
 
         <nav aria-label="Main" className="mx-auto hidden items-center gap-1 rounded-full border border-border bg-card/70 p-1 md:flex">
-          {LINKS.map(({ href, label }) => (
+          {links.map(({ href, label }) => (
             <Link key={href} href={href} aria-current={isActive(href) ? "page" : undefined} className="capsule-link">
               {label}
             </Link>
@@ -65,7 +68,7 @@ export function SiteNav() {
       {open && (
         <div className="capsule animate-fade-up mx-auto mt-2 max-w-6xl rounded-3xl p-3 md:hidden">
           <nav aria-label="Main" className="grid gap-1">
-            {LINKS.map(({ href, label }) => (
+            {links.map(({ href, label }) => (
               <Link key={href} href={href} aria-current={isActive(href) ? "page" : undefined} className="capsule-link py-2.5 text-[15px]">
                 {label}
               </Link>
@@ -82,6 +85,7 @@ export function SiteNav() {
 
 /** The person's chip: switch role, change name, or hand the device to someone else. */
 function ProfileMenu({ inline = false }: { inline?: boolean }) {
+  const router = useRouter();
   const { me, demoMode, update, leave } = useIdentity();
   const [open, setOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
@@ -146,7 +150,7 @@ function ProfileMenu({ inline = false }: { inline?: boolean }) {
               key={id}
               role="menuitemradio"
               aria-checked={me.role === id}
-              onClick={() => run(async () => { await update({ role: id }); setOpen(false); })}
+              onClick={() => run(async () => { await update({ role: id }); setOpen(false); router.push(roleHome(id)); })}
               className="flex w-full items-center gap-2.5 rounded-xl px-2 py-2 text-left text-sm hover:bg-muted"
             >
               <Icon className="size-4 text-brand" aria-hidden />
