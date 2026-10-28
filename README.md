@@ -180,7 +180,7 @@ Main technical decisions (full list with reasons in the [decision log](docs/deci
 
 | Kind | What | Notes |
 |---|---|---|
-| AI models (optional, runtime) | Gemini `gemini-2.5-flash`, Groq `llama-3.1-8b-instant`, OpenRouter `llama-3.3-70b-instruct:free`, Ollama `llama3.1:8b` | free tiers or local; each model overridable by environment variable; not configured in the default demo |
+| AI models (optional, runtime) | Gemini `gemini-3.1-flash-lite` (then other free Gemini models when it is busy), Groq `llama-3.1-8b-instant`, OpenRouter `llama-3.3-70b-instruct:free`, Ollama `llama3.1:8b` | free tiers or local; each model overridable by environment variable; the live demo uses Gemini with Groq as fallback |
 | Dataset | fictional Quillmark Analytics brand book: 43 rules, 41 facts (some expiring, superseded or confidential), 10 terms (`data/*.csv`); 20-sample labelled evaluation set (`engine/evaluation/eval_set.jsonl`) | invented for the challenge; no real company data |
 | Engine libraries | FastAPI, uvicorn, httpx, pydantic, PyNaCl | `engine/requirements.txt` |
 | Web libraries | Next.js 16, React 19, Tailwind CSS 4, Radix UI primitives, lucide-react, class-variance-authority | `web/package.json`; shadcn/ui component recipes |
@@ -258,7 +258,7 @@ Commit history on GitHub shows who changed what and when.
 │   ├── Dockerfile
 │   └── requirements.txt
 ├── web/                     ← Next.js 16 app (screens only)
-│   └── src/app/             ← /, /new, /submissions/[id], /kb, /insights, /verify/[pocId]
+│   └── src/app/             ← /, /new, /submissions/[id], /review, /agency, /admin, /kb, /insights, /verify/[pocId]
 └── docs/                    ← see below
 ```
 
