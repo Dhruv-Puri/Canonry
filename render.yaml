@@ -1,0 +1,46 @@
+# Free-tool deployment blueprint (plan Section 9.8).
+#
+# Render dashboard → New → Blueprint → point it at this repository, and the
+# engine comes up on a free instance. The web app goes to Vercel (see
+# docs/deployment.md) with CANONRY_ENGINE_URL set to this service's URL.
+#
+# Free instances have an EMPTY, EPHEMERAL filesystem at boot: the engine
+# re-creates and re-seeds the demo workspace automatically, but the Ed25519
+# key is new each time, so a seal signed before a restart verifies as
+# "unknown" afterwards. Attach the disk block below on a paid instance (or
+# run Docker with a volume) when signed approvals must outlive a restart.
+#
+#   disk:
+#     name: canonry-data
+#     mountPath: /app/db
+#     sizeGB: 1
+# This blueprint deploys the JUDGE DEMO: CANONRY_DEMO_MODE=true opens the
+# seeded Quillmark workspace with one-click personas and no passwords (decision
+# D36). Anyone with the link can act as any role, and the free disk resets on
+# restart, so never put real brand data in it. For a real workspace, set
+# CANONRY_DEMO_MODE=false plus CANONRY_BOOTSTRAP_ADMIN_EMAIL /
+# CANONRY_BOOTSTRAP_ADMIN_PASSWORD: sign-in then needs a password and new people
+# join by invitation (docs/deployment.md).
+services:
+  - type: web
+    name: canonry-engine
+    runtime: docker
+    plan: free
+    dockerfilePath: ./engine/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: CANONRY_DB_PATH
+        value: /app/db/canonry.db
+      - key: CANONRY_SIGNING_KEY
+        value: /app/db/signing_seed.bin
+      - key: CANONRY_DEMO_MODE
+        value: "true"
+      - key: CANONRY_COOKIE_SECURE
+        value: "true"
+      # the exact web origin, e.g. https://canonry.vercel.app (asked for at setup)
+      - key: CANONRY_APP_ORIGINS
+        sync: false
+      # optional free-tier AI key; without one AI checks are marked pending
+      - key: GEMINI_API_KEY
+        sync: false

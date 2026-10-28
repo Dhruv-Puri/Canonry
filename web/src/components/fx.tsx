@@ -1,14 +1,49 @@
+import { CircleAlert, CircleCheck, CircleDot, Clock, Info, PenLine, TriangleAlert } from "lucide-react";
 import { CATEGORY_LABEL } from "@/lib/api";
 
+// Tone classes come from the semantic tokens in globals.css (light/dark handled there).
+const TONE = {
+  danger: "bg-danger-bg text-danger-fg",
+  warning: "bg-warning-bg text-warning-fg",
+  neutral: "bg-neutral-bg text-neutral-fg",
+  success: "bg-success-bg text-success-fg",
+  info: "bg-info-bg text-info-fg",
+} as const;
+
+type Tone = keyof typeof TONE;
+
+const PILL = "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium";
+
+function statusTone(status: string): Tone {
+  if (status === "Signed" || status === "Approved" || status === "Exempt-approved") return "success";
+  if (status === "In review") return "info";
+  if (status === "Checked") return "warning";
+  if (status === "Changes requested") return "danger";
+  return "neutral";
+}
+
+const STATUS_ICON: Record<Tone, typeof CircleCheck> = {
+  success: CircleCheck,
+  info: Clock,
+  warning: CircleDot,
+  danger: CircleAlert,
+  neutral: PenLine,
+};
+
+const DOT: Record<Tone, string> = {
+  success: "bg-success-fg",
+  info: "bg-brand",
+  warning: "bg-warning-fg",
+  danger: "bg-danger-fg",
+  neutral: "bg-muted-foreground",
+};
+
 export function LevelBadge({ tier, severity }: { tier?: string; severity?: string }) {
-  const tierCls =
-    tier === "definite"
-      ? "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200"
-      : tier === "likely"
-        ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200"
-        : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200";
+  const tone: Tone = tier === "definite" ? "danger" : tier === "likely" ? "warning" : "neutral";
+  const Icon = tier === "definite" ? CircleAlert : tier === "likely" ? TriangleAlert : Info;
   return (
-    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${tierCls}`}>
+    <span className={`${PILL} ${TONE[tone]}`}>
+      <Icon className="size-3" strokeWidth={2.25} aria-hidden />
       {tier === "definite" ? "Definite" : tier === "likely" ? "Likely" : "Consider"}
       {severity && severity !== "medium" ? ` · ${severity}` : ""}
     </span>
@@ -17,41 +52,34 @@ export function LevelBadge({ tier, severity }: { tier?: string; severity?: strin
 
 export function CategoryBadge({ category }: { category: string }) {
   return (
-    <span className="inline-flex items-center rounded-full border border-border bg-muted/60 px-2 py-0.5 text-[11px] font-medium">
+    <span className="inline-flex items-center rounded-full border border-border-strong px-2 py-0.5 text-[11px] font-medium text-foreground">
       {CATEGORY_LABEL[category] ?? category.replace(/_/g, " ")}
     </span>
   );
 }
 
 export function StatusBadge({ status }: { status: string }) {
-  const cls =
-    status === "Signed" || status === "Approved"
-      ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
-      : status === "In review"
-        ? "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200"
-        : status === "Checked"
-          ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-200"
-          : "bg-muted text-muted-foreground";
+  const tone = statusTone(status);
+  const Icon = STATUS_ICON[tone];
   return (
-    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${cls}`}>
+    <span className={`${PILL} ${TONE[tone]}`}>
+      <Icon className="size-3" strokeWidth={2.25} aria-hidden />
       {status}
     </span>
   );
 }
 
+/** Small coloured dot for dense lists (sidebar recents); the status is in the title attribute. */
+export function StatusDot({ status }: { status: string }) {
+  return <span aria-hidden className={`size-1.5 shrink-0 rounded-full ${DOT[statusTone(status)]}`} />;
+}
+
 export function RiskBadge({ risk }: { risk?: string | null }) {
   if (!risk) return null;
-  const cls =
-    risk === "low"
-      ? "border-emerald-300 text-emerald-700"
-      : risk === "high"
-        ? "border-red-300 text-red-700"
-        : risk === "exempt"
-          ? "border-violet-300 text-violet-700"
-          : "border-amber-300 text-amber-700";
+  const tone: Tone = risk === "low" ? "success" : risk === "high" ? "danger" : risk === "exempt" ? "info" : "warning";
   return (
-    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium uppercase ${cls}`}>
-      risk: {risk}
+    <span className={`${PILL} border border-current/25 bg-transparent ${TONE[tone].split(" ")[1]}`}>
+      {risk[0].toUpperCase() + risk.slice(1)} risk
     </span>
   );
 }

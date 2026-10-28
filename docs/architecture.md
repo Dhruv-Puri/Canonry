@@ -19,7 +19,7 @@ flowchart LR
         WEB["Next.js server\nport 3000"]
         ENG["Engine API (FastAPI)\nport 8000"]
         DB[("SQLite\ndb/canonry.db")]
-        LLM["AI providers\nGemini → Groq → OpenRouter\n(one batched call)"]
+        LLM["AI providers\nGemini → Groq → OpenRouter → Ollama\n(batched calls, optional)"]
     end
     UI -- "fetch /engine/**\n(proxied same-origin)" --> WEB
     WEB -- "http://localhost:8000" --> ENG
@@ -106,26 +106,26 @@ inside a claim span yield to it)"]
 judged before?"}
     VCMI -- yes --> REUSE["reuse stored verdict + suggested
 operation · provenance: claim-memory:…"]
-    VCMI -- no --> RET["retrieve_facts(): substring score
-over the facts this role may see"]
+    VCMI -- no --> RET["retrieve_facts(): keyword + number score
+over publishable (non-confidential) facts"]
     RET --> CLS{"classify_match()"}
     CLS -- "matching valid facts" --> V1{"supported? contradicted? outdated?"
   → supported collapses silently; the rest become findings}
     CLS -- "no retrieval" --> V2{"superlative or certification?"}
     V2 -- yes --> V3["superlative_verdict(): only an approved
 ranking fact may confirm it"]
-    V2 -- no --> UNS["unsupported — cites rule CLM-01: every
-statistic must trace to an approved fact"]
+    V2 -- no --> UNS["unsupported — cites the workspace rule bound to
+claims.statistic (CLM-01 in the demo)"]
 
     REUSE & V1 & V3 & UNS --> AI5["5 · AI (only when a key exists): ONE batched call
 (implicit claims missed by patterns) + ONE tone call judged
 strictly against the voice rules — strict JSON; any returned
 span that is not found verbatim in the text is discarded"]
-    AI5 --> CIT{"6 · Citation check — 'no citation, no finding'"}
+    AI5 --> CIT{"6 · Contract + citation check — 'no citation, no finding'"}
     CIT -- "each citation resolves to a live,
 relevant rule/fact/term" --> PER["persist findings + check_run holds
 (knowledge_version, ai_calls, discarded)"]
-    CIT -- "dead / superseded / unrelated citation" --> DISC["discarded — counted in check_runs.discarded,
+    CIT -- "wrong shape, or dead / superseded / unrelated citation" --> DISC["discarded — counted in check_runs.discarded,
 never shown to the user"]
     PER --> FINAL["7 · return kept findings → the UI; every later resolve/recheck
 re-runs the pipeline and VCM makes repeat claims instant"]
@@ -134,8 +134,10 @@ re-runs the pipeline and VCM makes repeat claims instant"]
 Design rule from the plan, kept literally: **rules before AI**. The AI runs
 at most 3 batched calls per 1 000 words (enforced by
 `gateway.call_budget_ok`) and *only* for what regex could not do: implicit
-claims and tone. With no API key, steps 1–4 + 6 still deliver their findings;
-stride 5 is marked **ai_pending** on the check run (never silently skipped)
+claims and tone. Every built-in check cites the rule its workspace binds to it
+(`engine/policy.py`); a retired rule switches its check off. With no API key,
+steps 1–4 + 6 still deliver their findings;
+step 5 is marked **ai_pending** on the check run (never silently skipped)
 and the Insights page shows the provider ledger as “no provider configured”.
 
 ---
@@ -150,19 +152,21 @@ services independently testable.
 {
   "id": "fnd_66acf0_104_188",               ← deterministic id (revision + span + offset)
   "revision_id": "rev_…",
-  "checker": "terminology | readability | claims | tone | …",   ← open set
+  "checker": "terminology | readability | claims | tone | confidential | …",
   "category": "banned_term | contradicted_claim | outdated_claim | …",
   "span": { "start": 81, "end": 96, "text": "trusted by 5,000+" },
   "tier":      "definite | likely | consider",   ← certainty: does the evidence prove the violation?
   "severity":  "high | medium | low",            ← impact if wrong
-  "citations": [ { "type": "fact | rule | term", "id": "F-012", "excerpt": "…" } ],
+  "citations": [ { "type": "fact | rule | term | pack", "id": "F-012", "version": 3 } ],
   "explanation": "one human sentence citing the rule/fact id",
   "suggestion": { "replace": "trusted by 2,300+", "operation": "replace | remove" },
-  "provenance": { "model": "gemini-2.0-flash" | null, "prompt_version", "knowledge_version": 421 },
+  "provenance": { "model": "gemini-2.5-flash" | null, "prompt_version", "knowledge_version": 421 },
 }
 ```
 
-The server side validates with pydantic (`engine/contract.py`). Tier and
+Every finding is validated against this contract (pydantic, `engine/contract.py`)
+before it is stored; one that does not conform is discarded and counted, like a
+finding with a dead citation. Tier and
 severity are deliberately **separate axes** — see
 [design.md §3](design.md#3-certainty-vs-impact-the-three-tier--severity-matrix).
 
@@ -192,7 +196,10 @@ erDiagram
 | `workspaces` | one brand = Quillmark (seeded) | — |
 | `users` | 4 demo personas with roles | `role: creator / agency / reviewer / admin` |
 | `sessions` | cookie tokens, expiring | — |
-| `rules` | brand-book statements | `version, status(approved), vague_flag, versions` |
+| `rules` | brand-book statements | `version, status(approved/retired), vague_flag` |
+| `rule_bindings` | which rule each built-in check cites | `check_key → rule_id` per workspace |
+| `knowledge_history` | every version of every rule, fact and term | `snapshot_json, reason, by_user, knowledge_version` |
+| `invitations` | production sign-up (one-use, role-bound) | `token_hash, email, role, expires_at, consumed_at` |
 | `facts` | approved truth, one-claim size | `owner, source, valid_from/to, confidential, superseded` |
 | `terms` | preferred/banned glossary | note → parsed into rule/fact citations |
 | `submissions` | one content piece | `status, risk, router_note` |
@@ -206,7 +213,7 @@ erDiagram
 | `ai_calls` | the AI ledger | `task, provider, model, prompt_version, latency_ms, ok` |
 | `audit_log` | every human action | `prev_hash, hash` — append-only chain |
 | `exempt_policies` | auto-approve lanes | `scope, active` |
-| `meta` | counters, like `knowledge_version_bump` | — |
+| `meta` | counters, like `knowledge_version` | — |
 
 Why SQLite but named like Postgres? The plan targets Supabase Postgres +
 pgvector for the managed build; the prototype keeps **compatible table and
@@ -221,9 +228,10 @@ SQLite supports it, all dates stored as ISO-8601 strings).
 ```mermaid
 flowchart LR
     A["Cookie session (samesite=lax, expiring tokens)"] --> B["Role gates:<br/>reviewer/admin only approve & add facts"]
-    A --> C["Confidential facts:<br/>agency/creator see '[Confidential] cited excerpt only'"]
+    A --> C["Role scoping (access.py):<br/>agency sees only its own work;<br/>confidential text for reviewers/admins only"]
     B --> D["High-severity 409:<br/>cannot approve over unresolved reds"]
-    C --> E["AI hygiene:<br/>only relevant excerpts sent,<br/>confidential facts excluded on free APIs"]
+    C --> E["AI hygiene:<br/>claims use publishable facts only;<br/>confidential facts never sent"]
+    B --> L["Lifecycle lock (workflow.py):<br/>no edits in review or after approval"]
     F["audit_log: append-only hash chain<br/>(each row signed by the previous hash)"] --> G["Proof of Compliance: Ed25519 signature<br/>+ SHA-256 content fingerprint + ledger_hash"]
 ```
 
@@ -232,8 +240,10 @@ flowchart LR
 - **Proof of Compliance** (`engine/signing.py`): the record
   (content fingerprint, approver, role, rules_version, time) is canonicalised
   (sorted JSON, yes — that exact ordering matters) and signed with Ed25519
-  (PyNaCl). `GET /verify/{poc_id}` recomputes and answers `verified /
-  modified / unknown` — usable by anyone, no login.
+  (PyNaCl). `GET /verify/{poc_id}` checks the seal itself; `POST /verify/{poc_id}`
+  with the published text answers `verified / modified / unknown` (spacing-only
+  differences still verify, with a note). Usable by anyone, no login; the public
+  answer shows the approver's role, never an email.
 
 ---
 
@@ -303,8 +313,8 @@ policy a brand owner wrote · logged,
 (contradicted/outdated OR unsupported
 OR ≥3 open findings)?"}
     hi -- yes --> HIGH["risk=high · routed to the regional
-legal lead (Karan in the demo); concerns
-pre-highlighted, SLA timer starts"]
+legal lead (senior approver); concerns
+pre-highlighted (SLA timers: Round 3)"]
     hi -- no --> MED["risk=medium · judgement calls only;
 one reviewer, not a bottleneck"]
 ```
@@ -346,7 +356,22 @@ credentials** — the nav's persona switcher performs the engine's
 
 ---
 
-## 10. Glossary of terms found in the code
+## 10. Module interfaces (where to extend)
+
+Each cross-cutting rule lives in exactly one module behind a small interface, so
+a change happens in one place and every endpoint follows it.
+
+| Concern | Interface | Extend by |
+|---|---|---|
+| Which rule a check enforces | `policy.CHECKS`, `policy.rule_for(conn, ws, key)`, `Ctx.rule(key)` in checkers | adding a `Check` (key + baseline rule); a workspace can bind it to its own rule |
+| What a status allows | `workflow.blocked(status, action)`, `workflow.allowed(status)` | adding an action or status to `workflow.ALLOWED`; the UI reads `allowed` from the detail payload |
+| What a role may see | `access.submission_scope(user)`, `access.filter_visible(...)`, `access.redact_fact(...)` | changing the rule once; every cross-submission query uses it |
+| AI providers | `gateway.Provider` (`available`, `model`, `chat`), `gateway.gateway_call(task, messages, ...)` | subclassing `Provider`, or adding an `OpenAICompatible(...)` entry to `gateway.PROVIDERS` |
+| What a finding looks like | `contract.Finding`, `contract.conforms(finding)` | a new checker returns this shape; the pipeline validates it |
+
+---
+
+## 11. Glossary of terms found in the code
 
 | Code name | Plain meaning |
 |-----------|----------------|

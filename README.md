@@ -1,138 +1,275 @@
-# Canonry — brand-governance copilot for marketing content
+# Canonry — brand governance before publication
 
-> **CodeStar 30 · Round 2 build · Team VAIDVANSH6**
-> Content goes in → it is checked against the approved brand guidelines, facts
-> and terms → every issue comes back **explained and cited** → a **human**
-> decides → the approval is **cryptographically provable**.
+> **Inkloom AI Brand Governance Challenge · Round 2 (The Build) · Team vaidvansh6**
+> Vansh Vaid (team leader) · Dhruv Puri
 
-Canonry's core promise, verbatim from the Round 1 plan: *"Rules before AI —
-deterministic checks are free, fast and certain; the AI only handles what rule patterns cannot* — held to strictly in this build. The AI never auto-changes your content. It surfaces **findings**; the reviewer decides.
+Canonry checks marketing content **before it is published** against the
+organisation's own approved rules, facts and terminology. Every issue comes back
+**explained, cited and with a minimal fix**; a **person** decides; and the
+approval is sealed so anyone can later check that the published text is the
+approved one.
 
-- **Live app**: `http://localhost:3000` (web) + `http://localhost:8000` (engine API)
-- **Guest-friendly**: anyone can open the app and use every feature without credentials — one click logs them in as a demo persona (or the current session user is used if already signed in).
-- **Works with no AI key**: rule-based findings always arrive; AI-assisted checks are marked *pending* (never silently skipped) until a free-tier key is added.
+Principle from our Round 1 plan, kept in the build: **rules before AI**.
+Deterministic checks are free, fast and certain; an AI model handles only what
+rule patterns cannot (implied claims, tone), and the product works with no AI
+key at all.
+
+| | |
+|---|---|
+| **Live demo** | _link added after deployment_ — one-command free deploy in [docs/deployment.md](docs/deployment.md) |
+| **Run locally** | [Quick start](#4-quick-start) (about 5 minutes, no accounts, no keys) |
+| **Source** | <https://github.com/Dhruv-Puri/Canonry> |
+| **Round 1 plan** | `Canonry_Round1_Plan_vaidvansh6.pdf` (submitted in Round 1) |
 
 ---
 
-## 1. What it does (30-second version)
+## 1. The core workflow (runs end to end)
 
-1. A creator pastes marketing content into **New submission**, picks a channel
-   (`social / web / blog / email / print`) and a source type
-   (`in-house / agency / ai-assisted`).
-2. The **engine** runs the check pipeline against the workspace's approved
-   rulebook, fact library and terminology glossary and returns **findings**:
-   each has a highlighted span, an explanation, a citation to the *real* rule
-   or fact behind it, and when possible a suggested replacement.
-3. The creator **accepts / edits / disputes** each finding. Accepting rewrites
-   the draft and immediately **re-checks** (revision 2, 3, …).
-4. The creator submits for review. A router stamps it
-   `low / medium / high / exempt` and routes to the right reviewer
-   (public-channel + AI-assisted + contradicted claims ⇒ *high*). Exemption policies auto-approve a *narrow, logged* lane.
-5. The reviewer **approves, requests changes or explicitly overrides** with a
-   reason. High-severity findings cannot be approved — the human decides,
-   never the AI.
-6. Approval produces a **Proof of Compliance**: a SHA-256 fingerprint of the
-   approved text plus who approved it, against which rules and when —
-   signed (Ed25519) and entered into a hash-chained ledger.
-7. `/verify/<poc_id>` is a **public, no-login** page answering
-   `Verified / Modified / Unknown` for that seal.
+```mermaid
+flowchart LR
+    A["Creator pastes copy<br/>(channel + source)"] --> B["Check run<br/>rules → claims → AI"]
+    B --> C["Findings: span · why ·<br/>citation · tier · fix"]
+    C --> D["Creator accepts / edits / disputes<br/>→ new revision, re-checked"]
+    D --> E["Submit: risk router<br/>low · medium · high · exempt"]
+    E --> F["Reviewer approves, requests changes<br/>or overrides with a reason"]
+    F --> G["Signed Proof of Compliance<br/>(Ed25519, hash-chained)"]
+    G --> H["Public /verify page:<br/>paste text → Verified / Modified"]
+```
 
-## 2. Feature checklist (all working end to end)
+1. A **creator** submits copy and picks a channel (social, web, blog, email, sales) and a source (in-house, agency, AI-assisted).
+2. The engine returns **findings**. Each has the exact text span, a plain explanation, a **citation** to the real rule or fact behind it, a **confidence tier** (Definite / Likely / Consider) and, where possible, a one-click minimal fix.
+3. The creator **accepts**, **edits** or **disputes** (with a reason) each finding. Every change creates a new revision that is re-checked automatically; a word-level diff shows what changed.
+4. **Submit for review**: a router assigns risk and the reviewer level. A narrow, logged exemption lane can auto-approve clean email digests.
+5. A **reviewer** approves, requests changes, or overrides a single finding with a reason. High-severity findings block approval until resolved or explicitly overridden: the AI never decides.
+6. Approval signs a **Proof of Compliance**: SHA-256 of the approved text, approver role, knowledge version and time, signed with Ed25519. Approved content is then locked.
+7. Anyone can open `/verify/<id>` without signing in and paste the published text: **Verified** (exact approved text) or **Modified**.
 
-| # | Feature | Where |
-|---|---------|-------|
-| 1 | Rulebook CRUD + vague-rule linting (`vague_no_examples` etc.) | engine `/rules/*`, web `Knowledge base` |
-| 2 | Fact Library with owner, source, validity window, confidentiality, supersede | engine `/facts`, web `Knowledge base` |
-| 3 | Terminology glossary (preferred/banned) | engine `/terms`, web `Knowledge base` |
-| 4 | Deterministic claim labelling (supported/contradicted/outdated/unsupported) with **substring matching** | `engine/claims.py` |
-| 5 | Verified Claim Memory (VCM) — verdicts re-used keyed by normalised numbers/units/names | `claims.vcm_store / vcm_lookup` |
-| 6 | Single batched AI call for *implicit* claims + tone (strict JSON, key-less degradation) | `engine/pipeline.py`, `engine/gateway.py` |
-| 7 | Citation check — *no citation, no finding*; invalid citations are discarded & counted | `claims.citation_check` |
-| 8 | Finding Contract v1 (`finding@1`) — one versioned shape for every checker | `engine/contract.py` |
-| 9 | Three-tier certainty: `definite / likely / consider` on every finding | contract tiers |
-| 10 | Risk router (high/medium/low/exempt) with exemption policies | `main.compute_risk` |
-| 11 | Accept / edit / dispute workflow + revision history + automatic re-check | engine `/submissions/*/resolve` |
-| 12 | Reviewer approve / request-changes / **explicit override with reason** | engine `/submissions/*/review` |
-| 13 | High-severity hard block on approval (409) | `main.review` |
-| 14 | Proof of Compliance: canonical record, Ed25519 signature, hash-chained ledger, public verify | `engine/signing.py`, `/verify/[pocId]` |
-| 15 | Insights: disputes/overrides feed, expiry alerts, AI-call ledger, "possibly unclear rules" | engine `/insights`, `/alerts/*` |
-| 16 | MCP **Canon Connector** (Model Context Protocol) so AI editors can read approved facts before drafting | `engine/mcp_server.py` |
-| 17 | Append-only, hash-chained **audit log** of every human action | `db.audit` in every endpoint |
+### What it looks like
 
-## 3. Quick start (clone → clone-ready)
+The seeded launch post, from first check to public proof (production build, demo mode, no AI key):
 
-Run the engine then pick any of: Vite/Next/Hono/anything front-end — or use the shipped `web/` app, which expects the engine at `http://localhost:8000` (or set `NEXT_PUBLIC_ENGINE_URL`).
+| 1 · The creator sees cited findings | 2 · After fixing, the reviewer decides |
+|---|---|
+| ![Findings on the launch post: highlighted spans, confidence tiers, citations to the rule or fact, one-click fixes](docs/screenshots/1-findings.png) | ![Reviewer view: low-risk fast track, content locked in review, word-level diff of the last revision, zero open findings](docs/screenshots/2-review.png) |
+| **3 · Anyone verifies the published text** | **4 · Insights for the brand owner** |
+| ![Public verify page, signed out: the pasted published text matches the approved fingerprint](docs/screenshots/3-verify.png) | ![Insights: issues by checker and category, disputes, rules flagged as unclear](docs/screenshots/4-insights.png) |
+
+Fixing the seven findings turned *"Meet Quillmark Insights 2.0 — India's #1 analytics
+platform, trusted by 5,000+ teams and fully ISO 27001 certified. Plans start at just
+₹999/month!"* into *"Meet Quillmark Pulse 2.0 — an analytics platform, trusted by 2,300+
+teams. Plans start at ₹1,299/month. Start your free trial at quillmark.co/pulse."*:
+every number now traces to an approved fact, and the router fast-tracked it as low risk.
+
+## 2. Round 2 requirements → where to find them
+
+| Brief requirement (Round 2) | Where |
+|---|---|
+| Functional product / MVP | this repository: engine + web app; demo workspace seeded on first boot |
+| Judge-accessible source repository | <https://github.com/Dhruv-Puri/Canonry> |
+| Deployed link or clear demonstration | live link above; [docs/deployment.md](docs/deployment.md); [docs/tutorial.md](docs/tutorial.md) guided tour |
+| Architecture and main technical decisions | [§5](#5-architecture) · [docs/architecture.md](docs/architecture.md) · [docs/decision-log.md](docs/decision-log.md) (D1–D52, dated) · [changes from the Round 1 plan](docs/plan-vs-build.md) |
+| APIs, AI models, datasets, libraries, templates, external services | [§6](#6-what-we-used-apis-models-data-libraries) · [docs/disclosure-log.md](docs/disclosure-log.md) |
+| Evidence of user testing or structured feedback | [§8](#8-user-testing) · [docs/usability-test-kit.md](docs/usability-test-kit.md) |
+| Each team member's contribution | [§9](#9-team-and-contributions) |
+
+| Judging criterion (points) | Evidence |
+|---|---|
+| Core workflow runs end to end (30) | §1 journey; `test_engine.py` drives it through the API; seeded launch post to try it in the browser |
+| Technical depth and reliability (25) | 10 test suites + evaluation gate in CI (§7); finding contract enforced on every finding; role scoping and lifecycle locks tested; honest AI degradation |
+| Progress against the plan (20) | [docs/plan-vs-build.md](docs/plan-vs-build.md): every plan commitment, what changed and why; [docs/changelog.md](docs/changelog.md): milestones M1–M6 with evidence |
+| The three improvements (15) | §3 |
+| Usability so far (10) | password-free demo personas, plain-language findings, one-click fixes; usability kit (§8) |
+
+## 3. The three improvements we committed to
+
+| Improvement (Round 1 plan) | In this build | Measured |
+|---|---|---|
+| **1. Claim checking against approved sources** | Explicit claims (counts, prices, percentages, certifications, superlatives, dates) found by patterns and labelled supported / contradicted / outdated / unsupported against the Fact Library; numbers compared by value; implied claims via one batched AI call. **Verified Claim Memory** reuses a verdict only for identical numbers and the same knowledge version | frozen evaluation split: claims recall 100%, precision 100% (targets ≥ 85% / ≥ 80%); see the limits in §10 |
+| **2. Guideline-clarity insights** | Vague-rule linting at import (no examples, contradictory, duplicate); disputes and overrides feed an Insights page; "possibly unclear rules"; fact-expiry alerts listing affected approved content; **rule tests & change preview** shows which approved content a rule edit would newly break | Insights page on live data; `test_knowledge.py`, `test_edge_cases.py` |
+| **3. Confidence tiers and verified citations** | Every finding carries a tier and at least one citation; the citation check discards any finding whose rule or fact does not exist or is inactive ("no citation, no finding"); every finding is validated against the versioned contract `finding@1`; citations pin the rule/fact version they were checked against | invalid citations shown: **0**; "Definite" precision 100% (target ≥ 95%) |
+
+### Changes from the Round 1 plan
+
+Every Must and Should item of the plan is delivered. The main changes, all
+explained in [docs/plan-vs-build.md](docs/plan-vs-build.md):
+
+- **SQLite instead of Supabase Postgres + pgvector**: zero setup for judges; the schema keeps Postgres names, and role rules live in one module instead of row-level security.
+- **Exact keyword and number matching instead of embeddings** for facts: "2,300+" must never match "3,200+".
+- **Demo personas plus password and invitation sign-in** instead of Google sign-in: judges need no account; production use stays secure.
+- **Text content this round**: DOCX/PDF content upload, image checks and file metadata stamps move to Round 3; the public verify page checks pasted text instead.
+- **AI call ledger instead of Sentry/Langfuse**; fixed provider fallback instead of a confidence-based model cascade.
+- **Added during the build**: rule bindings (any rulebook works), a lifecycle lock for approved content, publishable-facts-only claim checks, local Ollama fallback.
+
+## 4. Quick start
+
+Needs Python 3.11+ and Node.js 20+. Run from this folder.
 
 ```bash
-# 1. Engine (Python + FastAPI)
+# 1. Engine (FastAPI, port 8000) — demo mode seeds the Quillmark workspace
 python -m venv .venv
-.venv/Scripts/pip install -r engine/requirements.txt   # use pip3 / venv/bin on mac/linux
-cd engine && ../.venv/Scripts/python -m uvicorn main:app --port 8000 --reload
+.venv/Scripts/pip install -r engine/requirements.txt        # mac/linux: .venv/bin/pip
+cd engine
+CANONRY_DEMO_MODE=true ../.venv/Scripts/python -m uvicorn main:app --port 8000
+#   PowerShell: $env:CANONRY_DEMO_MODE="true"; ..\.venv\Scripts\python -m uvicorn main:app --port 8000
 
-# 2. Web (Next.js 16, App Router)
-cd web && npm install && npm run dev   # → http://localhost:3000
+# 2. Web (Next.js 16, port 3000), in a second terminal
+cd web
+npm install
+npm run dev
 ```
 
-For full detail — including the portable-Node fallback and where to get free
-AI keys — see **[docs/getting-started.md](docs/getting-started.md)**.
+Open <http://localhost:3000> and sign in with a seeded persona (demo mode needs
+no password), or choose **Create a demo identity** and pick any role:
 
-## 4. Tech at a glance
+| Email | Persona | Role |
+|---|---|---|
+| `arjun@quillmark` | Arjun, product marketer | creator |
+| `maya@quillmark` | Maya, brand & content manager | reviewer |
+| `riya@agency` | Riya, agency copywriter | agency (sees only her own work) |
+| `karan@quillmark` | Karan, head of marketing | admin |
 
-| Layer | Choice | Why |
-|-------|--------|-----|
-| Engine API | Python 3.12 + FastAPI | typed models + auto OpenAPI fits the Finding Contract |
-| Database | SQLite (WAL) | zero-config prototype; schema mirrors managed Postgres so the pgvector swap is config, not redesign |
-| Claims retrieval | substring scoring over the Fact Library | demo-first; swap to pgvector later |
-| AI | Gemini → Groq → OpenRouter fallback chain (free tiers) | width-first testing, call budget ✔ |
-| Signing | Ed25519 (PyNaCl) | tamper-evident Proof of Compliance |
-| Web | Next.js 16 + React 19 + Tailwind 4 | App Router, shadcn ui, dark default |
-| Protocol | MCP over JSON-RPC 2.0 stdio | AI editors read approved facts |
+As Arjun, open **Launch post — Pulse 2.0**, fix and submit it; as Maya, review
+and sign it. AI checks show as *pending* until you add a free key (copy
+`.env.example` to `.env`); everything else works without one. Details and
+troubleshooting: [docs/getting-started.md](docs/getting-started.md).
 
-## 5. Repository map
+## 5. Architecture
 
-```
-canonry/
-├── README.md                  ← you are here
-├── .env.example               ← copy to .env, fill one key (or none!)
-├── docs/
-│   ├── architecture.md        ← system design, diagrams, data model
-│   ├── design.md              ← product rules & the thinking behind them
-│   ├── approach.md            ← Round-1 plan → Round-2 build (+ changes)
-│   ├── progress.md            ← what's done, tests, known gaps, Round-3
-│   └── getting-started.md     ← zero-to-running in 10 minutes
-├── engine/                    ← FastAPI app (all intelligence lives here)
-│   ├── main.py                ← endpoints: auth, rules/facts/terms, submissions
-│   ├── pipeline.py            ← check-run orchestrator
-│   ├── claims.py              ← claim detection, retrieval, verification, VCM
-│   ├── checkers.py            ← terminology / readability / tone heuristics
-│   ├── gateway.py             ← provider-agnostic AI gateway
-│   ├── contract.py            ← the versioned Finding Contract
-│   ├── signing.py             ← Proof-of-Compliance signing & verify
-│   ├── mcp_server.py          ← Canon Connector (MCP over stdio)
-│   ├── seed.py                ← fills the Quillmark demo workspace from CSV
-│   └── test_engine.py         ← end-to-end smoke test (TestClient)
-├── web/                       ← Next.js 16 app (App Router)
-│   └── src/
-│       ├── app/               ← page routes (/, /new, /submissions/…, /kb, /insights, /verify/…)
-│       ├── components/        ← TopNav, persona switcher, primitives
-│       └── lib/               ← api client, persona model
-├── data/                      ← seed CSVs (rules / facts / terms)
-├── db/                        ← SQLite files + signing seed (generated; gitignored)
-└── Canonry_Round1_Plan_vaidvansh6.pdf   ← the approved Round-1 plan
+```mermaid
+flowchart LR
+    U["Browser"] -->|"same origin"| W["Web: Next.js 16<br/>screens only"]
+    W -->|"/engine/* proxy"| E["Engine: FastAPI"]
+    E --> P["Check pipeline"]
+    P --> R["Rule checkers<br/>terms · readability · tone · confidential"]
+    P --> C["Claim pipeline<br/>patterns · fact retrieval · Claim Memory"]
+    P --> G["AI gateway<br/>Gemini → Groq → OpenRouter → Ollama"]
+    E --> D[("SQLite (WAL)<br/>Postgres-compatible schema")]
+    E --> S["Signing: Ed25519<br/>hash-chained ledger"]
+    M["MCP Canon Connector"] --> D
 ```
 
-## 6. Documentation
+| Engine module (`engine/`) | Responsibility |
+|---|---|
+| `main.py` | HTTP API: sign-in, knowledge base, submissions, review, verify, insights |
+| `pipeline.py` | one check run: rule checks → claims → AI → contract and citation check → store |
+| `checkers.py` | deterministic checks (terminology, readability, CTA, tone heuristics, confidential leaks) |
+| `claims.py` | claim detection, fact retrieval, verdicts, Verified Claim Memory |
+| `policy.py` | which workspace rule each built-in check enforces (rule bindings) |
+| `workflow.py` | what each submission status allows (draft → review → signed) |
+| `access.py` | what each role may see (agency scoping, confidential redaction) |
+| `gateway.py` | AI provider adapters, fallback chain, call budget, call ledger |
+| `contract.py` | the versioned finding contract `finding@1` |
+| `signing.py` | Proof of Compliance: sign and verify |
+| `knowledge.py` | versioned rules, facts and terms, with history and change impact |
+| `mcp_server.py` | Canon Connector: approved facts for AI writing tools over MCP |
+| `db.py`, `seed.py` | schema, migrations, demo workspace from `data/*.csv` |
 
-| Doc | Audience | Read it for |
-|-----|----------|-------------|
-| [getting-started](docs/getting-started.md) | new developers | install, run, test in 10 min |
-| [architecture](docs/architecture.md) | everyone | how the pieces fit; diagrams; data model |
-| [design](docs/design.md) | reviewers & judges | product-rule decisions, finding contract, tiers |
-| [approach](docs/approach.md) | everyone | how we attacked the problem, and what changed from Round 1 |
-| [progress](docs/progress.md) | everyone | shipped features, tests, remaining gaps, Round-3 list |
+Main technical decisions (full list with reasons in the [decision log](docs/decision-log.md)):
 
-## 7. Licensing / ownership
+- **One FastAPI engine + Next.js web behind a same-origin proxy** (D35): every rule lives in the engine; the web app only renders. No CORS, cookies stay first-party.
+- **SQLite now, Postgres-compatible schema** (D35): zero-setup for judges; table and column names already match the managed Postgres + pgvector target.
+- **Rules before AI, honest degradation** (D37): deterministic checks always run; with no AI provider the run is marked `ai_pending`, never silently skipped.
+- **Rule bindings** (D43): checks cite the workspace's own rules, so the engine works with any rulebook, not just the demo's.
+- **Free models only** (D28, D48): Gemini, Groq and OpenRouter free tiers plus local Ollama, ≤ 3 answered calls per 1,000 words; confidential facts are never sent.
+- **Signed approvals** (D24, D46): Ed25519 seals that third parties can check against the published text.
 
-All code in this repository was written by team VAIDVANSH6 for CodeStar 30.
-The problem statement and Round-1 plan are referenced from the PDF in the
-repository root; brand/glossary seed data is fictional (Quillmark Analytics).
+## 6. What we used (APIs, models, data, libraries)
+
+| Kind | What | Notes |
+|---|---|---|
+| AI models (optional, runtime) | Gemini `gemini-2.5-flash`, Groq `llama-3.1-8b-instant`, OpenRouter `llama-3.3-70b-instruct:free`, Ollama `llama3.1:8b` | free tiers or local; each model overridable by environment variable; not configured in the default demo |
+| Dataset | fictional Quillmark Analytics brand book: 43 rules, 41 facts (some expiring, superseded or confidential), 10 terms (`data/*.csv`); 20-sample labelled evaluation set (`engine/evaluation/eval_set.jsonl`) | invented for the challenge; no real company data |
+| Engine libraries | FastAPI, uvicorn, httpx, pydantic, PyNaCl | `engine/requirements.txt` |
+| Web libraries | Next.js 16, React 19, Tailwind CSS 4, Radix UI primitives, lucide-react, class-variance-authority | `web/package.json`; shadcn/ui component recipes |
+| Protocol | Model Context Protocol (JSON-RPC 2.0 over stdio) | Canon Connector |
+| Services | GitHub Actions (CI), Render (engine), Vercel (web) | all free tiers |
+| AI assistance in development | Anthropic Claude (Claude Code), Codebuff | disclosed in [docs/disclosure-log.md](docs/disclosure-log.md) |
+
+## 7. Tests and reliability
+
+```bash
+.venv/Scripts/python engine/tests/run_tests.py     # 10 suites (fresh DB each) + evaluation gate
+```
+
+| Suite (`engine/tests/`) | Proves |
+|---|---|
+| `test_engine` | the full journey: submit → findings → fix → review → sign → verify |
+| `test_identity` | roles, sessions, names in the trail, labelled self-approval |
+| `test_knowledge` | versioned knowledge-base writes, history, change impact, write races |
+| `test_regressions` | every bug found in review stays fixed; MCP connector over stdio |
+| `test_seed_data` | the demo CSVs load completely |
+| `test_edge_cases` | input validation, payload shapes, number formats, seal tampering |
+| `test_policy` | checks cite the workspace's own rules; retiring a rule switches its check off |
+| `test_access` | agency partners see only their own work; confidential text never leaks |
+| `test_workflow` | content locked in review and after signing; public verification of pasted text |
+| `test_gateway` | AI fallback chain, honest call ledger, no confidential data sent (faked providers, no network) |
+| evaluation gate | precision / recall per checker and tier on the frozen split; fails on regression |
+
+CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs all of it on every push, plus
+a web type-check, a production build, `pip-audit` and `npm audit`.
+Bugs found by testing, and how each was fixed: [docs/progress.md](docs/progress.md) §7–8.
+
+## 8. User testing
+
+A moderated usability test with 5 participants and the SUS questionnaire is
+prepared in [docs/usability-test-kit.md](docs/usability-test-kit.md) (tasks,
+script, results sheet). **Results will be recorded there and summarised here
+once the sessions are run**; no results are claimed yet.
+
+## 9. Team and contributions
+
+| Member | Role | Contribution |
+|---|---|---|
+| **Vansh Vaid** (team leader) | Product, web app, workflow, documentation | Round 1 plan; web screens and review workflow; Round 2 hardening, versioned knowledge base and identity (commit `9a90cee`); documentation |
+| **Dhruv Puri** | Analysis engine, retrieval, AI gateway, evaluation | initial engine and project setup (commit `699e7d7`); claim pipeline, gateway and evaluation ownership |
+| Shared | | infrastructure, security, testing, demo |
+
+Commit history on GitHub shows who changed what and when.
+
+## 10. Known limitations
+
+- **AI checks need a key**: without one, implied claims and tone are marked *pending*. The AI path is tested with faked providers, not yet with live models in CI.
+- **Small evaluation set**: 20 hand-built samples (6 frozen), labelled by the team, over the demo brand. It measures the deterministic engine exactly; independent double-labelling and a larger set are Round 3 work.
+- **Text only**: images, DOCX/PDF review and accessibility checks are planned for Round 3 (plan Section 11).
+- **Demo identity**: demo mode lets anyone act as any role. Production mode (passwords, one-use invitations, no self-approval) exists but is not the judge deployment.
+- **Free hosting is ephemeral**: on Render free, data and seals reset on restart ([docs/deployment.md](docs/deployment.md) §6).
+- **Retrieval is keyword-based**: pgvector retrieval on managed Postgres is the Round 3 upgrade (schema already compatible).
+
+## 11. Repository layout
+
+```
+.
+├── README.md                ← you are here
+├── .env.example             ← optional AI keys (copy to .env; never committed)
+├── render.yaml              ← free Render blueprint for the engine (judge demo)
+├── .github/workflows/ci.yml ← tests, evaluation gate, web build, dependency audits
+├── data/                    ← demo brand book: rules, facts, terms (CSV)
+├── engine/                  ← FastAPI analysis engine (all product logic)
+│   ├── *.py                 ← modules listed in §5
+│   ├── tests/               ← 10 suites + run_tests.py
+│   ├── evaluation/          ← evaluate.py, labelled set, committed baseline
+│   ├── Dockerfile
+│   └── requirements.txt
+├── web/                     ← Next.js 16 app (screens only)
+│   └── src/app/             ← /, /new, /submissions/[id], /kb, /insights, /verify/[pocId]
+└── docs/                    ← see below
+```
+
+| Document | Read it for |
+|---|---|
+| [tutorial](docs/tutorial.md) | a guided 15-minute tour for first-time users |
+| [getting-started](docs/getting-started.md) | install, run and test in 10 minutes |
+| [deployment](docs/deployment.md) | free deployment (Render + Vercel), demo vs production |
+| [architecture](docs/architecture.md) | diagrams, data model, pipeline in detail |
+| [design](docs/design.md) | product rules, finding contract, tiers, personas |
+| [plan-vs-build](docs/plan-vs-build.md) | **what changed from the Round 1 plan, and why** |
+| [approach](docs/approach.md) | how we built it, and the problems we hit |
+| [changelog](docs/changelog.md) | progress against the plan, milestone by milestone |
+| [progress](docs/progress.md) | status, bugs found and fixed, honest gaps |
+| [decision-log](docs/decision-log.md) | every decision D1–D52, dated, with reasons |
+| [disclosure-log](docs/disclosure-log.md) | AI tools, models, libraries and services used |
+| [usability-test-kit](docs/usability-test-kit.md) | how we run and record user tests |
+| [dev-notes/](docs/dev-notes/) | working specs and plans written during the build |
+
+All code was written by team vaidvansh6 during the build window, with the AI
+assistance disclosed above. Demo brand data is fictional.

@@ -26,28 +26,48 @@ prove**.
 
 ## 2. Approach — the build order we actually followed
 
+(Build steps, not the plan's milestones M1–M10; milestone status is in
+[plan-vs-build.md](plan-vs-build.md#2-milestones-section-112).)
+
 ```mermaid
 flowchart LR
-    M1["M1 · Demo seed\ndoc → CSV: rules,\nfacts, terms,\npersonas"] -->
-    M2["M2 · Engine core\nschema + check pipeline\n(rule-based only)"] -->
-    M3["M3 · Claim pipeline\nretrieval + verdicts +\ncitation check + VCM"] -->
-    M4["M4 · Workflow\nresolve / dispute /\nreview / override /\nrisk router"] -->
-    M5["M5 · Proof of Compliance\nEd25519 sign,\nhash ledger, /verify"] -->
-    M6["M6 · Web app\nall screens incl.\nguest + persona switch"] -->
-    M7["M7 · E2E test\nengine test suite\ndrives the real loop"] -->
-    M8["M8 · AI gateway\none call per task,\nkey-less degradation"]
+    S1["1 · Demo seed
+rules, facts,
+terms, personas"] -->
+    S2["2 · Engine core
+schema + rule checks"] -->
+    S3["3 · Claim pipeline
+retrieval, verdicts,
+citation check, VCM"] -->
+    S4["4 · Workflow
+resolve, dispute,
+review, override, router"] -->
+    S5["5 · Proof of Compliance
+Ed25519, ledger, /verify"] -->
+    S6["6 · Web app
+all screens,
+demo personas"] -->
+    S7["7 · Tests
+suites drive
+the real loop"] -->
+    S8["8 · AI gateway
+provider adapters,
+key-less degradation"] -->
+    S9["9 · Review pass
+rule bindings, access,
+lifecycle lock"]
 ```
 
 Why this order (and why it mattered at hackathon pace):
 
 1. **Seed data first**, because every decision downstream (what a "rule"
-   looks like, what a fact record needs, what檐 "vague" rule is) came from
+   looks like, what a fact record needs, what a "vague" rule is) came from
    actually writing 40 rules and 60 facts for a fictional brand.
 2. **Engine before UI** because judges want the *clock-stopping* demo — a
    deliberately broken launch post returning red, explained highlights — but
    the demo's quality is the engine's, not the UI's.
 3. **Contract written early** (`contract.py`) so the UI could be built
-   against one frozen shape while the M3 claim machine was still being
+   against one frozen shape while the claim pipeline was still being
    debugged.
 4. **Signing last-but-one** because the *approval → PoC → verify* chain is
    the demo's showpiece; it only worked once everything before it worked.
@@ -63,19 +83,16 @@ Why this order (and why it mattered at hackathon pace):
 | Anti-hallucination | returned spans are only accepted if found **verbatim** in the text | Prevents any AI-fabricated issue from reaching the reviewer. |
 | State model | immutable revisions + issue statuses (open/accepted/edited/disputed) + decisions | Reasoning must be reconstructable: this finding, on that text, resolved by this human, with reason. |
 | Work artifacts | seeded SQLite; hash-chained audit; Ed25519 PoC | The "prove" quarter of the plan, all local, no infra to deploy. |
-| Guest UX | one-click persona switch performing real engine `POST /login` | The submission rule "a judge opens your link and uses the product without help" — no credential ceremony, but real sessions under the hood. |
+| Demo access | demo mode: seeded personas sign in without a password through a real engine `POST /login`; production mode uses passwords and invitations | A judge opens the link and uses the product without help; real sessions and role rules under the hood. |
 
-## 4. Deviations from the Round 1 plan (the submission requirement)
+## 4. Deviations from the Round 1 plan
 
-| # | Round 1 plan said | Round 2 build does | Reason |
-|---|-------------------|--------------------|--------|
-| 1 | Managed Postgres + Supabase stack for storage | SQLite (single file), names kept Postgres-migration-friendly | Zero-setup lab condition of this build — the schema/queries don't change when we swap to Postgres; swapping is a config change. |
-| 2 | pgvector embeddings for fact retrieval | deterministic substring scoring | For the demo's claims ("2,300 teams", "ISO 27001 certified") substring matching is *exactly* right, fully debuggable and free; embeddings would blur the very rule ("numbers are the claim") we enforce. pgvector stays the Round-3 upgrade. |
-| 3 | Redis background job queue | the engine's `check_runs` table + inline run (FastAPI background tasks path planned next) | One small document per submission does not need a broker; the `check_runs` row is the exact seam the Redis adapter plugs into. |
-| 4 | Privacy-preserving full-engine upload | local secret + provider chain with the smallest AI mode | Free-tier only delivery makes the demo work anywhere; provider gateway is one swap away. |
-| 5 | Intent to build a native rule editor | read-mostly rule surface (list rules/facts/terms + add facts); rule editing stays in CSV/seed this round | Judge time-box: the approval/refusal semantics of rules mattered more; full rule CRUD with impact-preview is Round 3. |
-| 6 | Supabase auth | one-click **demo persona switch** (engine session cookie) | Round 2's ruling: a judge must use the product without signing in; four personas are one click and map perfectly to the four roles. |
-| 7 | Deployment for demo | local twin servers on 3000 + 8000 | Judge opens a committed repo + `getting-started.md`; two commands, zero accounts. |
+Every change from the plan, section by section, with the reason and the upgrade
+path, is in **[plan-vs-build.md](plan-vs-build.md)**. In short: SQLite instead
+of Supabase Postgres (Postgres-compatible schema), exact keyword and number
+matching instead of embeddings, inline checks instead of a queue, demo personas
+plus password/invitation sign-in instead of Google sign-in, an AI call ledger
+instead of Sentry/Langfuse, and text-only content this round.
 
 ## 5. Problems we hit and fixed (an honest engineering log)
 
@@ -121,13 +138,13 @@ at a real defect.
 
 Checked against the Round 2 judging criteria:
 
-- **"The main workflow and the essential features must work from beginning
-  to end."** — Yes: submit → findings → resolve → (safe) review → sign →
-  public verify, all live, no room left for a "we'll finish it during the
-  demo" excuse.
-- **"A judge must be able to open your link and use the core of the product
-  without any help from you."** — no sign-in wall, no pre-configuration: the
+- **Core workflow runs end to end**: submit → findings → resolve → review →
+  sign → public verify, driven through the API by `test_engine.py` and walked
+  in the browser on the production build.
+- **A judge can use it without help**: in demo mode there is no password; the
   dashboard already lists a deliberately broken Quillmark post and the seeded
-  knowledge base; persona switching makes every role one click away.
-- **"Three major improvements for Round 3"** — see
-  [progress.md §5](progress.md#5-round-3-improvements-planned) (real product additions, no repaint).
+  knowledge base, and each role is one seeded sign-in away.
+- **Reliability**: 10 suites and an evaluation gate run in CI on every push
+  (see the [README](../README.md#7-tests-and-reliability)).
+- **Round 3**: the plan's milestones M7–M10 are unchanged; see
+  [progress.md §5](progress.md#5-round-3-improvements-planned).

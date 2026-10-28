@@ -21,11 +21,16 @@ python -m venv .venv
 .venv/Scripts/pip install -r engine/requirements.txt    # Windows
 .venv/bin/pip install -r engine/requirements.txt        # mac/linux
 
-# start the API on port 8000
+# start the API on port 8000 in demo mode (seeded workspace, one-click personas)
 cd engine
-../.venv/Scripts/python -m uvicorn main:app --port 8000     # Windows
-../.venv/bin/python -m uvicorn main:app --port 8000         # mac/linux
+CANONRY_DEMO_MODE=true ../.venv/bin/python -m uvicorn main:app --port 8000     # mac/linux, Git Bash
+$env:CANONRY_DEMO_MODE="true"; ..\.venv\Scripts\python -m uvicorn main:app --port 8000   # PowerShell
 ```
+
+Without `CANONRY_DEMO_MODE=true` the engine starts in production mode, which
+needs a first administrator (`CANONRY_BOOTSTRAP_ADMIN_EMAIL` and
+`CANONRY_BOOTSTRAP_ADMIN_PASSWORD`) and refuses to start without one; see
+[deployment.md](deployment.md) §5.
 
 On first start the engine:
 
@@ -66,17 +71,19 @@ terminal; the app itself doesn't care.
 5. **Submit for review** — the router stamps risk (see the note it prints).
 6. Switch persona to **Maya (reviewer)** in the nav → approve → status
    **Signed** → click the Proof-of-Compliance link.
-7. Open the PoC verify URL logged there — the public page says **✓ Verified**
-   (tamper with the content afterwards and it flips to `modified`).
+7. Open the PoC verify URL logged there — the public page says the seal is
+   genuine. Paste the published text into it: the exact approved text says
+   **Verified**, anything else says **Modified**.
 
 ## 4. Run the checks
 
 ```bash
-# engine end-to-end suite — uses db/canonry_test.db, never the live DB
-cd engine
-../.venv/Scripts/python test_engine.py        # Windows
-../.venv/bin/python test_engine.py            # mac/linux
-# → ALL ENGINE TESTS PASSED
+# every suite on its own fresh database, then the evaluation gate
+.venv/Scripts/python engine/tests/run_tests.py          # Windows
+.venv/bin/python engine/tests/run_tests.py              # mac/linux
+# → 11/11 passed
+
+.venv/Scripts/python engine/tests/run_tests.py access   # only suites whose name contains "access"
 ```
 
 ## 5. Optional: light up the AI checks

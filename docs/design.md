@@ -116,7 +116,9 @@ flowchart LR
 
 The user-visible payoff: every finding you read carries its own evidence line
 (`rule CLM-01 requires every statistic to trace…`, fact excerpt, expiry
-date). And because discarded findings are *counted*, silent drops stay
+date). The rule shown is the one the workspace binds to that check
+(`engine/policy.py`): CLM-01 in the Quillmark demo, the workspace's own rule
+anywhere else. And because discarded findings are *counted*, silent drops stay
 auditable rather than invisible.
 
 ## 7. Names you'll see in seeded data — the Quillmark demo world
@@ -148,7 +150,7 @@ panels have real content instead of empty additions.
 | D6 Audit log | hash-chained append-only table | plain timestamps | tamper-evidence without a blockchain |
 | D7 MCP connector | JSON-RPC 2.0 stdio by hand | wait for an SDK | we control the wire precisely today; SDK upgrade is additive later |
 | D8 Role model | 4 fixed demo roles, no RBAC UI | generic roles console | judge entertainment value of the concrete story vs the abstraction |
-| D9 Test approach | one end-to-end engine scenario (TestClient) driving the actual loop | unit-per-function only | simulates the real user journey: check → dispute → fix → sign → verify |
+| D9 Test approach | 10 scenario suites (TestClient) driving the real loop, each on a fresh database, plus an evaluation gate | unit-per-function only | simulates real journeys: check → dispute → fix → sign → verify; roles, lifecycle and AI fallback each have their own suite |
 | D10 Vague-rule policy | surface vague rules in Insights, do not enforce | hide / auto-fail them | flagging invites the owner to rewrite the rule — it must not gaslight reviewers |
 
 ## 9. What "beginner level" built-ins are (worth knowing)

@@ -1,12 +1,12 @@
 """Engine end-to-end smoke test (fastapi TestClient, in-folder test DB).
 
-Run:  .venv/Scripts/python engine/test_engine.py
+Run:  .venv/Scripts/python engine/tests/test_engine.py
 """
 import json
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # the engine package
 
 import db as _db
 
@@ -26,6 +26,10 @@ init_schema()
 seed()
 
 import main as engine  # noqa: E402
+
+# Test clients use localhost HTTP with password-free demo login.
+engine.COOKIE_SECURE = False
+engine.DEMO_MODE = True
 
 LAUNCH_POST = (
     "Meet Quillmark Insights 2.0 -- India's #1 analytics platform, trusted by "
@@ -102,7 +106,7 @@ for _ in range(12):
     if sugg.get("replace") or sugg.get("operation") == "remove":
         arjun.post(f"/submissions/{first['submission_id']}/resolve", json={
             "revision_id": d["latest_revision"]["id"], "finding_id": f["id"], "action": "accept"})
-    elif f["category"] == "missing_disclaimer":
+    elif f["category"] in ("missing_disclaimer", "missing_cta"):
         # fix in the creator's own words: end with a CTA/link (rule MSG-03)
         arjun.post(f"/submissions/{first['submission_id']}/resolve", json={
             "revision_id": d["latest_revision"]["id"], "finding_id": f["id"], "action": "edit",
