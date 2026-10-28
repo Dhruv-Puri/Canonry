@@ -172,7 +172,7 @@ Each suite boots its own database file, so your demo data is never touched.
 # every suite on its own fresh database, then the evaluation gate
 .venv/Scripts/python engine/tests/run_tests.py          # Windows
 .venv/bin/python engine/tests/run_tests.py              # mac/linux
-# → 11/11 passed
+# → 12/12 passed
 
 .venv/Scripts/python engine/tests/run_tests.py access   # only suites whose name contains "access"
 ```
@@ -189,6 +189,7 @@ Each suite boots its own database file, so your demo data is never touched.
 | `test_access` | agency partners see only their own work; confidential text stays hidden |
 | `test_workflow` | content is locked in review and after approval; public verification |
 | `test_gateway` | AI fallback chain, honest call ledger, nothing confidential sent (faked providers, no network) |
+| `test_quota` | daily AI allowance: 5 per person, 50 per workspace, clear reasons when out of tries, failed provider calls never charged |
 
 Each prints `ALL … TESTS PASSED` and exits 0 when healthy.
 

@@ -44,3 +44,8 @@ services:
       # optional free-tier AI key; without one AI checks are marked pending
       - key: GEMINI_API_KEY
         sync: false
+      # daily AI allowance (defaults shown); protects the free key during judging
+      - key: CANONRY_AI_DAILY_PER_USER
+        value: "5"
+      - key: CANONRY_AI_DAILY_PER_WORKSPACE
+        value: "50"

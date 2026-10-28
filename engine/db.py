@@ -82,7 +82,8 @@ CREATE TABLE IF NOT EXISTS revisions (
 CREATE TABLE IF NOT EXISTS check_runs (
   id TEXT PRIMARY KEY, revision_id TEXT NOT NULL, started_at TEXT NOT NULL,
   finished_at TEXT, ai_calls INTEGER DEFAULT 0, discarded INTEGER DEFAULT 0,
-  status TEXT NOT NULL DEFAULT 'done', knowledge_version INTEGER DEFAULT 0
+  status TEXT NOT NULL DEFAULT 'done', knowledge_version INTEGER DEFAULT 0,
+  by_user TEXT, ai_reason TEXT
 );
 CREATE TABLE IF NOT EXISTS findings (
   id TEXT PRIMARY KEY, revision_id TEXT NOT NULL, checker TEXT NOT NULL,
@@ -167,6 +168,8 @@ def init_schema() -> None:
             ("facts", "version", "version INTEGER NOT NULL DEFAULT 1"),
             ("terms", "version", "version INTEGER NOT NULL DEFAULT 1"),
             ("terms", "status", "status TEXT NOT NULL DEFAULT 'active'"),
+            ("check_runs", "by_user", "by_user TEXT"),
+            ("check_runs", "ai_reason", "ai_reason TEXT"),
         ):
             cols = [r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
             if cols and column not in cols:

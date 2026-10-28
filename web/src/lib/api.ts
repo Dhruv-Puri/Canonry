@@ -133,10 +133,21 @@ export type SubmissionDetail = {
   approvals: Approval[];
   poc: { id: string; created_at: string } | null;
   /** Latest check run on the latest revision; status "ai_pending" means only rule-based checks ran. */
-  check: { status: string; started_at: string; finished_at: string | null; ai_calls: number; discarded: number } | null;
+  check: {
+    status: string; started_at: string; finished_at: string | null; ai_calls: number; discarded: number;
+    /** why the AI checks were skipped on this run; null when they ran */
+    ai_reason: AiReason | null;
+  } | null;
   me: User;
   /** which lifecycle actions the current status allows (engine workflow rules) */
   allowed: { edit: boolean; submit: boolean; approve: boolean; request_changes: boolean; override: boolean };
+  /** today's AI-assisted checks for the signed-in person and the workspace (reset 00:00 UTC) */
+  ai_allowance: AiAllowance;
+};
+
+export type AiReason = "no_provider" | "user_quota" | "workspace_quota" | "provider_unavailable" | "budget";
+export type AiAllowance = {
+  used: number; limit: number; workspace_used: number; workspace_limit: number; resets_at: string;
 };
 
 export const BASE = "/engine";

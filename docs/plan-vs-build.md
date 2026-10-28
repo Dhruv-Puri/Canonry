@@ -42,7 +42,7 @@
 | Email + Google sign-in | **Demo mode**: password-free personas for judges and tests. **Production mode**: passwords (PBKDF2) and one-use, role-bound invitations | The Round 2 criterion is that a judge can use the product without help (D36); production mode keeps real use secure | Google/SSO behind the same session layer |
 | pypdf + python-docx for uploads | Content is pasted as text; rules import from Markdown, text and Word (.docx, parsed with the standard library) | Text covers the core loop; DOCX/PDF content upload was a "Could" | Content upload in Round 3 (plan Section 5, formats) |
 | Sentry, Langfuse, OpenTelemetry | AI call ledger in the database (every attempt, provider, model, prompt version, latency, success) shown on Insights | Same visibility for AI calls with no extra service; no paid or hosted dependency | Add Sentry/Langfuse exporters |
-| Vitest, Playwright, pytest; Dependabot, CodeQL | 10 Python suites through FastAPI's test client, evaluation gate, web type-check and production build, `pip-audit` and `npm audit` in CI | Covers the engine, where all product logic lives | Web unit and E2E tests, CodeQL (Round 3) |
+| Vitest, Playwright, pytest; Dependabot, CodeQL | 11 Python suites through FastAPI's test client, evaluation gate, web type-check and production build, `pip-audit` and `npm audit` in CI | Covers the engine, where all product logic lives | Web unit and E2E tests, CodeQL (Round 3) |
 | Finding contract validated with JSON Schema on both sides | Validated server-side (pydantic) before every finding is stored; TypeScript type on the web side | One enforcement point; the contract had drifted and enforcement caught it (D49) | Publish the JSON Schema from the pydantic model |
 | AI cascade: small model first, larger model when confidence is low | Fixed fallback order: Gemini → Groq → OpenRouter → local Ollama | Simpler and predictable on free tiers | Confidence-based routing in the gateway |
 
@@ -71,6 +71,7 @@
 
 - Production mode with invitation-only sign-up and no self-approval, alongside the demo mode.
 - `/health` endpoint and a one-file Render blueprint for the judge demo.
+- A daily AI allowance (5 checks per person, 50 per workspace) so a free key is not exhausted by one user, with a specific on-screen reason when AI is skipped (D53).
 - A faked-provider test suite, so the AI path is tested in CI without keys or network.
 
 ## 5. Still open from the Round 2 plan

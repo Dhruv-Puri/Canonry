@@ -67,7 +67,7 @@ every number now traces to an approved fact, and the router fast-tracked it as l
 | Functional product / MVP | this repository: engine + web app; demo workspace seeded on first boot |
 | Judge-accessible source repository | <https://github.com/Dhruv-Puri/Canonry> |
 | Deployed link or clear demonstration | live link above; [docs/deployment.md](docs/deployment.md); [docs/tutorial.md](docs/tutorial.md) guided tour |
-| Architecture and main technical decisions | [§5](#5-architecture) · [docs/architecture.md](docs/architecture.md) · [docs/decision-log.md](docs/decision-log.md) (D1–D52, dated) · [changes from the Round 1 plan](docs/plan-vs-build.md) |
+| Architecture and main technical decisions | [§5](#5-architecture) · [docs/architecture.md](docs/architecture.md) · [docs/decision-log.md](docs/decision-log.md) (D1–D53, dated) · [changes from the Round 1 plan](docs/plan-vs-build.md) |
 | APIs, AI models, datasets, libraries, templates, external services | [§6](#6-what-we-used-apis-models-data-libraries) · [docs/disclosure-log.md](docs/disclosure-log.md) |
 | Evidence of user testing or structured feedback | [§8](#8-user-testing) · [docs/usability-test-kit.md](docs/usability-test-kit.md) |
 | Each team member's contribution | [§9](#9-team-and-contributions) |
@@ -75,7 +75,7 @@ every number now traces to an approved fact, and the router fast-tracked it as l
 | Judging criterion (points) | Evidence |
 |---|---|
 | Core workflow runs end to end (30) | §1 journey; `test_engine.py` drives it through the API; seeded launch post to try it in the browser |
-| Technical depth and reliability (25) | 10 test suites + evaluation gate in CI (§7); finding contract enforced on every finding; role scoping and lifecycle locks tested; honest AI degradation |
+| Technical depth and reliability (25) | 11 test suites + evaluation gate in CI (§7); finding contract enforced on every finding; role scoping and lifecycle locks tested; honest AI degradation |
 | Progress against the plan (20) | [docs/plan-vs-build.md](docs/plan-vs-build.md): every plan commitment, what changed and why; [docs/changelog.md](docs/changelog.md): milestones M1–M6 with evidence |
 | The three improvements (15) | §3 |
 | Usability so far (10) | password-free demo personas, plain-language findings, one-click fixes; usability kit (§8) |
@@ -158,6 +158,7 @@ flowchart LR
 | `workflow.py` | what each submission status allows (draft → review → signed) |
 | `access.py` | what each role may see (agency scoping, confidential redaction) |
 | `gateway.py` | AI provider adapters, fallback chain, call budget, call ledger |
+| `quota.py` | daily AI allowance per person and per workspace |
 | `contract.py` | the versioned finding contract `finding@1` |
 | `signing.py` | Proof of Compliance: sign and verify |
 | `knowledge.py` | versioned rules, facts and terms, with history and change impact |
@@ -171,6 +172,7 @@ Main technical decisions (full list with reasons in the [decision log](docs/deci
 - **Rules before AI, honest degradation** (D37): deterministic checks always run; with no AI provider the run is marked `ai_pending`, never silently skipped.
 - **Rule bindings** (D43): checks cite the workspace's own rules, so the engine works with any rulebook, not just the demo's.
 - **Free models only** (D28, D48): Gemini, Groq and OpenRouter free tiers plus local Ollama, ≤ 3 answered calls per 1,000 words; confidential facts are never sent.
+- **Daily AI allowance** (D53): free keys run out without warning, so each person gets 5 AI-assisted checks a day and the workspace 50 (both configurable). Out of tries, rule-based checks still run and the screen says why AI was skipped and when it resets.
 - **Signed approvals** (D24, D46): Ed25519 seals that third parties can check against the published text.
 
 ## 6. What we used (APIs, models, data, libraries)
@@ -188,7 +190,7 @@ Main technical decisions (full list with reasons in the [decision log](docs/deci
 ## 7. Tests and reliability
 
 ```bash
-.venv/Scripts/python engine/tests/run_tests.py     # 10 suites (fresh DB each) + evaluation gate
+.venv/Scripts/python engine/tests/run_tests.py     # 11 suites (fresh DB each) + evaluation gate
 ```
 
 | Suite (`engine/tests/`) | Proves |
@@ -203,6 +205,7 @@ Main technical decisions (full list with reasons in the [decision log](docs/deci
 | `test_access` | agency partners see only their own work; confidential text never leaks |
 | `test_workflow` | content locked in review and after signing; public verification of pasted text |
 | `test_gateway` | AI fallback chain, honest call ledger, no confidential data sent (faked providers, no network) |
+| `test_quota` | daily AI allowance: 5 per person, 50 per workspace, clear reasons when out of tries, failed provider calls never charged |
 | evaluation gate | precision / recall per checker and tier on the frozen split; fails on regression |
 
 CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs all of it on every push, plus
@@ -246,7 +249,7 @@ Commit history on GitHub shows who changed what and when.
 ├── data/                    ← demo brand book: rules, facts, terms (CSV)
 ├── engine/                  ← FastAPI analysis engine (all product logic)
 │   ├── *.py                 ← modules listed in §5
-│   ├── tests/               ← 10 suites + run_tests.py
+│   ├── tests/               ← 11 suites + run_tests.py
 │   ├── evaluation/          ← evaluate.py, labelled set, committed baseline
 │   ├── Dockerfile
 │   └── requirements.txt
@@ -266,7 +269,7 @@ Commit history on GitHub shows who changed what and when.
 | [approach](docs/approach.md) | how we built it, and the problems we hit |
 | [changelog](docs/changelog.md) | progress against the plan, milestone by milestone |
 | [progress](docs/progress.md) | status, bugs found and fixed, honest gaps |
-| [decision-log](docs/decision-log.md) | every decision D1–D52, dated, with reasons |
+| [decision-log](docs/decision-log.md) | every decision D1–D53, dated, with reasons |
 | [disclosure-log](docs/disclosure-log.md) | AI tools, models, libraries and services used |
 | [usability-test-kit](docs/usability-test-kit.md) | how we run and record user tests |
 | [dev-notes/](docs/dev-notes/) | working specs and plans written during the build |

@@ -11,13 +11,14 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import checkers
 import claims
 import contract
 import gateway
 import knowledge
+import quota
 from db import _now, gen_id, get_knowledge_version
 
 PROMPT_VERSION = "claims@4"
@@ -47,7 +48,8 @@ def _pin_citation_versions(conn: sqlite3.Connection, ws: str, citations: List[Di
                 c["version"] = v
 
 
-def run_check(conn: sqlite3.Connection, revision_id: str) -> Dict[str, Any]:
+def run_check(conn: sqlite3.Connection, revision_id: str, actor: Optional[str] = None) -> Dict[str, Any]:
+    """Check one revision. `actor` (an email) is charged one AI try if a provider answers."""
     rev = conn.execute("SELECT * FROM revisions WHERE id = ?", (revision_id,)).fetchone()
     sub = conn.execute("SELECT * FROM submissions WHERE id = ?", (rev["submission_id"],)).fetchone()
     ws = sub["workspace_id"]
@@ -58,8 +60,8 @@ def run_check(conn: sqlite3.Connection, revision_id: str) -> Dict[str, Any]:
 
     run_id = gen_id("run")
     conn.execute(
-        "INSERT INTO check_runs (id, revision_id, started_at, status, knowledge_version) VALUES (?,?,?,?,?)",
-        (run_id, revision_id, _now(), "running", kv_bumped),
+        "INSERT INTO check_runs (id, revision_id, started_at, status, knowledge_version, by_user) VALUES (?,?,?,?,?,?)",
+        (run_id, revision_id, _now(), "running", kv_bumped, actor),
     )
     ai_calls_before = gateway.successful_calls(conn)
 
@@ -138,12 +140,21 @@ def run_check(conn: sqlite3.Connection, revision_id: str) -> Dict[str, Any]:
     def budget_left() -> bool:
         return gateway.call_budget_ok(words, gateway.successful_calls(conn) - ai_calls_before)
 
-    ai_pending = False
-    budget = budget_left()
-    providers = gateway.any_available()
-    implicit = claims.ai_implicit_claims(text, budget, conn) if providers else None
-    if implicit is None and providers and not budget:
-        ai_pending = True
+    # why the AI checks did not (fully) run; None = they ran. Checked in order: a
+    # provider exists, then the daily allowance (quota.py), then each call's answer
+    ai_reason: Optional[str] = None if gateway.any_available() else "no_provider"
+    if ai_reason is None:
+        ai_reason = quota.blocked(conn, ws, actor)
+    use_ai = ai_reason is None
+
+    def missed() -> None:  # an AI call gave no usable answer
+        nonlocal ai_reason
+        if ai_reason is None:
+            ai_reason = "provider_unavailable" if budget_left() else "budget"
+
+    implicit = claims.ai_implicit_claims(text, budget_left(), conn) if use_ai else None
+    if use_ai and implicit is None:
+        missed()
     if implicit:
         verified = claims.ai_verify_claims(
             text, [{"snippet": i["claim"]} for i in implicit], facts, budget_left(), conn)
@@ -168,11 +179,9 @@ def run_check(conn: sqlite3.Connection, revision_id: str) -> Dict[str, Any]:
                 "provenance": {"model": v["model"], "prompt_version": PROMPT_VERSION,
                                "knowledge_version": kv_bumped},
             })
-    elif implicit is None:
-        ai_pending = True  # no provider or call refused: implicit checks pending ([] = ran, found none)
 
     tone_rule = ctx.rule("voice.tone")
-    if providers and tone_rule:
+    if use_ai and tone_rule:
         tone_out = gateway.gateway_call(
             "tone_check",
             [{"role": "system", "content": TONE_SYSTEM},
@@ -187,7 +196,7 @@ def run_check(conn: sqlite3.Connection, revision_id: str) -> Dict[str, Any]:
             conn=conn, budget_ok=budget_left(), prompt_version=TONE_PROMPT_VERSION,
         )
         if not tone_out:
-            ai_pending = True  # provider listed but the tone call failed or was over budget
+            missed()
         else:
             data = gateway.parse_json_out(tone_out["text"])
             for t in (data or {}).get("tone_findings", [])[:2]:
@@ -277,11 +286,13 @@ def run_check(conn: sqlite3.Connection, revision_id: str) -> Dict[str, Any]:
         kept.append(f)
 
     calls_after = gateway.successful_calls(conn)
+    ai_pending = ai_reason is not None
     status = "ai_pending" if ai_pending else "done"
     conn.execute(
-        "UPDATE check_runs SET finished_at = ?, ai_calls = ?, discarded = ?, status = ? WHERE id = ?",
-        (_now(), calls_after - ai_calls_before, discarded, status, run_id),
+        "UPDATE check_runs SET finished_at = ?, ai_calls = ?, discarded = ?, status = ?, ai_reason = ? WHERE id = ?",
+        (_now(), calls_after - ai_calls_before, discarded, status, ai_reason, run_id),
     )
     conn.commit()
     return {"run_id": run_id, "findings": kept, "discarded": discarded, "ai_pending": ai_pending,
+            "ai_reason": ai_reason,
             "knowledge_version": kv_bumped, "ai_calls": calls_after - ai_calls_before}

@@ -144,7 +144,7 @@ Checked against the Round 2 judging criteria:
 - **A judge can use it without help**: in demo mode there is no password; the
   dashboard already lists a deliberately broken Quillmark post and the seeded
   knowledge base, and each role is one seeded sign-in away.
-- **Reliability**: 10 suites and an evaluation gate run in CI on every push
+- **Reliability**: 11 suites and an evaluation gate run in CI on every push
   (see the [README](../README.md#7-tests-and-reliability)).
 - **Round 3**: the plan's milestones M7–M10 are unchanged; see
   [progress.md §5](progress.md#5-round-3-improvements-planned).

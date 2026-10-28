@@ -367,6 +367,7 @@ a change happens in one place and every endpoint follows it.
 | What a status allows | `workflow.blocked(status, action)`, `workflow.allowed(status)` | adding an action or status to `workflow.ALLOWED`; the UI reads `allowed` from the detail payload |
 | What a role may see | `access.submission_scope(user)`, `access.filter_visible(...)`, `access.redact_fact(...)` | changing the rule once; every cross-submission query uses it |
 | AI providers | `gateway.Provider` (`available`, `model`, `chat`), `gateway.gateway_call(task, messages, ...)` | subclassing `Provider`, or adding an `OpenAICompatible(...)` entry to `gateway.PROVIDERS` |
+| How much AI a person may use | `quota.limits()`, `quota.usage(conn, ws, user)`, `quota.blocked(conn, ws, user)` | changing `CANONRY_AI_DAILY_PER_USER` / `CANONRY_AI_DAILY_PER_WORKSPACE`; the pipeline asks `blocked()` before any AI call |
 | What a finding looks like | `contract.Finding`, `contract.conforms(finding)` | a new checker returns this shape; the pipeline validates it |
 
 ---

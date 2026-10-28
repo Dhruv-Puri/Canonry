@@ -82,7 +82,15 @@ turn them on, set one key on the engine service:
 | `OLLAMA_URL` | a local Ollama server (no key; nothing leaves your machine) |
 
 The gateway tries them in that order and falls through on rate limits, errors
-and empty answers. It spends at most three answered calls per 1,000-word check
+and empty answers.
+
+**Daily allowance.** Free keys run out without warning, so AI-assisted checks are
+rationed: 5 per person and 50 per workspace each day (reset at 00:00 UTC). A check
+counts only once a provider has answered; failed attempts cost nothing. Out of
+tries, rule-based checks still run and the screen says why AI was skipped. Change
+the limits with `CANONRY_AI_DAILY_PER_USER` and `CANONRY_AI_DAILY_PER_WORKSPACE`
+(whole numbers; `0` per user turns AI off for individuals). A malformed value stops
+the engine at startup with a clear message. It spends at most three answered calls per 1,000-word check
 and never sends confidential facts. Free model names change: override one with
 `CANONRY_GEMINI_MODEL`, `CANONRY_GROQ_MODEL`, `CANONRY_OPENROUTER_MODEL` or
 `CANONRY_OLLAMA_MODEL`. Never commit a key.
@@ -142,4 +150,4 @@ Build the image from the repository root: `docker build -f engine/Dockerfile -t 
 | Production engine stops at startup | The bootstrap admin email or password is missing or invalid. |
 | An invited person cannot join | Invitations are one-use, expire after 72 hours and are bound to the invited email; issue a new one. |
 | A verify page says `unknown` | The seal was signed on an earlier instance (section 6), or the id is mistyped. |
-| AI checks stay *pending* | No provider configured (section 4), or every provider failed: see Insights → AI ledger. |
+| AI checks stay *pending* | The banner says why: no provider configured (section 4), the person's or workspace's daily allowance is used up, or every provider failed (see Insights → AI ledger). |

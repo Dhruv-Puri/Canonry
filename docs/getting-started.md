@@ -81,7 +81,7 @@ terminal; the app itself doesn't care.
 # every suite on its own fresh database, then the evaluation gate
 .venv/Scripts/python engine/tests/run_tests.py          # Windows
 .venv/bin/python engine/tests/run_tests.py              # mac/linux
-# → 11/11 passed
+# → 12/12 passed
 
 .venv/Scripts/python engine/tests/run_tests.py access   # only suites whose name contains "access"
 ```
