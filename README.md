@@ -119,18 +119,18 @@ npm install
 npm run dev
 ```
 
-Open <http://localhost:3000> and sign in with a seeded persona (demo mode needs
-no password), or choose **Create a demo identity** and pick any role:
+Open <http://localhost:3000>, pick a role and press **Continue as guest**. No
+account, email or password is needed:
 
-| Email | Persona | Role |
-|---|---|---|
-| `arjun@quillmark` | Arjun, product marketer | creator |
-| `maya@quillmark` | Maya, brand & content manager | reviewer |
-| `riya@agency` | Riya, agency copywriter | agency (sees only her own work) |
-| `karan@quillmark` | Karan, head of marketing | admin |
+| Role | What you can do |
+|---|---|
+| Creator | write drafts and fix what Canonry flags |
+| Reviewer | approve drafts or send them back |
+| Agency partner | submit work for a client brand (sees only its own work) |
+| Brand admin | manage the brand's rules and facts |
 
-As Arjun, open **Launch post — Pulse 2.0**, fix and submit it; as Maya, review
-and sign it. AI checks show as *pending* until you add a free key (copy
+As a Creator, open **Launch post — Pulse 2.0**, fix and submit it; then switch to
+Reviewer from your name in the top bar, and approve and sign it. AI checks show as *pending* until you add a free key (copy
 `.env.example` to `.env`); everything else works without one. Details and
 troubleshooting: [docs/getting-started.md](docs/getting-started.md).
 
@@ -208,6 +208,9 @@ Main technical decisions (full list with reasons in the [decision log](docs/deci
 | `test_gateway` | AI fallback chain, honest call ledger, no confidential data sent (faked providers, no network) |
 | `test_quota` | daily AI allowance: 5 per person, 50 per workspace, clear reasons when out of tries, failed provider calls never charged |
 | evaluation gate | precision / recall per checker and tier on the frozen split; fails on regression |
+
+The suites never call a real AI provider, even when your `.env` holds keys: they read no
+`.env` and fake the providers where AI behaviour is tested.
 
 CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs all of it on every push, plus
 a web type-check, a production build, `pip-audit` and `npm audit`.

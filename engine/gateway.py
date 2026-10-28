@@ -40,10 +40,14 @@ class ProviderError(Exception):
 # ---- configuration ------------------------------------------------------------
 
 def _read_env_file() -> Dict[str, str]:
-    """The project-root .env (values are never printed or logged)."""
-    path = os.path.join(os.path.dirname(__file__), "..", ".env")
+    """The project-root .env, or the file CANONRY_ENV_FILE names ("" = read none;
+    the test suites run that way so they never spend a real key). Values are
+    never printed or logged."""
+    path = os.environ.get("CANONRY_ENV_FILE")
+    if path is None:
+        path = os.path.join(os.path.dirname(__file__), "..", ".env")
     data: Dict[str, str] = {}
-    if os.path.exists(path):
+    if path and os.path.exists(path):
         with open(path, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()

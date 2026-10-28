@@ -8,6 +8,7 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # the engine package
+import offline_ai  # noqa: E402,F401  (first: tests never reach a real AI provider)
 
 # Print rupee signs and other non-ASCII output on any console encoding.
 if hasattr(sys.stdout, "reconfigure"):

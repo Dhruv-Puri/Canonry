@@ -10,6 +10,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # the engine package
+import offline_ai  # noqa: E402,F401  (first: tests never reach a real AI provider)
 
 import db as _db
 
@@ -144,6 +145,20 @@ gateway.configure(env={"OLLAMA_URL": "http://ollama.test:11434"}, transport=http
 expect([p["provider"] for p in gateway.provider_list() if p["available"]] == ["ollama"], "Ollama is available")
 r, d = check("ollama")
 expect(r["ai_pending"] is False and {h for h, _ in requests} == {"ollama.test"}, "checks ran on the local model")
+
+# --- which .env file is read: CANONRY_ENV_FILE ("" = none; the suites run that way) ---
+print("== env file")
+import tempfile  # noqa: E402
+env_file = os.path.join(tempfile.mkdtemp(), "keys.env")
+with open(env_file, "w", encoding="utf-8") as fh:
+    fh.write("GROQ_API_KEY=from-file\n")
+os.environ["CANONRY_ENV_FILE"] = env_file
+gateway.configure(env=None, transport=None)
+expect([p["provider"] for p in gateway.provider_list() if p["available"]] == ["groq"],
+       "keys are read from the file CANONRY_ENV_FILE names")
+os.environ["CANONRY_ENV_FILE"] = ""
+gateway.configure(env=None, transport=None)
+expect(not any(p["available"] for p in gateway.provider_list()), "CANONRY_ENV_FILE='' reads no .env at all")
 
 gateway.configure(env={}, transport=None)
 print()

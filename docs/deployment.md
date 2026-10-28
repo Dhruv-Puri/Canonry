@@ -58,13 +58,14 @@ curl -s "$WEB/engine/auth-mode"                             # registration: demo
 
 Then walk the core journey once in the browser:
 
-1. Sign in as `arjun@quillmark` (creator; no password in demo mode). Open
+1. Choose **Creator** and press **Continue as guest** (no account needed). Open
    **Launch post — Pulse 2.0** (seeded on first boot).
 2. Accept a suggested fix: revision 2 is created and re-checked.
 3. Dispute a finding with a reason.
 4. Submit for review. The router stamps a risk level.
-5. Sign out and sign in as `maya@quillmark` (reviewer). Override any remaining
-   high finding with a reason, then **Approve & sign**.
+5. Switch to **Reviewer** from your name in the top bar. Override any remaining
+   high finding with a reason, then **Approve & sign** (labelled as self-approved,
+   since the same guest drafted it).
 6. Open the public `/verify/<poc_id>` link in a private window: the seal is
    genuine. Paste the approved text: **Verified**. Change one word: **Modified**.
 
@@ -99,7 +100,7 @@ and never sends confidential facts. Free model names change: override one with
 
 | | Demo mode (`CANONRY_DEMO_MODE=true`, the blueprint) | Production (`false`, the engine default) |
 |---|---|---|
-| Sign-in | pick a persona, no password | email + password (≥ 12 characters) |
+| Sign-in | guest entry: pick a role, no account | email + password (≥ 12 characters) |
 | New people | anyone, any role | one-use invitation from an admin, role fixed by the invitation |
 | Data | seeded Quillmark workspace | empty workspace; every built-in check starts with a baseline rule until your rulebook is imported |
 | Self-approval | allowed, labelled in the signed seal | refused: a different reviewer must approve |
