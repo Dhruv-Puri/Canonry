@@ -22,9 +22,12 @@ same-origin and no CORS setup is needed.
    |---|---|
    | `CANONRY_APP_ORIGINS` | the exact web origin from step 2 below, e.g. `https://canonry.vercel.app` (you can fill it in after the web deploy, then redeploy the engine) |
    | `GEMINI_API_KEY` | optional free key (section 4); leave empty and AI checks show as *pending* |
+   | `GROQ_API_KEY` | optional free key (section 4); a fast fallback when Gemini is busy — recommended |
 
-   The blueprint already sets `CANONRY_DEMO_MODE=true` and
-   `CANONRY_COOKIE_SECURE=true`.
+   The blueprint already sets `CANONRY_DEMO_MODE=true`,
+   `CANONRY_COOKIE_SECURE=true` and `CANONRY_AI_DEADLINE_SECONDS=60` (Vercel's
+   proxy gives up on a request after 120 s, so a check's AI part stops at 60 s
+   and the rule-based findings are shown).
 4. Wait for the first build. The health check is `/health`:
 
    ```bash
