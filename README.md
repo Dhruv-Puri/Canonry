@@ -19,7 +19,7 @@ key at all.
 | **Live demo** | **<https://canonry-sigma.vercel.app>** — choose a role, *Continue as guest* (engine: <https://canonry-engine.onrender.com/health>; free tier, the first visit after idle can take ~50 s). Deploy your own: [docs/deployment.md](docs/deployment.md) |
 | **Run locally** | [Quick start](#4-quick-start) (about 5 minutes, no accounts, no keys) |
 | **Source** | <https://github.com/Dhruv-Puri/Canonry> |
-| **Round 1 plan** | `Canonry_Round1_Plan_vaidvansh6.pdf` (submitted in Round 1) |
+| **Round 2 PDF** | [docs/Canonry_Round2_Build_vaidvansh6.pdf](docs/Canonry_Round2_Build_vaidvansh6.pdf): links, completed features, technology, changes from the plan, Round 3 improvements (Part A), then the Round 1 plan as submitted (Part B) |
 
 ---
 
@@ -71,13 +71,19 @@ every number now traces to an approved fact, and the router fast-tracked it as l
 | APIs, AI models, datasets, libraries, templates, external services | [§6](#6-what-we-used-apis-models-data-libraries) · [docs/disclosure-log.md](docs/disclosure-log.md) |
 | Evidence of user testing or structured feedback | [§8](#8-user-testing) · [docs/usability-test-kit.md](docs/usability-test-kit.md) |
 | Each team member's contribution | [§9](#9-team-and-contributions) |
+| Updated project PDF | [docs/Canonry_Round2_Build_vaidvansh6.pdf](docs/Canonry_Round2_Build_vaidvansh6.pdf) |
+| List of completed features | [§1](#1-the-core-workflow-runs-end-to-end), [§3](#3-the-three-improvements-we-committed-to); PDF section A2 |
+| Technology and implementation | [§5](#5-architecture), [§6](#6-what-we-used-apis-models-data-libraries); PDF section A3 |
+| Changes from the original plan | [§3](#changes-from-the-round-1-plan), [docs/plan-vs-build.md](docs/plan-vs-build.md); PDF section A4 |
+| What does not work yet | [§10](#10-known-limitations) |
+| Three major improvements for Round 3 | [§12](#12-round-3-three-major-improvements); PDF section A5 |
 
 | Judging criterion (points) | Evidence |
 |---|---|
 | Core workflow runs end to end (30) | §1 journey; `test_engine.py` drives it through the API; seeded launch post to try it in the browser |
 | Technical depth and reliability (25) | 11 test suites + evaluation gate in CI (§7); finding contract enforced on every finding; role scoping and lifecycle locks tested; honest AI degradation |
 | Progress against the plan (20) | [docs/plan-vs-build.md](docs/plan-vs-build.md): every plan commitment, what changed and why; [docs/changelog.md](docs/changelog.md): milestones M1–M6 with evidence |
-| The three improvements (15) | §3 |
+| Three planned improvements (15) | §12 (Round 3 plan); §3 shows the Round 1 improvements delivered |
 | Usability so far (10) | password-free demo personas, plain-language findings, one-click fixes; usability kit (§8) |
 
 ## 3. The three improvements we committed to
@@ -175,6 +181,7 @@ Main technical decisions (full list with reasons in the [decision log](docs/deci
 - **Free models only** (D28, D48): Gemini, Groq and OpenRouter free tiers plus local Ollama, ≤ 3 answered calls per 1,000 words; confidential facts are never sent.
 - **Daily AI allowance** (D53): free keys run out without warning, so each person gets 5 AI-assisted checks a day and the workspace 50 (both configurable). Out of tries, rule-based checks still run and the screen says why AI was skipped and when it resets.
 - **Signed approvals** (D24, D46): Ed25519 seals that third parties can check against the published text.
+- **Reliable on free AI tiers**: a busy or rate-limited model is cooled down and the next one tried (several free Gemini models, then Groq); a check's AI part stops after a time limit (60 s on the live demo) and the rule findings are shown; accepting, editing or disputing a finding re-runs the rule checks instantly and carries over the AI's findings on unchanged text, so nobody waits on the AI twice.
 
 ## 6. What we used (APIs, models, data, libraries)
 
@@ -235,12 +242,20 @@ Commit history on GitHub shows who changed what and when.
 
 ## 10. Known limitations
 
-- **AI checks depend on free tiers**: the live demo runs Gemini with Groq as fallback, capped per person per day; when every provider is busy, implied claims and tone are marked *pending* and the rule-based findings still show. CI tests the AI path with faked providers only.
-- **Small evaluation set**: 20 hand-built samples (6 frozen), labelled by the team, over the demo brand. It measures the deterministic engine exactly; independent double-labelling and a larger set are Round 3 work.
-- **Text only**: images, DOCX/PDF review and accessibility checks are planned for Round 3 (plan Section 11).
-- **Demo identity**: demo mode lets anyone act as any role. Production mode (passwords, one-use invitations, no self-approval) exists but is not the judge deployment.
-- **Free hosting is ephemeral**: on Render free, data and seals reset on restart ([docs/deployment.md](docs/deployment.md) §6).
-- **Retrieval is keyword-based**: pgvector retrieval on managed Postgres is the Round 3 upgrade (schema already compatible).
+What a judge may run into on the live demo:
+
+- **Slow first load**: the engine is on Render's free tier; after it has been idle, the first page or check can take about 50 seconds while it wakes up.
+- **Demo data resets**: data resets whenever the free server restarts or redeploys. Your drafts may disappear; the sample *Launch post — Pulse 2.0* always comes back.
+- **Old verify links can stop working**: the signing key is regenerated on each restart, so a seal made before a restart verifies as *unknown* afterwards ([docs/deployment.md](docs/deployment.md) §6).
+- **Shared demo workspace**: all guests use the same demo brand, so a Reviewer may see drafts other visitors submitted.
+- **AI depends on free models**: implied-claim and tone checks can take up to about a minute, or be skipped when every free provider is busy. The screen says why; rule findings still appear, and **Re-check** runs the AI again.
+- **AI allowance**: each person, and the whole demo, has a daily limit of AI-assisted checks; after that the AI part is skipped with a clear message until 00:00 UTC.
+- **After accepting a fix the AI is not re-run** on the new revision (its earlier findings carry over); press **Re-check** to run it.
+- **AI findings are judgement calls** (tiers *Likely* and *Consider*) and can be wrong; a person decides and can dispute or override them.
+- **Self-approval in the demo**: one guest can switch from Creator to Reviewer and approve their own draft. It is labelled *self-approved*; production mode blocks it.
+- **Text only, English only**: content is pasted as text. DOCX/PDF content upload and image checks are Round 3. Rules import from CSV, Markdown and Word.
+- **Not reachable from the web link**: the Canon Connector (MCP) runs locally; there are no email or Slack notifications, region routing or SLA reminders.
+- **Evidence still to collect**: the five moderated usability sessions (SUS) have not been run; the evaluation set is small (20 samples, 6 frozen) and labelled by the team. CI tests the AI path with faked providers only.
 
 ## 11. Repository layout
 
@@ -264,6 +279,7 @@ Commit history on GitHub shows who changed what and when.
 
 | Document | Read it for |
 |---|---|
+| [Round 2 PDF](docs/Canonry_Round2_Build_vaidvansh6.pdf) | the submitted Round 2 document: features, technology, changes, Round 3 plan, and the Round 1 plan |
 | [tutorial](docs/tutorial.md) | a guided 15-minute tour for first-time users |
 | [getting-started](docs/getting-started.md) | install, run and test in 10 minutes |
 | [deployment](docs/deployment.md) | free deployment (Render + Vercel), demo vs production |
@@ -277,6 +293,18 @@ Commit history on GitHub shows who changed what and when.
 | [disclosure-log](docs/disclosure-log.md) | AI tools, models, libraries and services used |
 | [usability-test-kit](docs/usability-test-kit.md) | how we run and record user tests |
 | [dev-notes/](docs/dev-notes/) | working specs and plans written during the build |
+
+## 12. Round 3: three major improvements
+
+Each adds a capability Canonry does not have today, comes from the Round 1 roadmap, and has a test that decides when it is done.
+
+| Improvement | What it is | What it changes for the user | Done when |
+|---|---|---|---|
+| **1. Documents and images** | Upload DOCX and PDF content (findings point to the page and line); image checkers for logo use, brand colours, text contrast (WCAG) and alt text; the Proof of Compliance stamped into the approved file's metadata | Teams review the files they actually publish, catch visual and accessibility mistakes, and a downloaded asset carries its own proof of approval | a PDF one-pager and a social image complete the full journey to a sealed, verifiable file; planted visual issues are caught |
+| **2. Publishing gate: REST API + webhooks** | Versioned API with per-workspace keys; webhooks on *checked*, *approved* and *signed*; a demo CMS integration that holds a post until approval (stretch: Google Docs add-on) | Review stops being optional: content passes Canonry on its way to publication, and every published item links to a signed approval | an external client publishes only after a webhook reports a signed approval, and the page verifies against that seal |
+| **3. India advertising compliance pack, with RAG** | Rules from the CCPA Guidelines for Prevention of Misleading Advertisements (2022) and the ASCI Code; the regulation text is embedded in **managed Postgres with pgvector**, the most relevant clauses are retrieved for each sentence (RAG), and every finding cites the exact clause; numbers stay exactly matched | Marketers see legal risk before publishing, reviewers see the legal basis of each warning, and new markets are a pack, not a retraining | violations from published ASCI complaint decisions are caught with the right clause cited, at the "Definite" bar (≥ 95% precision) |
+
+**Platform upgrade underneath all three:** storage moves from SQLite to free-tier managed Postgres (the schema already uses Postgres names), with role rules as row-level security. Data and seals then survive restarts, and the API and uploads get durable multi-user storage. Round 3 also takes the Round 1 improvements to their targets (≥ 85% claim recall and ≥ 80% precision on a larger, independently labelled set; a clarity dashboard with missing-fact suggestions; calibrated tiers) and runs the usability tests.
 
 All code was written by team vaidvansh6 during the build window, with the AI
 assistance disclosed above. Demo brand data is fictional.
