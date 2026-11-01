@@ -81,7 +81,7 @@ every number now traces to an approved fact, and the router fast-tracked it as l
 | Judging criterion (points) | Evidence |
 |---|---|
 | Core workflow runs end to end (30) | §1 journey; `test_engine.py` drives it through the API; seeded launch post to try it in the browser |
-| Technical depth and reliability (25) | 11 test suites + evaluation gate in CI (§7); finding contract enforced on every finding; role scoping and lifecycle locks tested; honest AI degradation |
+| Technical depth and reliability (25) | 20 test suites + evaluation gate in CI (§7); finding contract enforced on every finding; role scoping and lifecycle locks tested; honest AI degradation |
 | Progress against the plan (20) | [docs/plan-vs-build.md](docs/plan-vs-build.md): every plan commitment, what changed and why; [docs/changelog.md](docs/changelog.md): milestones M1–M6 with evidence |
 | Three planned improvements (15) | §12 (Round 3 plan); §3 shows the Round 1 improvements delivered |
 | Usability so far (10) | password-free demo personas, plain-language findings, one-click fixes; usability kit (§8) |
@@ -198,7 +198,7 @@ Main technical decisions (full list with reasons in the [decision log](docs/deci
 ## 7. Tests and reliability
 
 ```bash
-.venv/Scripts/python engine/tests/run_tests.py     # 17 suites (fresh DB each) + evaluation gate
+.venv/Scripts/python engine/tests/run_tests.py     # 20 suites (fresh DB each) + evaluation gate
 ```
 
 | Suite (`engine/tests/`) | Proves |
@@ -215,7 +215,9 @@ Main technical decisions (full list with reasons in the [decision log](docs/deci
 | `test_gateway` | AI fallback chain, honest call ledger, no confidential data sent (faked providers, no network) |
 | `test_quota` | daily AI allowance: 5 per person, 50 per workspace, clear reasons when out of tries, failed provider calls never charged |
 | `test_documents` | PDF and Word text extraction with page/line and paragraph locators; stamping PDF, PNG and JPEG |
-| `test_compliance` | India pack: clause retrieval, deterministic verdicts, exact clause citations, its own evaluation gate |
+| `test_compliance` | India pack: clause retrieval, deterministic verdicts, exact clause citations, no warning on 14 lines of ordinary copy, the admin pack switch, its own evaluation gate (no false alarm at any tier) |
+| `test_api` | API keys and scopes (missing, wrong, revoked key; wrong scope), bad JSON, 413 over 2 MB, idempotent replay and conflict, simultaneous retries; webhook URLs inside the network refused (also when a name is re-pointed later), HMAC a receiver can verify, retries on schedule, redirects not followed, rotate and disable |
+| `test_publisher` | the publishing gate on a real server: a post in the demo publisher is checked, waits in review, is published only by the signed webhook and verifies against its seal; bad or stale signatures and `approved` alone never publish |
 | `test_ai_shapes` | 18 malformed AI answers (lists of strings, nulls, numbers) never turn a check into a server error |
 | `test_image_text` | words read from an image are checked like copy and boxed on the image; contrast per line; re-check, alt-text edit and a new version keep the file |
 | `test_logos` | logo found at any size; stretched, tilted, recoloured, busy background, clear space, too small and retired logos flagged; no false logo in a same-typeface headline, noise or a flat banner |
@@ -266,6 +268,8 @@ What a judge may run into on the live demo:
 - **English only**: checks, and the reading of words in images, are English.
 - **Files**: PDF, Word (.docx), PNG and JPEG, up to 4 MB through the web app (Vercel's proxy limit; 10 MB through the API). Scanned PDFs without a text layer are refused rather than guessed at. Canonry edits Word files in place, but not PDFs or the pixels of an image: those are fixed in their source and uploaded as a new version. A Word edit that adds a paragraph, or text inside a Word text box, must also be made in Word.
 - **Logo checks** recognise the logos in the brand kit (Quillmark: the current and the retired logo); a logo that is not in the kit cannot be judged. They target flat, designed graphics, not photographs.
+- **Publishing gate**: the demo publisher runs inside the engine (open to anyone, shared, reset with the demo). Webhooks are retried for about 10 hours (8 attempts), then marked failed; while the free engine sleeps nothing is retried. A webhook host is checked before every attempt, but the address is resolved again when connecting, so a DNS answer that changes in that instant is not caught. Signing secrets are stored as plain values in the database (keys only as hashes).
+- **India pack**: rule patterns, not legal advice. The labelled set (32 sentences) was written by the team from the CCPA and ASCI texts, not taken from ASCI complaint decisions, so its 100% precision and recall are an internal check, not a field result. Patterns can still miss rephrased violations or flag ordinary copy; findings are *Likely* or *Consider* except the clear Section 5 and 12(a) cases. Retrieval uses a local hashed-n-gram embedding stored in SQLite; the Postgres + pgvector path (`CANONRY_DATABASE_URL`) exists in code but the live demo and CI do not run it.
 - **Not reachable from the web link**: the Canon Connector (MCP) runs locally; there are no email or Slack notifications, region routing or SLA reminders.
 - **Evidence still to collect**: the five moderated usability sessions (SUS) have not been run; the evaluation set is small (20 samples, 6 frozen) and labelled by the team. CI tests the AI path with faked providers only.
 
@@ -280,7 +284,7 @@ What a judge may run into on the live demo:
 ├── data/                    ← demo brand book: rules, facts, terms (CSV)
 ├── engine/                  ← FastAPI analysis engine (all product logic)
 │   ├── *.py                 ← modules listed in §5
-│   ├── tests/               ← 11 suites + run_tests.py
+│   ├── tests/               ← 20 suites + run_tests.py
 │   ├── evaluation/          ← evaluate.py, labelled set, committed baseline
 │   ├── Dockerfile
 │   └── requirements.txt
@@ -335,6 +339,52 @@ Bugs found while finishing it, each fixed with a test that failed first: an inte
 Error" when a free AI model answered in an unexpected JSON shape; Word uploads could not be approved
 (no Word stamp); a seal copied onto any other file verified; re-check or a dispute on an uploaded file
 turned it into plain text; the logo's own lettering was checked as copy.
+
+### Improvement 2 — delivered: publishing gate (API, signed webhooks, demo publisher)
+
+Try it on the live demo: open **<https://canonry-sigma.vercel.app/engine/cms>** (the demo publisher),
+write a post and press **Send to Canonry**. Then in Canonry choose **Reviewer**, open the post in the
+**Review queue**, override or fix any high-severity finding and **Approve**. The publisher's page refreshes
+itself and shows the post **published, with a link that verifies its seal**; its *Webhooks received* table
+shows `checked`, `approved` (held: not enough) and `signed` (published). As **Brand admin**, **API & webhooks**
+shows the keys, endpoints and every delivery. Locally: `engine/run_local.py`, then <http://127.0.0.1:8000/cms>
+(or <http://localhost:3000/engine/cms> with the web app).
+
+| Promised | Delivered |
+|---|---|
+| Versioned API with per-workspace keys | `/api/v1/checks`, `/uploads`, `/submissions[/{id}]`, `/proofs/{id}`, `/assets/{id}`, `/compliance/packs`, public `/contract`; `Authorization: Bearer ck_live_…`; scopes `check`, `read`, `admin`; keys shown once, stored as SHA-256; revoke works at once. `Idempotency-Key` replays the first answer, a different body with the same key is `409`, and a retry while the first request still runs is `409 idempotency_in_progress`, never a second submission. Errors are `{code, message}` (malformed fields get FastAPI's standard 422 list); JSON over 2 MB is `413`. |
+| Webhooks on *checked*, *approved*, *signed* | Written to an outbox in the same transaction as the event; `X-Canonry-Signature: sha256=HMAC(secret, timestamp + "." + body)` with `X-Canonry-Timestamp`, `-Event`, `-Delivery`. Failed deliveries are retried after 30 s, 2 min, 10 min, 30 min, 1 h, 2 h and 6 h by a background loop, then marked failed; an admin can retry by hand, rotate the secret (old one stops at once) or disable the endpoint. Redirects are not followed. |
+| Safe webhook URLs | HTTPS only; loopback, private, link-local (cloud metadata), shared, multicast and reserved addresses refused, and re-checked before every attempt. `CANONRY_WEBHOOK_ALLOW_LOCAL=true` (set by `run_local.py`, never on the live demo) allows a loopback receiver for local development. |
+| A CMS that holds a post until approval | `cms/app.py`. It sends the post with `submit_for_review`, so it waits in the reviewer's queue; it publishes only on a `signed` event with a valid, fresh signature, after checking that the SHA-256 of the approved text equals the signed hash (text edited in review is published as approved; anything else stays held). The live demo has no separate service: the engine mounts the publisher at `/cms` in demo mode and issues its key and webhook endpoint (named *Demo publisher*) at boot, pointing at its own public address (`RENDER_EXTERNAL_URL` on Render, `CANONRY_PUBLIC_ENGINE_URL` elsewhere). The publisher still uses only the public API and verifies every signature; `cms/Dockerfile` runs it as its own service. |
+
+Not done: the stretch Google Docs add-on.
+
+Bugs found while testing it, each fixed with a test that failed first: simultaneous retries with one
+Idempotency-Key created two submissions and answered 500; a webhook host was checked only when added;
+shared (100.64/10) and multicast addresses were accepted; retries waited for the next product event; the
+upload's `links.file` pointed at a missing route; a multi-megabyte JSON body was parsed whole; rotate and
+disable were not audited; the publisher answered a form with a 303 that had no address, blocked its own
+server while calling the engine, hashed browser line ends differently, and made two posts on a double click.
+
+### Improvement 3 — delivered: India advertising compliance pack
+
+Try it: write a draft containing *"Get a free 14-day trial at just ₹999 per month."* or *"Guaranteed results
+in 30 days."*: the finding is **Definite** and cites **CCPA Guidelines 2022, Section 5** (or 12(a)) with the
+clause text and a link to the official PDF. As **Brand admin**, **API & webhooks → Compliance packs**
+switches the pack off (its checks stop) and on.
+
+| Promised | Delivered |
+|---|---|
+| CCPA 2022 and ASCI Code rules | 13 clauses (`data/compliance/india_advertising_pack.json`, version 2022.2): bait offers, surrogate ads, "free" claims, children, disclaimers, substantiation, "up to" claims, prizes, endorsements, material connection, truthful claims, misleading implications, comparisons. A pack is data: a new market is a new file. |
+| Retrieval of the relevant clause (RAG), exact citation | Each sentence retrieves its nearest clauses (768-dimension local embeddings; keyword union for recall); only retrieved clauses' deterministic patterns can produce a finding, which cites source, reference, clause version, text and URL. Numbers are never interpreted by a model. The seal records the pack versions in force. |
+| Definite bar ≥ 95% precision | Gate in `test_compliance`: 32 labelled sentences (20 violations, 12 compliant near-misses): Definite precision 100%, recall 100%, and **no false alarm at any tier**; plus 14 lines of ordinary marketing copy that must stay silent. |
+| Managed Postgres with pgvector | Written (`CANONRY_DATABASE_URL`, `vector(768)` column, HNSW index) but **not deployed**: the live demo and tests use SQLite, with the same vectors stored as JSON and ranked in Python (see §10). |
+
+Bugs found while testing it, each fixed with a test that failed first: approval-blocking *Definite* "free"
+findings on "feel free" and "toll-free number"; "partner", "only 5 minutes", "win back 6 hours" and
+"better than ever" flagged as legal risks; an `#ad` disclosure that could never be recognised; a
+qualifier in the next sentence ("See full terms at …") ignored; the gate counting false alarms only at
+*Definite*; a restart switching a disabled pack back on.
 
 **Platform upgrade underneath all three:** storage moves from SQLite to free-tier managed Postgres (the schema already uses Postgres names), with role rules as row-level security. Data and seals then survive restarts, and the API and uploads get durable multi-user storage. Round 3 also takes the Round 1 improvements to their targets (≥ 85% claim recall and ≥ 80% precision on a larger, independently labelled set; a clarity dashboard with missing-fact suggestions; calibrated tiers) and runs the usability tests.
 
