@@ -8,3 +8,6 @@ uvicorn==0.54.0
 httpx==0.28.1
 pydantic==2.14.1
 PyNaCl==1.6.2
+pypdf==6.21.4
+Pillow==13.0.0
+psycopg[binary]==3.3.6

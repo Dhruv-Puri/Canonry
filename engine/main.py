@@ -19,20 +19,30 @@ from datetime import date, datetime, timedelta, timezone
 from xml.etree import ElementTree
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 import access
+import api
+import assets
 import claims
+import compliance
+import contract
+import embeddings
+import webhooks
+import documents
 import gateway
+import images
 import knowledge
 import pipeline
 import policy
 import quota
 import signing
+import stamping
 import workflow
+import db as dbmod
 from db import (
     _now, audit, connect, create_session, gen_id, get_knowledge_version,
     init_schema, resolve_session,
@@ -44,7 +54,17 @@ ROLES = ("creator", "reviewer", "agency", "admin")
 DEMO_MODE = os.environ.get("CANONRY_DEMO_MODE", "false").strip().lower() in ("1", "true", "yes")
 COOKIE_SECURE = os.environ.get("CANONRY_COOKIE_SECURE", "").strip().lower() in ("1", "true", "yes") if DEMO_MODE else os.environ.get("CANONRY_COOKIE_SECURE", "true").strip().lower() in ("1", "true", "yes")
 APP_ORIGINS = {origin.strip().rstrip("/").lower() for origin in os.environ.get("CANONRY_APP_ORIGINS", "http://localhost:3000").split(",") if origin.strip()}
+PUBLIC_WEB_URL = (os.environ.get("CANONRY_PUBLIC_WEB_URL") or "http://localhost:3000").rstrip("/")
 INVITE_TTL_HOURS = 72
+
+
+def pack_versions(conn, workspace_id: str) -> Dict[str, str]:
+    """Pack versions in force, recorded in the signed seal (compliance module fills this)."""
+    try:
+        import compliance
+        return compliance.enabled_pack_versions(conn, workspace_id)
+    except Exception:
+        return {}
 
 app = FastAPI(title="Canonry engine", version="0.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=sorted(APP_ORIGINS), allow_credentials=True,
@@ -55,7 +75,7 @@ app.add_middleware(CORSMiddleware, allow_origins=sorted(APP_ORIGINS), allow_cred
 @app.middleware("http")
 async def no_store_sensitive_responses(request: Request, call_next):
     response = await call_next(request)
-    if request.url.path.startswith(("/me", "/workspace", "/invitations", "/rules", "/facts", "/terms", "/submissions", "/insights", "/alerts")):
+    if request.url.path.startswith(("/me", "/workspace", "/invitations", "/rules", "/facts", "/terms", "/submissions", "/insights", "/alerts", "/verify")):
         response.headers["Cache-Control"] = "private, no-store"
     if request.url.path in ("/login", "/join") and response.status_code < 400:
         response.headers["Cache-Control"] = "no-store"
@@ -72,11 +92,51 @@ def _startup() -> None:
     else:
         seed()
         _seed_demo_submission()
+    _ensure_integration_endpoint()
+    _ensure_demo_api_key()
+    _flush_outbox_on_boot()
+
+
+def _ensure_integration_endpoint() -> None:
+    """Optional demo wiring: a CMS URL and secret from the environment become one
+    active webhook endpoint. Nothing is created unless both are set."""
+    url = (os.environ.get("CANONRY_CMS_WEBHOOK_URL") or "").strip()
+    secret = (os.environ.get("CANONRY_CMS_WEBHOOK_SECRET") or "").strip()
+    if not url or not secret:
+        return
+    conn = connect(service=True)
+    try:
+        webhooks.ensure_endpoint(conn, _ws(conn), url, secret)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _ensure_demo_api_key() -> None:
+    """Optional demo wiring: a pre-agreed key on the engine and the CMS. The raw
+    value lives only in deployment secrets; the database stores its hash."""
+    raw = (os.environ.get("CANONRY_CMS_API_KEY") or "").strip()
+    if not raw:
+        return
+    conn = connect(service=True)
+    try:
+        api.ensure_demo_key(conn, _ws(conn), os.environ.get("CANONRY_CMS_KEY_NAME", "Demo CMS"), raw)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _flush_outbox_on_boot() -> None:
+    conn = connect(service=True)
+    try:
+        webhooks.flush(conn, limit=10, timeout=2.0)
+    finally:
+        conn.close()
 
 
 def _ensure_production_workspace() -> None:
     """Create an empty workspace for a fresh production install, never demo data."""
-    conn = connect()
+    conn = connect(service=True)
     try:
         if not conn.execute("SELECT 1 FROM workspaces LIMIT 1").fetchone():
             name = " ".join(os.environ.get("CANONRY_WORKSPACE_NAME", "Canonry Workspace").split())
@@ -87,8 +147,9 @@ def _ensure_production_workspace() -> None:
                 (gen_id("ws"), name, "canonry", _now()),
             )
         # every built-in check cites a rule from the start (baseline rules until
-        # the workspace's own rulebook is imported)
+        # the workspace's own rulebook is imported); the India pack is on by default
         policy.ensure_bindings(conn, _ws(conn))
+        compliance.ensure_pack(conn, _ws(conn))
         conn.commit()
     finally:
         conn.close()
@@ -103,7 +164,7 @@ DEMO_POST = ("Meet Quillmark Insights 2.0 — India's #1 analytics platform, tru
 def _seed_demo_submission() -> None:
     """First boot only: if the workspace has no submissions at all, add the demo
     launch post as Arjun and run it through the normal check pipeline."""
-    conn = connect()
+    conn = connect(service=True)
     try:
         if conn.execute("SELECT COUNT(*) FROM submissions").fetchone()[0]:
             return
@@ -118,6 +179,31 @@ def _seed_demo_submission() -> None:
         )
         audit(conn, "system", "seed_demo_submission", f"{sid}: launch post (plan Section 1)")
         run_check_for_submission(conn, sid, DEMO_POST)
+        # Round 3 demo assets: one PDF with real page/line findings and one social
+        # image with a retired logo, an off-brand block and no alt text.
+        demo_assets = (
+            ("Launch one-pager — Pulse 2.0", "quillmark_pulse_onepager.pdf", "web", "in-house", ""),
+            ("Social launch card — Pulse 2.0", "social_launch.png", "social", "ai-assisted", ""),
+        )
+        data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "demo")
+        for title, filename, channel, source_type, alt in demo_assets:
+            path = os.path.join(data_dir, filename)
+            if not os.path.exists(path):
+                continue
+            with open(path, "rb") as fh:
+                raw_file = fh.read()
+            dsid = gen_id("sub")
+            conn.execute(
+                "INSERT INTO submissions (id, workspace_id, title, channel, source_type, created_by, status, created_at) "
+                "VALUES (?,?,?,?,?,?,'Draft',?)",
+                (dsid, arjun["workspace_id"], title, channel, source_type, arjun["email"], _now()),
+            )
+            try:
+                demo_asset = assets.create_asset(conn, arjun["workspace_id"], dsid, filename, raw_file, alt, arjun["email"])
+                audit(conn, "system", "seed_demo_asset", f"{dsid}: {filename}")
+                run_check_for_submission(conn, dsid, demo_asset["extracted_text"], arjun["email"], asset=demo_asset)
+            except (assets.UploadError, documents.DocumentError, images.ImageError):
+                continue
         conn.commit()
     finally:
         conn.close()
@@ -132,7 +218,7 @@ def _ensure_bootstrap_admin() -> None:
     if len(password) < 12:
         raise RuntimeError("Set CANONRY_BOOTSTRAP_ADMIN_PASSWORD to at least 12 characters "
                            "(production mode), or set CANONRY_DEMO_MODE=true for a local demo.")
-    conn = connect()
+    conn = connect(service=True)
     try:
         existing = conn.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
         password_hash = _password_hash(password)
@@ -153,11 +239,19 @@ def _ensure_bootstrap_admin() -> None:
         conn.close()
 
 
-def _user(req: Request, conn: sqlite3.Connection):
+def _user(req: Request, conn=None):
+    """Resolve the session with the service role, then scope the request connection
+    to that user's workspace so Postgres RLS applies to every query that follows."""
     token = req.cookies.get("canonry_session") or req.headers.get("x-canon-session")
-    user = resolve_session(conn, token)
+    service = connect(service=True)
+    try:
+        user = resolve_session(service, token)
+    finally:
+        service.close()
     if not user:
         raise HTTPException(401, "Sign in required")
+    if conn is not None:
+        dbmod.set_workspace(conn, user["workspace_id"])
     return user
 
 
@@ -188,7 +282,7 @@ class LoginIn(BaseModel):
 @app.post("/login")
 def login(body: LoginIn, req: Request):
     _require_same_origin(req)
-    conn = connect()
+    conn = connect(service=True)
     try:
         email = body.email.strip().lower()
         if len(email) > 254 or not EMAIL_RE.match(email):
@@ -293,7 +387,7 @@ def join(body: Dict[str, Any], req: Request):
     if len(email) > 254 or not EMAIL_RE.match(email):
         raise HTTPException(422, "Enter a valid email address.")
     invitation = str(body.get("invitation") or "").strip()
-    conn = connect()
+    conn = connect(service=True)
     try:
         if not DEMO_MODE:
             conn.execute("BEGIN IMMEDIATE")
@@ -361,7 +455,7 @@ def update_me(req: Request, body: Dict[str, Any]):
 def logout(req: Request):
     _require_same_origin(req)
     token = req.cookies.get("canonry_session") or req.headers.get("x-canon-session")
-    conn = connect()
+    conn = connect(service=True)
     try:
         if token:
             token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
@@ -648,12 +742,12 @@ def _document_paragraphs(filename: str, data: bytes) -> List[tuple[str, str]]:
     return out
 
 
-async def _read_limited_body(req: Request, limit: int) -> bytes:
+async def _read_limited_body(req: Request, limit: int, label: str = "5 MB") -> bytes:
     length = req.headers.get("content-length")
     if length:
         try:
             if int(length) > limit:
-                raise HTTPException(413, "Document exceeds the 5 MB import limit.")
+                raise HTTPException(413, f"This file exceeds the {label} limit.")
         except ValueError as exc:
             raise HTTPException(400, "Invalid Content-Length header.") from exc
     chunks = []
@@ -661,7 +755,7 @@ async def _read_limited_body(req: Request, limit: int) -> bytes:
     async for chunk in req.stream():
         total += len(chunk)
         if total > limit:
-            raise HTTPException(413, "Document exceeds the 5 MB import limit.")
+            raise HTTPException(413, f"This file exceeds the {label} limit.")
         chunks.append(chunk)
     return b"".join(chunks)
 
@@ -882,17 +976,82 @@ def submit(req: Request, body: SubmitIn):
 
 
 def run_check_for_submission(conn: sqlite3.Connection, sid: str, content: str,
-                             actor: Optional[str] = None, reuse_ai_from: Optional[str] = None) -> Dict[str, Any]:
+                             actor: Optional[str] = None, reuse_ai_from: Optional[str] = None,
+                             asset: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     rev_no = conn.execute("SELECT COALESCE(MAX(revision_no),0)+1 AS n FROM revisions WHERE submission_id=?", (sid,)).fetchone()["n"]
     rid = gen_id("rev")
-    conn.execute(
-        "INSERT INTO revisions (id, submission_id, content, revision_no, created_at) VALUES (?,?,?,?,?)",
-        (rid, sid, content, rev_no, _now()),
-    )
+    if asset:
+        conn.execute(
+            "INSERT INTO revisions (id, submission_id, content, revision_no, created_at, asset_id, source_kind, locator_map_json) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (rid, sid, content, rev_no, _now(), asset["id"], asset["source_kind"], json.dumps(asset["locator_map"])),
+        )
+    else:
+        conn.execute(
+            "INSERT INTO revisions (id, submission_id, content, revision_no, created_at, source_kind) VALUES (?,?,?,?,?,'text')",
+            (rid, sid, content, rev_no, _now()),
+        )
     conn.execute("UPDATE submissions SET status = CASE WHEN status='Draft' THEN 'Checked' ELSE status END WHERE id=?", (sid,))
     result = pipeline.run_check(conn, rid, actor, reuse_ai_from)
     result["revision_id"] = rid
+    # `checked` is a product event, written in the same transaction as the run;
+    # the checked response is never blocked on a slow receiver.
+    ws_row = conn.execute("SELECT workspace_id, title, status FROM submissions WHERE id = ?", (sid,)).fetchone()
+    if ws_row:
+        latest_poc = conn.execute(
+            "SELECT id FROM proof_of_compliance WHERE submission_id = ? ORDER BY created_at DESC LIMIT 1", (sid,)).fetchone()
+        webhooks.emit(conn, ws_row["workspace_id"], "checked", {
+            "submission_id": sid, "title": ws_row["title"], "status": ws_row["status"],
+            "revision_id": rid, "revision_no": rev_no,
+            "findings": len(result.get("findings", [])),
+            "ai_pending": bool(result.get("ai_pending")),
+            "poc_id": latest_poc["id"] if latest_poc else None,
+        })
+        try:
+            webhooks.flush(conn, limit=2, timeout=2.5)
+        except Exception:
+            pass  # a receiver outage must never fail a check
     return result
+
+
+@app.post("/submissions/upload")
+async def upload_submission(req: Request, title: str, channel: str, source_type: str,
+                            filename: str, alt_text: str = ""):
+    """Upload a PDF/DOCX/PNG/JPEG as a new revision. The body is the raw file;
+    metadata travels in query parameters, so the engine needs no multipart parser."""
+    _require_same_origin(req)
+    title = " ".join((title or "").split())
+    if not title:
+        raise HTTPException(422, "Give the upload a title.")
+    if channel not in CHANNELS:
+        raise HTTPException(422, f"Channel must be one of: {', '.join(CHANNELS)}.")
+    data = await _read_limited_body(req, assets.MAX_PDF, "10 MB")
+    conn = connect()
+    try:
+        user = _user(req, conn)
+        ws = _ws(conn)
+        sid = gen_id("sub")
+        conn.execute(
+            "INSERT INTO submissions (id, workspace_id, title, channel, source_type, created_by, status, created_at) "
+            "VALUES (?,?,?,?,?,?,'Draft',?)",
+            (sid, ws, title[:240], channel, source_type[:40] or "in-house", user["email"], _now()),
+        )
+        try:
+            asset = assets.create_asset(conn, ws, sid, filename, data, alt_text, user["email"])
+        except assets.UploadError as exc:
+            raise HTTPException(exc.status, str(exc)) from exc
+        except documents.DocumentError as exc:
+            raise HTTPException(exc.status, str(exc)) from exc
+        except images.ImageError as exc:
+            raise HTTPException(exc.status, str(exc)) from exc
+        audit(conn, user["email"], "upload_content", f"{sid}: {asset['filename']} ({asset['kind']})")
+        result = run_check_for_submission(conn, sid, asset["extracted_text"], user["email"], asset=asset)
+        conn.commit()
+        return {"submission_id": sid, "revision_id": result["revision_id"], "asset": {
+            k: asset[k] for k in ("id", "kind", "filename", "size_bytes", "width", "height", "page_count")},
+            **{k: v for k, v in result.items() if k != "revision_id"}}
+    finally:
+        conn.close()
 
 
 @app.get("/submissions")
@@ -933,6 +1092,9 @@ def get_submission(req: Request, sid: str):
             del f["suggestion_json"]
             f["provenance"] = json.loads(f["provenance_json"])
             del f["provenance_json"]
+            f["locator"] = json.loads(f["locator_json"]) if f.get("locator_json") else None
+            f["location_key"] = f.get("location_key") or None
+            f.pop("locator_json", None)
             for c in f["citations"]:
                 entity = {"fact": "fact", "rule": "rule", "pack": "rule", "term": "term"}.get(c["type"])
                 if not entity:
@@ -962,14 +1124,22 @@ def get_submission(req: Request, sid: str):
         approvals = [dict(a) for a in conn.execute(
             "SELECT a.*, u.name AS reviewer_name FROM approvals a LEFT JOIN users u ON u.email = a.reviewer "
             "WHERE a.submission_id = ? ORDER BY a.at", (sid,)).fetchall()]
-        poc = conn.execute("SELECT id, created_at FROM proof_of_compliance WHERE submission_id=? ORDER BY created_at DESC LIMIT 1", (sid,)).fetchone()
+        asset = None
+        if latest and latest.get("asset_id"):
+            asset = assets.get_asset(conn, latest["asset_id"])
+            if asset:
+                asset = {k: asset.get(k) for k in ("id", "kind", "filename", "mime", "size_bytes",
+                                                   "width", "height", "page_count", "alt_text", "sha256")}
+        poc = conn.execute("SELECT id, created_at, content_kind, asset_id FROM proof_of_compliance "
+                           "WHERE submission_id=? ORDER BY created_at DESC LIMIT 1", (sid,)).fetchone()
         # latest check run on the latest revision, so the UI can say when AI checks are still pending
         check = conn.execute(
             "SELECT status, started_at, finished_at, ai_calls, discarded, knowledge_version, ai_reason FROM check_runs "
             "WHERE revision_id = ? ORDER BY started_at DESC LIMIT 1", (latest["id"] if latest else "",)).fetchone()
         return {"submission": dict(sub), "revisions": revs, "latest_revision": latest,
                 "findings": findings, "decisions": decisions, "approvals": approvals,
-                "poc": dict(poc) if poc else None, "check": dict(check) if check else None, "me": _public_user(user),
+                "asset": asset, "poc": dict(poc) if poc else None,
+                "check": dict(check) if check else None, "me": _public_user(user),
                 "allowed": workflow.allowed(sub["status"]),
                 "ai_allowance": quota.usage(conn, sub["workspace_id"], user["email"])}
     finally:
@@ -1003,7 +1173,34 @@ def resolve_finding(req: Request, sid: str, body: ResolveIn):
             raise HTTPException(404, "Finding not found")
         rev = conn.execute("SELECT * FROM revisions WHERE id=?", (body.revision_id,)).fetchone()
         content = rev["content"]
+        source_kind = (rev["source_kind"] if "source_kind" in rev.keys() else None) or "text"
+        asset_id = rev["asset_id"] if "asset_id" in rev.keys() else None
+        # Uploaded documents are snapshots: the source file is fixed, so a text
+        # edit would silently diverge from what would be published. Make the
+        # creator upload a corrected file instead.
+        if source_kind in ("pdf", "docx") and body.action in ("accept", "edit"):
+            raise HTTPException(409, "This is an uploaded document. Fix it in the source file and upload a corrected copy; accepting a text edit would not change the published file.")
         suggestion = json.loads(f["suggestion_json"]) if f["suggestion_json"] not in (None, "", "null") else {}
+        if source_kind == "image" and body.action == "edit":
+            alt = (body.replacement or "").strip()
+            if not alt:
+                raise HTTPException(422, "Write the alt text you want to use.")
+            assets.update_alt_text(conn, asset_id, alt)
+            conn.execute(
+                "INSERT INTO decisions (id, revision_id, finding_id, action, replacement, reason, by_user, at) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (gen_id("dec"), body.revision_id, body.finding_id, "edit", alt, body.reason, user["email"], _now()),
+            )
+            conn.execute("UPDATE findings SET status='edited' WHERE id=?", (body.finding_id,))
+            asset_row = assets.get_asset(conn, asset_id) or {}
+            asset_row.update({"source_kind": "image", "locator_map": []})
+            result = run_check_for_submission(conn, sid, alt, user["email"], asset=asset_row)
+            audit(conn, user["email"], "finding_edit_alt", f"{body.finding_id}")
+            conn.commit()
+            return {"ok": True, "revision_id": result["revision_id"], "ai_pending": result["ai_pending"],
+                    "ai_reason": result["ai_reason"]}
+        if source_kind == "image" and body.action == "accept":
+            raise HTTPException(409, "Image findings need a replacement file or a dispute; there is no safe one-click pixel fix.")
         if body.action == "accept":
             repl = (suggestion or {}).get("replace")
             op = (suggestion or {}).get("operation", "replace")
@@ -1161,12 +1358,66 @@ def review(req: Request, sid: str, body: ReviewIn):
                 "INSERT INTO approvals (id, submission_id, action, reason, reviewer, at) VALUES (?,?,?,?,?,?)",
                 (gen_id("app"), sid, "approve", note, user["email"], _now()),
             )
+            asset = None
+            asset_id = rev["asset_id"] if "asset_id" in rev.keys() else None
+            if asset_id:
+                row = assets.get_asset(conn, asset_id)
+                raw = assets.asset_bytes(conn, asset_id)
+                if row and raw is not None:
+                    asset = {**row, "asset_id": row["id"], "bytes": raw}
             signed = signing.sign_approval(conn, sub["workspace_id"], sid, rev["id"], rev["content"], user["email"],
-                                           user["role"], self_approved=self_approved)
+                                           user["role"], self_approved=self_approved, asset=asset,
+                                           pack_versions=pack_versions(conn, sub["workspace_id"]))
+            if asset:
+                proof_row = conn.execute("SELECT public_key_fingerprint FROM proof_of_compliance WHERE id=?",
+                                         (signed["poc_id"],)).fetchone()
+                signed_record = {k: v for k, v in signed["record"].items()
+                                 if k not in ("ledger_hash", "record_hash")}
+                envelope = {
+                    "record": signed_record, "signature": signed["signature"],
+                    "public_key_fingerprint": proof_row["public_key_fingerprint"] if proof_row else None,
+                    "verify_url": f"{PUBLIC_WEB_URL}/verify/{signed['poc_id']}",
+                }
+                try:
+                    stamped = stamping.stamp_file(asset["bytes"], envelope, asset["kind"])
+                    conn.execute("INSERT INTO proof_files (poc_id, bytes) VALUES (?,?)", (signed["poc_id"], stamped))
+                    conn.execute("UPDATE proof_of_compliance SET stamped_sha256=? WHERE id=?",
+                                 (stamping.sha256(stamped), signed["poc_id"]))
+                    signed["stamped_sha256"] = stamping.sha256(stamped)
+                except ValueError as exc:
+                    raise HTTPException(422, f"This file could not be stamped: {exc}") from exc
             conn.execute("UPDATE submissions SET status='Signed' WHERE id=?", (sid,))
+            verify_url = f"{PUBLIC_WEB_URL}/verify/{signed['poc_id']}"
+            # `approved` fires once the reviewer's decision exists; `signed` only
+            # after the seal (and, for a file, the stamped copy) exists. A CMS must
+            # wait for `signed` — approval alone is not publication authority.
+            webhooks.emit(conn, sub["workspace_id"], "approved", {
+                "submission_id": sid, "title": sub["title"], "status": "Approved",
+                "revision_id": rev["id"], "poc_id": signed["poc_id"],
+                "content_sha256": signed["record"]["content_sha256"],
+                "content_kind": signed["record"]["content_kind"],
+                "self_approved": self_approved,
+            })
+            webhooks.emit(conn, sub["workspace_id"], "signed", {
+                "submission_id": sid, "title": sub["title"], "status": "Signed",
+                "revision_id": rev["id"], "poc_id": signed["poc_id"],
+                "verify_url": verify_url,
+                "content_sha256": signed["record"]["content_sha256"],
+                "content_kind": signed["record"]["content_kind"],
+                "asset_id": signed["record"].get("asset_id"),
+                "filename": signed["record"].get("filename"),
+                "mime": signed["record"].get("mime"),
+                "stamped_sha256": signed.get("stamped_sha256"),
+                "self_approved": self_approved,
+            })
             audit(conn, user["email"], "approve", f"{sid} signed {signed['poc_id']}" + (" (self-approved)" if self_approved else ""))
             conn.commit()
-            return {"status": "Signed", "poc_id": signed["poc_id"], "self_approved": self_approved}
+            try:
+                webhooks.flush(conn, limit=4, timeout=2.5)
+            except Exception:
+                pass
+            return {"status": "Signed", "poc_id": signed["poc_id"], "self_approved": self_approved,
+                    "verify_url": verify_url}
         if body.action == "override":
             if not body.reason or body.reason.strip() == "" or not body.finding_id:
                 raise HTTPException(400, "Overrides need the finding id and a reason")
@@ -1224,9 +1475,40 @@ class VerifyIn(BaseModel):
 @app.get("/verify/{poc_id}")
 def verify_poc(poc_id: str):
     """Public, no sign-in: is this seal genuine?"""
-    conn = connect()
+    conn = connect(service=True)
     try:
         return signing.verify(conn, poc_id)
+    finally:
+        conn.close()
+
+
+@app.post("/verify/{poc_id}/file")
+async def verify_published_file(req: Request, poc_id: str):
+    """Public: upload the published file and check it against the signed original."""
+    data = await _read_limited_body(req, 12 * 1024 * 1024, "12 MB")
+    conn = connect(service=True)
+    try:
+        return signing.verify_file(conn, poc_id, data)
+    finally:
+        conn.close()
+
+
+@app.get("/submissions/{sid}/proof-file")
+def download_proof_file(req: Request, sid: str):
+    """Signed-in download of the stamped approved file."""
+    conn = connect()
+    try:
+        user = _user(req, conn)
+        _visible_sub(conn, user, sid)
+        row = conn.execute(
+            "SELECT p.id, p.asset_id, a.filename, a.mime, f.bytes FROM proof_of_compliance p "
+            "JOIN proof_files f ON f.poc_id = p.id LEFT JOIN assets a ON a.id = p.asset_id "
+            "WHERE p.submission_id = ? ORDER BY p.created_at DESC LIMIT 1", (sid,)).fetchone()
+        if not row:
+            raise HTTPException(404, "This submission has no stamped file.")
+        filename = row["filename"] or "canonry-approved-file"
+        return Response(content=bytes(row["bytes"]), media_type=row["mime"] or "application/octet-stream",
+                        headers={"Content-Disposition": f'attachment; filename="canonry-{filename}"'})
     finally:
         conn.close()
 
@@ -1234,9 +1516,417 @@ def verify_poc(poc_id: str):
 @app.post("/verify/{poc_id}")
 def verify_published(poc_id: str, body: VerifyIn):
     """Public, no sign-in: is this the exact text that was approved?"""
-    conn = connect()
+    conn = connect(service=True)
     try:
         return signing.verify(conn, poc_id, body.content)
+    finally:
+        conn.close()
+
+
+# ---- public API v1 ------------------------------------------------------------
+
+API_VERSION = "2026-10-30"
+
+
+def _api_headers() -> Dict[str, str]:
+    return {"X-Canon-API-Version": API_VERSION, "X-Canon-Contract-Version": contract.CONTRACT_VERSION}
+
+
+def _api_finding(row) -> Dict[str, Any]:
+    data = dict(row)
+    data["citations"] = json.loads(data.pop("citations_json") or "[]")
+    data["suggestion"] = json.loads(data.pop("suggestion_json") or "null")
+    data["provenance"] = json.loads(data.pop("provenance_json") or "{}")
+    data["locator"] = json.loads(data.pop("locator_json") or "null")
+    # contract v2: one `span` object, not the three storage columns
+    data["span"] = {"start": data.pop("span_start", None), "end": data.pop("span_end", None),
+                    "text": data.pop("span_text", "")}
+    return data
+
+
+def _api_submission(conn, sub) -> Dict[str, Any]:
+    sid = sub["id"]
+    rev = conn.execute(
+        "SELECT * FROM revisions WHERE submission_id = ? ORDER BY revision_no DESC LIMIT 1", (sid,)).fetchone()
+    findings = [_api_finding(r) for r in conn.execute(
+        "SELECT * FROM findings WHERE revision_id = ? ORDER BY span_start", (rev["id"] if rev else "",)).fetchall()]
+    approvals = [dict(r) for r in conn.execute(
+        "SELECT id, action, reason, reviewer, at FROM approvals WHERE submission_id = ? ORDER BY at", (sid,)).fetchall()]
+    poc = conn.execute(
+        "SELECT id, content_sha256, content_kind, asset_id, stamped_sha256, created_at "
+        "FROM proof_of_compliance WHERE submission_id = ? ORDER BY created_at DESC LIMIT 1", (sid,)).fetchone()
+    asset = None
+    if rev is not None and rev["asset_id"]:
+        row = assets.get_asset(conn, rev["asset_id"])
+        if row:
+            asset = {k: row.get(k) for k in ("id", "kind", "filename", "mime", "size_bytes",
+                                              "width", "height", "page_count", "alt_text", "sha256")}
+    return {
+        "id": sid, "title": sub["title"], "channel": sub["channel"],
+        "source_type": sub["source_type"], "status": sub["status"], "risk": sub["risk"],
+        "created_at": sub["created_at"],
+        "latest_revision": {k: rev[k] for k in ("id", "revision_no", "created_at", "source_kind", "asset_id")} if rev else None,
+        "findings": findings,
+        "approvals": approvals,
+        "poc": ({"id": poc["id"], "content_sha256": poc["content_sha256"], "content_kind": poc["content_kind"],
+                 "asset_id": poc["asset_id"], "stamped_sha256": poc["stamped_sha256"],
+                 "verify_url": f"{PUBLIC_WEB_URL}/verify/{poc['id']}"} if poc else None),
+        "asset": asset,
+        "links": {"self": f"/api/v1/submissions/{sid}"},
+        "contract_version": contract.CONTRACT_VERSION,
+    }
+
+
+class ApiCheckIn(BaseModel):
+    title: str = Field(max_length=240)
+    channel: str
+    source_type: str = "in-house"
+    content: str = Field(max_length=200_000)
+
+
+@app.post("/api/v1/checks")
+def api_check(req: Request, body: ApiCheckIn):
+    """Check text from an external client. Idempotent when the caller sends an
+    Idempotency-Key, so a retried request never creates a second submission."""
+    conn = connect()
+    try:
+        key = api.authenticate(req, conn, "check")
+        ws = key["workspace_id"]
+        if body.channel not in CHANNELS:
+            raise HTTPException(422, {"code": "bad_channel", "message": f"Channel must be one of: {', '.join(CHANNELS)}."})
+        if not body.content.strip():
+            raise HTTPException(422, {"code": "empty_content", "message": "The draft is empty."})
+        if not body.title.strip():
+            raise HTTPException(422, {"code": "missing_title", "message": "Give the draft a title."})
+        endpoint = "POST /api/v1/checks"
+        payload_hash = api.request_hash(body.model_dump())
+        key_header = api.idempotency_key(req)
+        cached = api.lookup_idempotent(conn, ws, key_header, endpoint, payload_hash)
+        if cached:
+            return JSONResponse(cached["body"], status_code=cached["status"], headers=_api_headers())
+        sid = gen_id("sub")
+        conn.execute(
+            "INSERT INTO submissions (id, workspace_id, title, channel, source_type, created_by, status, created_at) "
+            "VALUES (?,?,?,?,?,?,'Draft',?)",
+            (sid, ws, body.title, body.channel, body.source_type[:40] or "in-house",
+             "api:" + key["name"], _now()),
+        )
+        audit(conn, "api:" + key["name"], "api_check", f"{sid}: {body.title}")
+        result = run_check_for_submission(conn, sid, body.content, None)
+        response = {
+            "submission_id": sid, "revision_id": result["revision_id"], "status": "Checked",
+            "contract_version": contract.CONTRACT_VERSION,
+            "findings": result.get("findings", []), "discarded": result.get("discarded", 0),
+            "ai_pending": result.get("ai_pending", False), "ai_reason": result.get("ai_reason"),
+            "links": {"self": f"/api/v1/submissions/{sid}"},
+        }
+        conn.commit()
+        api.store_idempotent(conn, ws, key_header, endpoint, payload_hash, 200, response)
+        conn.commit()
+        return JSONResponse(response, headers=_api_headers())
+    finally:
+        conn.close()
+
+
+@app.post("/api/v1/uploads")
+async def api_upload(req: Request, title: str, channel: str, filename: str,
+                     source_type: str = "in-house", alt_text: str = ""):
+    """Upload a PDF/DOCX/PNG/JPEG via raw body (no multipart parser)."""
+    conn = connect()
+    try:
+        key = api.authenticate(req, conn, "check")
+        ws = key["workspace_id"]
+        if channel not in CHANNELS:
+            raise HTTPException(422, {"code": "bad_channel", "message": f"Channel must be one of: {', '.join(CHANNELS)}."})
+        data = await _read_limited_body(req, assets.MAX_PDF, "10 MB")
+        endpoint = "POST /api/v1/uploads"
+        payload_hash = api.request_hash({"title": title, "channel": channel, "filename": filename,
+                                         "source_type": source_type, "alt_text": alt_text,
+                                         "sha256": hashlib.sha256(data).hexdigest()})
+        key_header = api.idempotency_key(req)
+        cached = api.lookup_idempotent(conn, ws, key_header, endpoint, payload_hash)
+        if cached:
+            return JSONResponse(cached["body"], status_code=cached["status"], headers=_api_headers())
+        sid = gen_id("sub")
+        conn.execute(
+            "INSERT INTO submissions (id, workspace_id, title, channel, source_type, created_by, status, created_at) "
+            "VALUES (?,?,?,?,?,?,'Draft',?)",
+            (sid, ws, " ".join(title.split())[:240], channel, source_type[:40] or "in-house",
+             "api:" + key["name"], _now()),
+        )
+        try:
+            asset = assets.create_asset(conn, ws, sid, filename, data, alt_text, "api:" + key["name"])
+        except (assets.UploadError, documents.DocumentError, images.ImageError) as exc:
+            raise HTTPException(getattr(exc, "status", 422), {"code": "bad_upload", "message": str(exc)}) from exc
+        audit(conn, "api:" + key["name"], "api_upload", f"{sid}: {asset['filename']}")
+        result = run_check_for_submission(conn, sid, asset["extracted_text"], None, asset=asset)
+        response = {
+            "submission_id": sid, "revision_id": result["revision_id"], "status": "Checked",
+            "contract_version": contract.CONTRACT_VERSION,
+            "asset": {k: asset[k] for k in ("id", "kind", "filename", "size_bytes", "width", "height", "page_count")},
+            "findings": result.get("findings", []), "ai_pending": result.get("ai_pending", False),
+            "links": {"self": f"/api/v1/submissions/{sid}", "file": f"/api/v1/assets/{asset['id']}"},
+        }
+        conn.commit()
+        api.store_idempotent(conn, ws, key_header, endpoint, payload_hash, 200, response)
+        conn.commit()
+        return JSONResponse(response, headers=_api_headers())
+    finally:
+        conn.close()
+
+
+@app.get("/api/v1/submissions")
+def api_list_submissions(req: Request, limit: int = 25):
+    conn = connect()
+    try:
+        key = api.authenticate(req, conn, "read")
+        rows = conn.execute(
+            "SELECT * FROM submissions WHERE workspace_id = ? ORDER BY created_at DESC LIMIT ?",
+            (key["workspace_id"], min(max(limit, 1), 100))).fetchall()
+        return JSONResponse({"submissions": [_api_submission(conn, r) for r in rows]}, headers=_api_headers())
+    finally:
+        conn.close()
+
+
+@app.get("/api/v1/submissions/{sid}")
+def api_get_submission(req: Request, sid: str):
+    conn = connect()
+    try:
+        key = api.authenticate(req, conn, "read")
+        sub = conn.execute("SELECT * FROM submissions WHERE id = ? AND workspace_id = ?",
+                           (sid, key["workspace_id"])).fetchone()
+        if not sub:
+            raise HTTPException(404, {"code": "not_found", "message": "Submission not found in this workspace."})
+        return JSONResponse(_api_submission(conn, sub), headers=_api_headers())
+    finally:
+        conn.close()
+
+
+@app.get("/api/v1/proofs/{poc_id}")
+def api_proof(req: Request, poc_id: str):
+    conn = connect(service=True)
+    try:
+        api_key = api.authenticate(req, conn, "read")
+        row = conn.execute(
+            "SELECT p.id FROM proof_of_compliance p JOIN submissions s ON s.id = p.submission_id "
+            "WHERE p.id = ? AND s.workspace_id = ?", (poc_id, api_key["workspace_id"])).fetchone()
+        if not row:
+            raise HTTPException(404, {"code": "not_found", "message": "Proof not found in this workspace."})
+        return JSONResponse(signing.verify(conn, poc_id), headers=_api_headers())
+    finally:
+        conn.close()
+
+
+@app.get("/api/v1/compliance/packs")
+def api_compliance_packs(req: Request):
+    conn = connect()
+    try:
+        key = api.authenticate(req, conn, "read")
+        return JSONResponse(compliance.pack_overview(conn, key["workspace_id"]), headers=_api_headers())
+    finally:
+        conn.close()
+
+
+@app.get("/api/v1/contract")
+def api_contract():
+    return JSONResponse({
+        "contract": contract.CONTRACT_VERSION, "api_version": API_VERSION,
+        "finding": {"span": "{start,end,text}", "locator": "{kind,page,line,paragraph,section,bbox,region,asset_id}",
+                    "tier": "definite | likely | consider", "severity": "high | medium | low",
+                    "citations": "[{type: fact|rule|pack|term, id, ref?, source?, url?, version?}]"},
+        "events": list(webhooks.EVENTS),
+    }, headers=_api_headers())
+
+
+def _admin(user) -> None:
+    if user["role"] != "admin":
+        raise HTTPException(403, "Only a workspace administrator can manage API keys and webhooks.")
+
+
+@app.get("/api-keys")
+def api_keys_list(req: Request):
+    conn = connect()
+    try:
+        user = _user(req, conn)
+        _admin(user)
+        return {"keys": api.list_keys(conn, _ws(conn))}
+    finally:
+        conn.close()
+
+
+class ApiKeyIn(BaseModel):
+    name: str
+    scopes: List[str] = ["check", "read"]
+
+
+@app.post("/api-keys")
+def api_keys_create(req: Request, body: ApiKeyIn):
+    _require_same_origin(req)
+    conn = connect()
+    try:
+        user = _user(req, conn)
+        _admin(user)
+        created = api.create_key(conn, _ws(conn), body.name, body.scopes, user["email"])
+        audit(conn, user["email"], "api_key_create", created["id"])
+        conn.commit()
+        return created
+    finally:
+        conn.close()
+
+
+@app.post("/api-keys/{key_id}/revoke")
+def api_keys_revoke(req: Request, key_id: str):
+    _require_same_origin(req)
+    conn = connect()
+    try:
+        user = _user(req, conn)
+        _admin(user)
+        api.revoke_key(conn, _ws(conn), key_id)
+        audit(conn, user["email"], "api_key_revoke", key_id)
+        conn.commit()
+        return {"ok": True}
+    finally:
+        conn.close()
+
+
+@app.get("/webhook-endpoints")
+def webhook_endpoints_list(req: Request):
+    conn = connect()
+    try:
+        user = _user(req, conn)
+        _admin(user)
+        return {"endpoints": webhooks.list_endpoints(conn, _ws(conn))}
+    finally:
+        conn.close()
+
+
+class WebhookIn(BaseModel):
+    url: str
+    events: List[str] = ["checked", "approved", "signed"]
+    description: str = ""
+
+
+@app.post("/webhook-endpoints")
+def webhook_endpoints_create(req: Request, body: WebhookIn):
+    _require_same_origin(req)
+    conn = connect()
+    try:
+        user = _user(req, conn)
+        _admin(user)
+        try:
+            created = webhooks.create_endpoint(conn, _ws(conn), body.url, body.events,
+                                               body.description, user["email"])
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        audit(conn, user["email"], "webhook_create", created["id"])
+        conn.commit()
+        return created
+    finally:
+        conn.close()
+
+
+@app.post("/webhook-endpoints/{endpoint_id}/rotate")
+def webhook_endpoints_rotate(req: Request, endpoint_id: str):
+    _require_same_origin(req)
+    conn = connect()
+    try:
+        user = _user(req, conn)
+        _admin(user)
+        try:
+            rotated = webhooks.rotate_secret(conn, _ws(conn), endpoint_id)
+        except ValueError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        conn.commit()
+        return rotated
+    finally:
+        conn.close()
+
+
+@app.post("/webhook-endpoints/{endpoint_id}/disable")
+def webhook_endpoints_disable(req: Request, endpoint_id: str):
+    _require_same_origin(req)
+    conn = connect()
+    try:
+        user = _user(req, conn)
+        _admin(user)
+        try:
+            webhooks.disable_endpoint(conn, _ws(conn), endpoint_id)
+        except ValueError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        conn.commit()
+        return {"ok": True}
+    finally:
+        conn.close()
+
+
+@app.get("/webhook-deliveries")
+def webhook_deliveries_list(req: Request, limit: int = 50):
+    conn = connect()
+    try:
+        user = _user(req, conn)
+        _admin(user)
+        return {"deliveries": webhooks.list_deliveries(conn, _ws(conn), limit)}
+    finally:
+        conn.close()
+
+
+@app.post("/webhook-deliveries/{delivery_id}/retry")
+def webhook_delivery_retry(req: Request, delivery_id: str):
+    _require_same_origin(req)
+    conn = connect()
+    try:
+        user = _user(req, conn)
+        _admin(user)
+        try:
+            return webhooks.retry_delivery(conn, _ws(conn), delivery_id)
+        except ValueError as exc:
+            raise HTTPException(404, str(exc)) from exc
+    finally:
+        conn.close()
+
+
+@app.post("/webhooks/flush")
+def webhooks_flush(req: Request):
+    _require_same_origin(req)
+    conn = connect()
+    try:
+        user = _user(req, conn)
+        _admin(user)
+        result = webhooks.flush(conn, limit=20)
+        conn.commit()
+        return result
+    finally:
+        conn.close()
+
+
+@app.get("/assets/{asset_id}")
+def get_asset_file(req: Request, asset_id: str):
+    conn = connect()
+    try:
+        user = _user(req, conn)
+        row = assets.get_asset(conn, asset_id)
+        if not row:
+            raise HTTPException(404)
+        if row["submission_id"]:
+            sub = conn.execute("SELECT * FROM submissions WHERE id = ?", (row["submission_id"],)).fetchone()
+            if not sub or not access.can_see_submission(user, sub):
+                raise HTTPException(404)
+        raw = assets.asset_bytes(conn, asset_id)
+        if raw is None:
+            raise HTTPException(404)
+        return Response(content=raw, media_type=row["mime"],
+                        headers={"Content-Disposition": f'inline; filename="{row["filename"]}"',
+                                 "Cache-Control": "private, no-store"})
+    finally:
+        conn.close()
+
+
+@app.get("/compliance/packs")
+def compliance_packs(req: Request):
+    conn = connect()
+    try:
+        user = _user(req, conn)
+        return compliance.pack_overview(conn, _ws(conn))
     finally:
         conn.close()
 
@@ -1277,6 +1967,35 @@ def insights(req: Request):
         vague = conn.execute("SELECT id, statement, vague_flag FROM rules WHERE vague_flag IS NOT NULL").fetchall()
         ai_calls = conn.execute(
             "SELECT task, provider, model, COUNT(*) c, SUM(ok) ok FROM ai_calls GROUP BY task, provider, model").fetchall()
+        # clarity dashboard: an unsupported claim is a missing fact, not just a
+        # finding. Group the exact phrases so an owner can add one fact and clear
+        # every occurrence; this is a suggestion, never an auto-authored fact.
+        missing = conn.execute(
+            f"SELECT i.span_text, COUNT(DISTINCT i.submission_id) occurrences, "
+            f"MIN(s.title) sample_title, MIN(i.submission_id) sample_id "
+            f"FROM {issues} AND i.category='unsupported_claim' "
+            "GROUP BY i.span_text ORDER BY occurrences DESC, i.span_text LIMIT 12", args).fetchall()
+        # tier calibration: the share of each tier that a human disputed. A tier
+        # whose disputes climb is drifting and should be re-calibrated before it
+        # is trusted as "Definite".
+        tier_rows = conn.execute(
+            f"SELECT f.tier, COUNT(*) total, "
+            "SUM(CASE WHEN f.status IN ('disputed') THEN 1 ELSE 0 END) disputed, "
+            "SUM(CASE WHEN f.status IN ('accepted','edited') THEN 1 ELSE 0 END) accepted, "
+            "SUM(CASE WHEN f.status='open' THEN 1 ELSE 0 END) open "
+            "FROM findings f JOIN revisions v ON v.id = f.revision_id "
+            f"JOIN submissions s ON s.id = v.submission_id WHERE {scope} GROUP BY f.tier", args).fetchall()
+        calibration = []
+        for row in tier_rows:
+            total = int(row["total"] or 0)
+            disputed = int(row["disputed"] or 0)
+            rate = (disputed / total) if total else 0.0
+            calibration.append({
+                "tier": row["tier"], "total": total, "disputed": disputed,
+                "accepted": int(row["accepted"] or 0), "open": int(row["open"] or 0),
+                "dispute_rate": round(rate, 4),
+                "needs_recalibration": row["tier"] == "definite" and total >= 20 and rate > 0.10,
+            })
         return {
             "by_checker": by_checker, "decisions": {r["action"]: r["c"] for r in decision_counts},
             "dispute_overrides": [dict(d) for d in overrides],
@@ -1285,6 +2004,8 @@ def insights(req: Request):
             "statuses": [dict(s) for s in statuses],
             "possibly_unclear_rules": [dict(v) for v in vague],
             "ai_calls": [dict(a) for a in ai_calls],
+            "missing_facts": [dict(m) for m in missing],
+            "tier_calibration": calibration,
         }
     finally:
         conn.close()

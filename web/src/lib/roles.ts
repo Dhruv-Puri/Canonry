@@ -39,6 +39,7 @@ export function navLinksFor(role: string | null | undefined): { href: string; la
       { href: "/review", label: "Review queue" },
       { href: "/kb", label: "Knowledge base" },
       { href: "/insights", label: "Insights" },
+      { href: "/admin/api", label: "API & webhooks" },
     ];
   }
   if (role === "reviewer") {

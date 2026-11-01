@@ -65,8 +65,11 @@ bound = policy.bindings(conn, "ws_quillmark")
 expect(set(bound) == set(policy.CHECKS), f"every built-in check is bound ({len(bound)}/{len(policy.CHECKS)})")
 expect(bound.get("claims.statistic") == "CLM-01" and bound.get("claims.superlative") == "CLM-02",
        "claim checks keep the Quillmark ids CLM-01 / CLM-02")
-expect(not conn.execute("SELECT 1 FROM rules WHERE id LIKE 'BASE-%'").fetchone(),
-       "no baseline rules are added where the workspace already has its own")
+new_baselines = {r["id"] for r in conn.execute("SELECT id FROM rules WHERE id LIKE 'BASE-%'").fetchall()}
+# Round 3's image/accessibility checks have no Quillmark analogue, so they get
+# their own baseline rules; the original nine checks still use Quillmark ids.
+expect(new_baselines == {"BASE-09", "BASE-10", "BASE-11", "BASE-12"},
+       f"only the four new image/accessibility baselines are added ({sorted(new_baselines)})")
 
 c = TestClient(engine.app, raise_server_exceptions=False)
 c.post("/login", json={"email": "arjun@quillmark"})

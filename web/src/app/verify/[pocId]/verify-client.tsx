@@ -7,8 +7,12 @@ import { SealGraphic } from "@/components/brand";
 type VerifyResult = {
   status: "verified" | "modified" | "unknown" | "signature_invalid";
   content_checked: boolean;
+  content_kind?: "text" | "file";
   record?: Record<string, unknown>;
   reason?: string;
+  stamped?: boolean;
+  file_sha256?: string;
+  signature_valid?: boolean;
 };
 
 const HEADLINE: Record<string, { title: string; cls: string }> = {
@@ -17,11 +21,11 @@ const HEADLINE: Record<string, { title: string; cls: string }> = {
     cls: "bg-success-bg border-success-border text-success-fg",
   },
   verified: {
-    title: "Verified: this is the approved text",
+    title: "Verified: this is the approved content",
     cls: "bg-success-bg border-success-border text-success-fg",
   },
   modified: {
-    title: "Modified: this text is not what was approved",
+    title: "Modified: this content is not what was approved",
     cls: "bg-danger-bg border-danger-border text-danger-fg",
   },
   signature_invalid: {
@@ -39,6 +43,9 @@ export function VerifyClient({ pocId }: { pocId: string }) {
   const [err, setErr] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [checking, setChecking] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
+  const [fileResult, setFileResult] = useState<VerifyResult | null>(null);
+  const [fileChecking, setFileChecking] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -69,7 +76,28 @@ export function VerifyClient({ pocId }: { pocId: string }) {
     }
   }
 
-  const head = r ? HEADLINE[r.status === "verified" && !r.content_checked ? "genuine" : r.status] : null;
+  async function checkFile() {
+    if (!file) return;
+    setFileChecking(true);
+    setErr(null);
+    try {
+      const res = await fetch(`/engine/verify/${pocId}/file`, {
+        method: "POST",
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+        body: file,
+      });
+      const data = (await res.json()) as VerifyResult & { detail?: string };
+      if (!res.ok) throw new Error(typeof data.detail === "string" ? data.detail : `Check failed (${res.status}).`);
+      setFileResult(data);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setFileChecking(false);
+    }
+  }
+
+  const shown = fileResult ?? r;
+  const head = shown ? HEADLINE[shown.status === "verified" && !shown.content_checked ? "genuine" : shown.status] : null;
 
   return (
     <div className="mx-auto max-w-2xl space-y-5">
@@ -88,13 +116,43 @@ export function VerifyClient({ pocId }: { pocId: string }) {
       {r && head && (
         <>
           <div className={`flex flex-col items-center rounded-2xl border p-8 text-center ${head.cls}`} role="status">
-            <SealGraphic ok={r.status === "verified"} className="mb-3 size-16" />
+            <SealGraphic ok={shown?.status === "verified"} className="mb-3 size-16" />
             <p className="font-serif text-xl font-medium">{head.title}</p>
-            {r.reason && <p className="mt-1 text-sm opacity-90">{r.reason}</p>}
+            {shown?.reason && <p className="mt-1 text-sm opacity-90">{shown.reason}</p>}
             <p className="mt-1.5 font-mono text-xs opacity-80">POC {pocId}</p>
           </div>
 
-          {r.status !== "unknown" && (
+          {r.content_kind === "file" ? (
+            <div className="surface space-y-3 p-6">
+              <h2 className="section-title">Check the published file</h2>
+              <p className="text-sm text-muted-foreground">
+                Upload the original or the stamped copy. Canonry checks the SHA-256 against the signed record and,
+                when the file carries a stamp, verifies the embedded proof signature too.
+              </p>
+              <input
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
+                aria-label="Published file"
+                onChange={(e) => { setFile(e.target.files?.[0] ?? null); setFileResult(null); }}
+                className="field p-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-2 file:py-1 file:text-xs file:font-medium"
+              />
+              <button
+                type="button"
+                onClick={() => void checkFile()}
+                disabled={!file || fileChecking}
+                className="btn btn-primary"
+              >
+                {fileChecking ? "Checking…" : "Check this file"}
+              </button>
+              {fileResult && (
+                <div className={`rounded-lg border px-3 py-2 text-sm ${fileResult.status === "verified" ? "border-success-border bg-success-bg text-success-fg" : "border-danger-border bg-danger-bg text-danger-fg"}`}>
+                  <strong>{fileResult.status === "verified" ? "Matches the signed record" : "Does not verify"}</strong>
+                  {fileResult.reason ? ` — ${fileResult.reason}` : ""}
+                  {fileResult.stamped ? " · carries an embedded seal" : ""}
+                </div>
+              )}
+            </div>
+          ) : (
             <div className="surface space-y-3 p-6">
               <h2 className="section-title">Check the published text</h2>
               <p className="text-sm text-muted-foreground">
@@ -120,11 +178,11 @@ export function VerifyClient({ pocId }: { pocId: string }) {
             </div>
           )}
 
-          {r.record && (
+          {shown?.record && (
           <div className="surface p-6">
             <h2 className="section-title mb-4">Signed record</h2>
             <dl className="divide-y divide-border rounded-lg border border-border bg-background font-mono text-[13px]">
-              {Object.entries(r.record).map(([k, v]) => (
+              {Object.entries(shown.record).map(([k, v]) => (
                 <div key={k} className="flex flex-col gap-0.5 px-4 py-2.5 sm:flex-row sm:gap-3">
                   <dt className="shrink-0 text-muted-foreground sm:w-40">{k}</dt>
                   <dd className="break-all">{String(v)}</dd>

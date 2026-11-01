@@ -80,14 +80,16 @@ main._seed_demo_submission()
 main._seed_demo_submission()  # second boot must not add another
 conn = connect()
 try:
-    subs = conn.execute("SELECT id, status, created_by FROM submissions").fetchall()
-    expect(len(subs) == 1, f"exactly one demo submission after two boots ({len(subs)})")
-    if subs:
+    subs = conn.execute("SELECT id, title, status, created_by FROM submissions ORDER BY created_at").fetchall()
+    # Round 3 seeds the launch post plus one PDF one-pager and one social image.
+    expect(len(subs) == 3, f"exactly three demo submissions after two boots ({len(subs)})")
+    for sub in subs:
         n = conn.execute(
             "SELECT COUNT(*) FROM findings f JOIN revisions r ON r.id = f.revision_id WHERE r.submission_id = ?",
-            (subs[0]["id"],)).fetchone()[0]
-        expect(subs[0]["status"] == "Checked" and n >= 4, f"demo post is checked with real findings ({subs[0]['status']}, {n})")
-        expect(subs[0]["created_by"] == "arjun@quillmark", "demo post belongs to the demo creator")
+            (sub["id"],)).fetchone()[0]
+        expect(sub["status"] == "Checked" and n >= 1,
+               f"{sub['title']} is checked with real findings ({sub['status']}, {n})")
+        expect(sub["created_by"] == "arjun@quillmark", "demo submission belongs to the demo creator")
 finally:
     conn.close()
 

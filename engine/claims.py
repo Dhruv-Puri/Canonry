@@ -418,8 +418,11 @@ def citation_check(conn: sqlite3.Connection, ws: str, finding: Dict[str, Any], t
             if not row:
                 return False
         elif c["type"] == "pack":
+            # a compliance citation is valid only while its clause is active and
+            # its pack is switched on for this workspace (no orphan legal advice)
             row = conn.execute(
-                "SELECT id FROM rules WHERE id = ? AND workspace_id = ?",
+                "SELECT c.id FROM pack_clauses c JOIN workspace_packs w ON w.pack_id = c.pack_id "
+                "WHERE c.id = ? AND c.active = 1 AND w.workspace_id = ? AND w.active = 1",
                 (c["id"], ws),
             ).fetchone()
             if not row:

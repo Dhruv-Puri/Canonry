@@ -214,7 +214,7 @@ expect(app.status_code == 200, f"clean copy approves ({app.status_code} {app.tex
 poc_id = app.json().get("poc_id")
 ver = maya.get(f"/verify/{poc_id}").json()
 expect(ver["status"] == "verified", f"the fresh seal verifies ({ver['status']})")
-conn.execute("UPDATE proof_of_compliance SET record_json = replace(record_json, 'ProofOfCompliance/2', 'ProofOfCompliance/9') WHERE id = ?",
+conn.execute("UPDATE proof_of_compliance SET record_json = replace(record_json, 'ProofOfCompliance/3', 'ProofOfCompliance/9') WHERE id = ?",
              (poc_id,))
 conn.commit()
 tampered = maya.get(f"/verify/{poc_id}").json()

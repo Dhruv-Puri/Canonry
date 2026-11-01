@@ -11,6 +11,7 @@ import {
   type AiAllowance,
   type AiReason,
   type Finding,
+  type FindingLocator,
   type Revision,
   type SubmissionDetail,
 } from "@/lib/api";
@@ -152,13 +153,27 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
       )}
 
       {d.poc && (
-        <div className="rounded-xl border border-success-border bg-success-bg px-4 py-3 text-sm text-success-fg">
-          This revision was approved and signed.{" "}
-          <Link className="link-arrow font-medium underline underline-offset-2" href={`/verify/${d.poc.id}`}>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-success-border bg-success-bg px-4 py-3 text-sm text-success-fg">
+          <span>
+            This revision was approved and signed.
+            {d.poc.content_kind === "file" && " The approved file carries the seal in its metadata."}
+          </span>
+          <Link className="font-medium underline underline-offset-2" href={`/verify/${d.poc.id}`}>
             Verify its Proof of Compliance <span aria-hidden className="btn-arrow">→</span>
           </Link>
+          {d.poc.content_kind === "file" && (
+            <a
+              className="btn btn-sm btn-secondary"
+              href={`/engine/submissions/${sid}/proof-file`}
+              download
+            >
+              Download stamped file
+            </a>
+          )}
         </div>
       )}
+
+      {d.asset && <AssetPreview asset={d.asset} findings={d.findings} />}
 
       {canReview && inReview && (
         <ReviewBar busy={busy} onReview={review} openHigh={openFindings.some((f) => f.severity === "high")} />
@@ -226,6 +241,10 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
         {diffMode && prevRev ? (
           <RevisionDiff before={prevRev.content} after={rev?.content ?? ""}
                         fromNo={prevRev.revision_no} toNo={rev?.revision_no} />
+        ) : d.asset && ["png", "jpeg"].includes(d.asset.kind) ? (
+          <p className="text-sm text-muted-foreground">
+            This is an image. The visual findings are drawn on the preview above; its alt text is “{d.asset.alt_text || "—"}”.
+          </p>
         ) : (
           <ContentWithSpans content={rev?.content ?? ""} findings={rev?.id === d.latest_revision?.id ? d.findings : []} />
         )}
@@ -247,6 +266,7 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
             f={f}
             disabled={busy}
             active={showActionsForRev}
+            assetKind={d.asset?.kind ?? null}
             canResolve={canResolve && editable}
             onOverride={canReview && inReview ? (reason) => review("override", reason, f.id) : undefined}
             onAccept={() =>
@@ -320,6 +340,98 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
 
       <AiLoadingScreen open={checking} title="Re-checking this revision" />
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+
+function describeLocator(loc?: FindingLocator | null): string {
+  if (!loc) return "";
+  if (loc.kind === "image") {
+    return loc.region ? `image · ${loc.region.replace(/_/g, " ")}` : "image region";
+  }
+  if (loc.kind === "pdf") {
+    return `page ${loc.page ?? "?"}${loc.line ? ` · line ${loc.line}` : ""}`;
+  }
+  if (loc.kind === "docx") {
+    const bits = [];
+    if (loc.section) bits.push(loc.section.slice(0, 34));
+    bits.push(`paragraph ${loc.paragraph ?? "?"}`);
+    if (loc.page) bits.push(`page ${loc.page}`);
+    return bits.join(" · ");
+  }
+  return "";
+}
+
+const BOX_COLOR: Record<string, string> = {
+  high: "border-danger-fg bg-danger-bg/15",
+  medium: "border-warning-fg bg-warning-bg/15",
+  low: "border-brand bg-brand/10",
+};
+
+function AssetPreview({ asset, findings }: { asset: NonNullable<SubmissionDetail["asset"]>; findings: Finding[] }) {
+  const boxes = findings.filter((f) => f.status === "open" && f.locator?.bbox);
+  return (
+    <section className="surface p-5">
+      <div className="flex flex-wrap items-center gap-2">
+        <h2 className="eyebrow">The file under review</h2>
+        <span className="rounded-md bg-muted px-1.5 py-0.5 text-[11px] uppercase tracking-wide text-foreground-secondary">
+          {asset.kind}
+        </span>
+        <span className="ml-auto text-xs text-muted-foreground">
+          {asset.filename} · {(asset.size_bytes / 1024).toFixed(0)} KB
+          {asset.page_count ? ` · ${asset.page_count} page${asset.page_count === 1 ? "" : "s"}` : ""}
+          {asset.width && asset.height ? ` · ${asset.width}×${asset.height}` : ""}
+        </span>
+      </div>
+
+      {["png", "jpeg"].includes(asset.kind) ? (
+        <div
+          className="relative mx-auto mt-4 max-h-[460px] w-fit max-w-full overflow-hidden rounded-xl border border-border bg-muted"
+          style={{ aspectRatio: asset.width && asset.height ? `${asset.width} / ${asset.height}` : undefined }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={`/engine/assets/${asset.id}`}
+            alt={asset.alt_text || `Uploaded image ${asset.filename}`}
+            className="max-h-[460px] w-auto max-w-full object-contain"
+          />
+          {boxes.map((f) => {
+            const [x, y, w, h] = f.locator!.bbox!;
+            return (
+              <span
+                key={f.id}
+                title={`${CATEGORY_LABEL[f.category] ?? f.category} · ${TIER_LABEL[f.tier]}`}
+                className={`pointer-events-none absolute rounded-sm border-2 ${BOX_COLOR[f.severity] ?? BOX_COLOR.low}`}
+                style={{
+                  left: `${(x / (asset.width || 1)) * 100}%`,
+                  top: `${(y / (asset.height || 1)) * 100}%`,
+                  width: `${(w / (asset.width || 1)) * 100}%`,
+                  height: `${(h / (asset.height || 1)) * 100}%`,
+                }}
+              />
+            );
+          })}
+        </div>
+      ) : (
+        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-dashed border-border-strong bg-muted/30 p-4">
+          <div>
+            <p className="text-sm font-medium text-foreground">{asset.filename}</p>
+            <p className="text-xs text-muted-foreground">
+              Findings point to {asset.kind === "pdf" ? "a page and line" : "a section and paragraph"} in the extracted text below.
+            </p>
+          </div>
+          <a className="btn btn-sm btn-secondary ml-auto" href={`/engine/assets/${asset.id}`} target="_blank" rel="noreferrer">
+            Open the original file
+          </a>
+        </div>
+      )}
+      {["png", "jpeg"].includes(asset.kind) && (
+        <p className="mt-3 text-xs text-muted-foreground">
+          Alt text: {asset.alt_text ? `“${asset.alt_text}”` : "missing"} · boxes mark where the visual findings sit.
+        </p>
+      )}
+    </section>
   );
 }
 
@@ -571,6 +683,7 @@ function FindingCard({
   f,
   disabled,
   active,
+  assetKind,
   canResolve,
   onOverride,
   onAccept,
@@ -580,6 +693,7 @@ function FindingCard({
   f: Finding;
   disabled: boolean;
   active: boolean;
+  assetKind: "pdf" | "docx" | "png" | "jpeg" | null;
   canResolve: boolean;
   onOverride?: (reason: string) => Promise<unknown>;
   onAccept: () => Promise<unknown>;
@@ -589,6 +703,9 @@ function FindingCard({
   const [editText, setEditText] = useState(f.suggestion?.replace ?? "");
   const [reason, setReason] = useState("");
   const open = f.status === "open";
+  const uploadedDocument = assetKind === "pdf" || assetKind === "docx";
+  const uploadedImage = assetKind === "png" || assetKind === "jpeg";
+  const where = describeLocator(f.locator);
 
   return (
     <div
@@ -614,6 +731,12 @@ function FindingCard({
         )}
       </div>
 
+      {where && (
+        <p className="mt-2 inline-flex items-center rounded-full border border-border bg-muted/50 px-2.5 py-1 text-[11px] font-medium text-foreground-secondary">
+          {where}
+        </p>
+      )}
+
       {f.span_text && (
         <p className="mt-3 border-l-2 border-brand-highlight pl-3 font-serif text-[15px] italic text-foreground">
           “{f.span_text}”
@@ -627,9 +750,19 @@ function FindingCard({
           {f.citations.map((c, i) => (
             <p key={i} className="text-xs text-muted-foreground">
               <span className="font-mono font-medium text-brand">
-                {({ fact: "Fact ", rule: "Rule ", term: "Term ", pack: "Rule " }[c.type] ?? "") + c.id}
+                {({ fact: "Fact ", rule: "Rule ", term: "Term ", pack: "Clause " }[c.type] ?? "") + c.id}
                 {c.version ? ` v${c.version}` : ""}:
               </span>{" "}
+              {c.type === "pack" && c.ref ? (
+                <>
+                  <span className="font-medium text-foreground">{c.source} {c.ref}</span>{" "}
+                  {c.url && (
+                    <a href={c.url} target="_blank" rel="noreferrer" className="link ml-1">
+                      read the clause
+                    </a>
+                  )}{" "}
+                </>
+              ) : null}
               {c.excerpt}
               {c.valid_to ? ` (valid until ${c.valid_to})` : ""}
               {c.confidential ? " · confidential" : ""}
@@ -673,9 +806,16 @@ function FindingCard({
         </div>
       )}
 
-      {active && open && canResolve && (
+      {active && open && canResolve && uploadedDocument && (
+        <p className="mt-3 rounded-lg border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+          This is an uploaded document, so the file itself is the record. Fix the source file and upload a corrected
+          copy; a text edit here would not change what gets published.
+        </p>
+      )}
+
+      {active && open && canResolve && !uploadedDocument && (
         <div className="mt-3 space-y-2.5 border-t border-border pt-3">
-          {f.suggestion?.replace && (
+          {f.suggestion?.replace && !uploadedImage && (
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground">Suggested fix:</span>
               <code className="rounded-md border border-border bg-muted px-1.5 py-0.5 font-mono text-xs">{f.suggestion.replace}</code>
@@ -688,7 +828,7 @@ function FindingCard({
               </button>
             </div>
           )}
-          {f.suggestion?.operation === "remove" && (
+          {f.suggestion?.operation === "remove" && !uploadedImage && (
             <button
               disabled={disabled}
               onClick={() => void onAccept()}
@@ -696,6 +836,12 @@ function FindingCard({
             >
               Remove the flagged phrase
             </button>
+          )}
+          {uploadedImage && (
+            <p className="text-xs text-muted-foreground">
+              Images have no safe one-click pixel fix. Replace the alt text below, upload a corrected image, or dispute
+              the finding.
+            </p>
           )}
           {/* Secondary paths stay folded away until wanted; open by default when there is no one-click fix. */}
           <details className="group" open={!(f.suggestion?.replace || f.suggestion?.operation === "remove")}>

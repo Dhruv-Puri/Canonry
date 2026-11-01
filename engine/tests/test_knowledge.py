@@ -231,7 +231,7 @@ kv_at_approval = get_knowledge_version(conn)
 conn.close()
 ap = maya.post(f"/submissions/{sid}/review", json={"action": "approve"}).json()
 rec = arjun.get(f"/verify/{ap.get('poc_id')}").json().get("record", {}) if ap.get("poc_id") else {}
-expect(rec.get("knowledge_version") == kv_at_approval and rec.get("kind") == "ProofOfCompliance/2",
+expect(rec.get("knowledge_version") == kv_at_approval and rec.get("kind") == "ProofOfCompliance/3",
        f"PoC records knowledge version ({rec.get('knowledge_version')} vs {kv_at_approval}, {rec.get('kind')})")
 
 # ---- Task 4: fact-change impact and the re-review list --------------------------

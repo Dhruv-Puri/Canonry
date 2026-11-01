@@ -11,6 +11,8 @@ import os
 import sqlite3
 from typing import Iterable
 
+import assets
+import compliance
 import knowledge
 import policy
 from db import (
@@ -42,12 +44,14 @@ QUILLMARK_BINDINGS = {
 
 def seed() -> str:
     init_schema()
-    conn = connect()
+    conn = connect(service=True)
     try:
         if is_seeded(conn):
             row = conn.execute("SELECT id FROM workspaces LIMIT 1").fetchone()
-            # databases seeded before rule bindings existed get them on next boot
+            # databases seeded before rule bindings / the brand kit existed get them on next boot
             policy.ensure_bindings(conn, row["id"], QUILLMARK_BINDINGS)
+            assets.seed_brand_kit(conn, row["id"], DATA_DIR)
+            compliance.ensure_pack(conn, row["id"])
             conn.commit()
             return row["id"]
         ws_id = "ws_quillmark"
@@ -128,6 +132,8 @@ def seed() -> str:
             ),
         )
         policy.ensure_bindings(conn, ws_id, QUILLMARK_BINDINGS)
+        assets.seed_brand_kit(conn, ws_id, DATA_DIR)
+        compliance.ensure_pack(conn, ws_id)
         bump_knowledge(conn)
         knowledge.backfill_history(conn)  # version 1 of every seeded rule, fact and term
         audit(

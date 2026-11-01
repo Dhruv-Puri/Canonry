@@ -1,0 +1,303 @@
+{
+  "id": "in_advertising",
+  "name": "India advertising compliance",
+  "version": "2022.1",
+  "source": "CCPA Guidelines for Prevention of Misleading Advertisements and Endorsements for Misleading Advertisements, 2022; ASCI Code for Self-Regulation in Advertising",
+  "description": "Consumer-protection and self-regulation rules for advertising in India. Deterministic triggers decide a finding; retrieved clause text supplies the legal basis and the exact reference.",
+  "url": "https://consumeraffairs.nic.in/sites/default/files/Guidelines%20for%20Prevention%20of%20Misleading%20Advertisements%20and%20Endorsements%20for%20Misleading%20Advertisements%2C%202022.pdf",
+  "clauses": [
+    {
+      "id": "in_ccpa_3_bait",
+      "source": "CCPA Guidelines, 2022",
+      "ref": "Section 3",
+      "heading": "Conditions for bait advertisements",
+      "text": "A bait advertisement must not offer goods or services at a bargain price that is not actually available, and must disclose the quantity of goods or the duration of the offer so that consumers are not lured into a transaction they cannot obtain on the advertised terms.",
+      "url": "https://consumeraffairs.nic.in/sites/default/files/Guidelines%20for%20Prevention%20of%20Misleading%20Advertisements%20and%20Endorsements%20for%20Misleading%20Advertisements%2C%202022.pdf",
+      "severity": "medium",
+      "triggers": [
+        {
+          "pattern": "\\b(?:only\\s+\\d+|first\\s+\\d+|limited\\s+(?:stock|seats|spots|quantities)|today\\s+only|while\\s+(?:stocks?|supplies)\\s+last)\\b",
+          "category": "bait_advertising",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "A scarcity or deadline claim needs the actual quantity and duration stated; otherwise it can read as bait."
+        },
+        {
+          "pattern": "\\b(?:offer\\s+ends?|sale\\s+ends?)\\b(?!\\s+(?:on|at)\\s+\\d)",
+          "category": "bait_advertising",
+          "tier": "consider",
+          "severity": "low",
+          "why": "An offer deadline should name the date and time it ends."
+        }
+      ],
+      "exempt_if": [
+        "\\b(?:valid\\s+(?:till|until)|ends?\\s+(?:on|at))\\s+\\d",
+        "\\b\\d+\\s+(?:left|remaining|available)\\b[^.]*\\b(?:as\\s+of|on)\\s+\\d"
+      ]
+    },
+    {
+      "id": "in_ccpa_4_surrogate",
+      "source": "CCPA Guidelines, 2022",
+      "ref": "Section 4",
+      "heading": "Prohibition of surrogate advertising",
+      "text": "No surrogate or indirect advertisement shall be made for goods or services whose advertising is otherwise prohibited or restricted, including by presenting a brand extension such as mineral water, music, or merchandise to promote a restricted product.",
+      "url": "https://consumeraffairs.nic.in/sites/default/files/Guidelines%20for%20Prevention%20of%20Misleading%20Advertisements%20and%20Endorsements%20for%20Misleading%20Advertisements%2C%202022.pdf",
+      "severity": "high",
+      "triggers": [
+        {
+          "pattern": "\\b(?:pan\\s+masala|gutka|tobacco|smok(?:e|ing)|vape|whisk(?:y|ey)|liquor|beer|wine|alcohol)\\b[^.]{0,80}\\b(?:soda|water|music|club|merchandise|card|brand\\s+extension)\\b",
+          "category": "surrogate_advertising",
+          "tier": "likely",
+          "severity": "high",
+          "why": "A restricted product presented through an unrelated brand extension can be a surrogate advertisement."
+        }
+      ]
+    },
+    {
+      "id": "in_ccpa_5_free",
+      "source": "CCPA Guidelines, 2022",
+      "ref": "Section 5",
+      "heading": "Guidelines for free claim advertisements",
+      "text": "A product or service shall not be described as free where there is any direct cost to the consumer other than the actual cost of delivery, freight, or postage; where such costs are payable, the advertisement must say so clearly.",
+      "url": "https://consumeraffairs.nic.in/sites/default/files/Guidelines%20for%20Prevention%20of%20Misleading%20Advertisements%20and%20Endorsements%20for%20Misleading%20Advertisements%2C%202022.pdf",
+      "severity": "high",
+      "triggers": [
+        {
+          "pattern": "\\bfree\\b(?=[^.]{0,120}(?:\\bpay(?:able|\\s+only)?\\b|\\bprice\\b|\\bfee\\b|\\bsubscription\\b|\u20b9|\\brs\\.?\\s*\\d|\\binr\\b))",
+          "category": "free_claim",
+          "tier": "definite",
+          "severity": "high",
+          "why": "The sentence calls something free while also naming a direct cost; only delivery, freight or postage may be charged."
+        },
+        {
+          "pattern": "\\b100%\\s*free\\b|\\babsolutely\\s+free\\b",
+          "category": "free_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "An absolute free claim must be true for every consumer, with no compulsory purchase."
+        }
+      ],
+      "exempt_if": [
+        "\\b(?:delivery|shipping|postage|freight)\\s+(?:charges?|costs?|fees?)\\b",
+        "\\bno\\s+(?:credit\\s+card|card|payment)\\s+(?:required|needed)\\b",
+        "\\b(?:free\\s+(?:trial|plan|tier))\\b[^.]{0,80}\\b(?:no\\s+(?:card|payment)|cancel\\s+anytime)\\b"
+      ]
+    },
+    {
+      "id": "in_ccpa_6_children",
+      "source": "CCPA Guidelines, 2022",
+      "ref": "Section 6",
+      "heading": "Conditions for advertisements targeting children",
+      "text": "Advertisements addressed to children must not encourage them to purchase an advertised product by exploiting their inexperience, must not feature dangerous practices, and must not suggest that a product is superior because children who do not own it are inferior.",
+      "url": "https://consumeraffairs.nic.in/sites/default/files/Guidelines%20for%20Prevention%20of%20Misleading%20Advertisements%20and%20Endorsements%20for%20Misleading%20Advertisements%2C%202022.pdf",
+      "severity": "high",
+      "triggers": [
+        {
+          "pattern": "\\b(?:kids?|children|child|students|teens?)\\b[^.]{0,100}\\b(?:buy\\s+now|collect\\s+(?:coupons?|wrappers?|labels?)|must\\s+have|don't\\s+miss|only\\s+today)\\b",
+          "category": "children_directed",
+          "tier": "likely",
+          "severity": "high",
+          "why": "Children-directed advertising must not pressure children to buy or collect, or exploit their inexperience."
+        }
+      ]
+    },
+    {
+      "id": "in_ccpa_7_disclaimer",
+      "source": "CCPA Guidelines, 2022",
+      "ref": "Section 7",
+      "heading": "Disclaimers in advertisements",
+      "text": "A disclaimer must be clear, prominent and legible, must not contradict the main claim, and must not be used to correct or hide a misleading statement. A vague 'conditions apply' without the conditions does not discharge the advertiser's duty.",
+      "url": "https://consumeraffairs.nic.in/sites/default/files/Guidelines%20for%20Prevention%20of%20Misleading%20Advertisements%20and%20Endorsements%20for%20Misleading%20Advertisements%2C%202022.pdf",
+      "severity": "medium",
+      "triggers": [
+        {
+          "pattern": "\\bconditions?\\s+apply\\b|\\bt&c\\s+apply\\b",
+          "category": "missing_disclosure",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "The actual conditions must be stated or linked; 'conditions apply' alone is not a clear disclaimer."
+        },
+        {
+          "pattern": "\\*+\\s*$|\\*+[^\\n]{0,40}$",
+          "category": "missing_disclosure",
+          "tier": "consider",
+          "severity": "low",
+          "why": "An asterisk must point to a visible, legible footnote that explains the qualified claim."
+        }
+      ],
+      "exempt_if": [
+        "\\b(?:terms|conditions|t&c)\\s+(?:at|on|available\\s+at)\\s+(?:https?://|www\\.)",
+        "\\bsee\\s+(?:full\\s+)?(?:terms|conditions)\\b"
+      ]
+    },
+    {
+      "id": "in_ccpa_12a_substantiation",
+      "source": "CCPA Guidelines, 2022",
+      "ref": "Section 12(a)",
+      "heading": "Duty to substantiate claims",
+      "text": "Every description, claim and comparison relating to an objectively ascertainable fact must be capable of substantiation, and the advertiser must provide that substantiation to the Central Authority on request.",
+      "url": "https://consumeraffairs.nic.in/sites/default/files/Guidelines%20for%20Prevention%20of%20Misleading%20Advertisements%20and%20Endorsements%20for%20Misleading%20Advertisements%2C%202022.pdf",
+      "severity": "high",
+      "triggers": [
+        {
+          "pattern": "\\b(?:guaranteed\\s+(?:results?|returns?|profits?|to\\s+(?:work|increase|double|triple|make|boost))|100%\\s+(?:effective|safe|accurate|guaranteed|success)|(?:risk[-\\s]?free|no\\s+risk|zero\\s+risk)\\s+(?:investment|returns?|trading|crypto(?:currency)?|profits?))\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "definite",
+          "severity": "high",
+          "why": "An absolute guarantee or risk-free promise is an objectively ascertainable claim; it needs substantiation, and the advertiser carries the burden."
+        },
+        {
+          "pattern": "\\b(?:clinically|scientifically|independently)\\s+(?:proven|tested|verified)\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "high",
+          "why": "A research-backed claim must name the source and date of the independent research in the advertisement."
+        }
+      ],
+      "exempt_if": [
+        "\\b(?:source|study|report|survey)\\s*:\\s*\\S+",
+        "\\b(?:as\\s+per|according\\s+to)\\s+[A-Z][\\w&.]+"
+      ]
+    },
+    {
+      "id": "in_ccpa_12e_variable",
+      "source": "CCPA Guidelines, 2022",
+      "ref": "Section 12(e)",
+      "heading": "Fixed periods, prices and ranges",
+      "text": "Instead of expressions such as 'up to five years guarantee' or 'prices from as low as X', an advertisement must clearly indicate the fixed period, the fixed price, or the minimum and maximum of the variable being advertised.",
+      "url": "https://consumeraffairs.nic.in/sites/default/files/Guidelines%20for%20Prevention%20of%20Misleading%20Advertisements%20and%20Endorsements%20for%20Misleading%20Advertisements%2C%202022.pdf",
+      "severity": "medium",
+      "triggers": [
+        {
+          "pattern": "\\bup\\s+to\\s+\\d+(?:\\.\\d+)?\\s*(?:%|percent\\b|x\\b|years?\\b|months?\\b|hours?\\b)",
+          "category": "misleading_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "'Up to' hides the range; state the minimum and maximum, or the fixed benefit, so the consumer is not misled."
+        },
+        {
+          "pattern": "\\b(?:prices?\\s+from|starting\\s+at|from\\s+as\\s+low\\s+as)\\s*(?:\\u20b9|rs\\.?|inr)?\\s*\\d",
+          "category": "misleading_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "A from-price must state the range or the fixed price at which the product is actually offered."
+        }
+      ]
+    },
+    {
+      "id": "in_ccpa_12f_prize",
+      "source": "CCPA Guidelines, 2022",
+      "ref": "Section 12(f)",
+      "heading": "Lotteries, prizes and gifts",
+      "text": "Advertisements inviting the public to take part in lotteries or prize competitions permitted under law, or holding out the prospect of gifts, must state all material conditions clearly so the consumer can form a true view of their prospects.",
+      "url": "https://consumeraffairs.nic.in/sites/default/files/Guidelines%20for%20Prevention%20of%20Misleading%20Advertisements%20and%20Endorsements%20for%20Misleading%20Advertisements%2C%202022.pdf",
+      "severity": "medium",
+      "triggers": [
+        {
+          "pattern": "\\b(?:win|winner|prize|lottery|giveaway|sweepstake)\\b[^.]{0,120}(?!\\b(?:terms|conditions|rules)\\b)",
+          "category": "missing_disclosure",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "A prize promotion must state its material conditions, closing date and how winners are chosen."
+        }
+      ],
+      "exempt_if": [
+        "\\b(?:terms|conditions|rules)\\s+(?:at|on|apply|available)\\b"
+      ]
+    },
+    {
+      "id": "in_ccpa_13_endorsement",
+      "source": "CCPA Guidelines, 2022",
+      "ref": "Section 13",
+      "heading": "Due diligence for endorsements",
+      "text": "Every endorsement must reflect the genuine, reasonably current opinion of the endorser, be based on adequate information or experience, and must not be deceptive. A celebrity endorser must have done due diligence on the claims.",
+      "url": "https://consumeraffairs.nic.in/sites/default/files/Guidelines%20for%20Prevention%20of%20Misleading%20Advertisements%20and%20Endorsements%20for%20Misleading%20Advertisements%2C%202022.pdf",
+      "severity": "medium",
+      "triggers": [
+        {
+          "pattern": "\\b(?:doctor|doctors|expert|experts|dentist|dermatologist|celebrity|influencer)\\s+(?:recommended|approved|endorsed|backed)\\b",
+          "category": "endorsement_disclosure",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "An expert or celebrity endorsement must reflect genuine experience and the claims must be substantiated; name the basis or remove the endorsement."
+        }
+      ]
+    },
+    {
+      "id": "in_ccpa_14_material",
+      "source": "CCPA Guidelines, 2022",
+      "ref": "Section 14",
+      "heading": "Disclosure of material connection",
+      "text": "Where a connection between the endorser and the advertiser might materially affect the value or credibility of the endorsement and the audience would not reasonably expect it, that connection must be fully disclosed in the endorsement.",
+      "url": "https://consumeraffairs.nic.in/sites/default/files/Guidelines%20for%20Prevention%20of%20Misleading%20Advertisements%20and%20Endorsements%20for%20Misleading%20Advertisements%2C%202022.pdf",
+      "severity": "medium",
+      "triggers": [
+        {
+          "pattern": "\\b(?:influencer|collab(?:oration)?|ambassador|gifted|partner(?:ed|ship)?)\\b(?![^.]{0,80}\\b(?:#ad|#sponsored|#paid|paid\\s+partnership|advertisement)\\b)",
+          "category": "endorsement_disclosure",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "A paid or material connection must be disclosed clearly; add a permitted label such as #ad or Paid partnership."
+        }
+      ]
+    },
+    {
+      "id": "asci_1_truthful",
+      "source": "ASCI Code",
+      "ref": "Chapter I, §1",
+      "heading": "Truthful representation and substantiation",
+      "text": "Advertisements must be truthful. All descriptions, claims and comparisons which relate to matters of objectively ascertainable fact should be capable of substantiation, and advertisers must produce it when called upon.",
+      "url": "https://www.ascionline.in/the-asci-code/",
+      "severity": "high",
+      "triggers": [
+        {
+          "pattern": "\\b(?:award[-\\s]winning|world[-\\s]class|best[-\\s]selling|market[-\\s]leading)\\b(?!\\s+(?:by|according\\s+to|as\\s+per))",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "An objective superiority claim needs a source; otherwise it is a claim the advertiser must be able to substantiate."
+        }
+      ],
+      "exempt_if": [
+        "\\baccording\\s+to\\b",
+        "\\bwon\\b|\\bawarded\\b|\\bby\\s+the\\b"
+      ]
+    },
+    {
+      "id": "asci_1_4_mislead",
+      "source": "ASCI Code",
+      "ref": "Chapter I, §4",
+      "heading": "No misleading implications or omissions",
+      "text": "Advertisements shall neither distort facts nor mislead the consumer by means of implications or omissions, including by ambiguity or exaggeration about the product, the advertiser or another product.",
+      "url": "https://www.ascionline.in/the-asci-code/",
+      "severity": "high",
+      "triggers": [
+        {
+          "pattern": "\\b(?:miracle|magic\\s+(?:fix|formula|results?)|instant\\s+results?|overnight\\s+success|never\\s+fails?)\\b",
+          "category": "misleading_claim",
+          "tier": "likely",
+          "severity": "high",
+          "why": "An exaggerated promise that a consumer could take literally distorts the facts; qualify it or remove it."
+        }
+      ]
+    },
+    {
+      "id": "asci_4_comparative",
+      "source": "ASCI Code",
+      "ref": "Chapter IV, §1",
+      "heading": "Fair comparisons",
+      "text": "Comparisons with other manufacturers, suppliers or products are permissible only if it is clear what is being compared, the comparison is factual, accurate and capable of substantiation, and it does not mislead or unfairly denigrate the competitor.",
+      "url": "https://www.ascionline.in/the-asci-code/",
+      "severity": "medium",
+      "triggers": [
+        {
+          "pattern": "\\b(?:better|cheaper|faster|superior|more\\s+accurate)\\s+than\\s+(?:[A-Z][\\w&.-]+|[a-z]+\\s+competitors?)\\b",
+          "category": "comparative_advertising",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "A named or implied competitor comparison must be factual, substantiated and like-for-like; state the source or remove it."
+        }
+      ]
+    }
+  ]
+}

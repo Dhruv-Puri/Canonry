@@ -52,6 +52,21 @@ _CHECKS = (
     Check("messaging.cta", "BASE-08", "Messaging",
           "Sales posts end with a clear call to action.", "low",
           "Start a 14-day trial.", "Great product, see you around."),
+    Check("brand.logo", "BASE-09", "Brand",
+          "Use the current approved logo, at a readable size, with clear space around it.", "high",
+          "Current logo, at least 15% of the image width, inside the safe margin.",
+          "A retired logo, a tiny mark in the corner, or a mark touching the edge."),
+    Check("brand.colour", "BASE-10", "Brand",
+          "Dominant brand colours come from the approved palette.", "medium",
+          "Teal and ink from the brand kit.",
+          "A retired orange or an arbitrary accent colour covering the design."),
+    Check("accessibility.contrast", "BASE-11", "Accessibility",
+          "Text in images meets WCAG contrast: 4.5:1 for normal text, 3:1 for large text.", "medium",
+          "Ink on sand is 12:1.", "Light grey on white is about 1.4:1."),
+    Check("accessibility.alt_text", "BASE-12", "Accessibility",
+          "Every published image needs short, useful alt text.", "medium",
+          "Add alt text: 'Quillmark Pulse dashboard showing weekly active teams'.",
+          "image.png, or 'image of a dashboard'. "),
 )
 
 CHECKS: Dict[str, Check] = {c.key: c for c in _CHECKS}

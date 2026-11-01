@@ -110,6 +110,9 @@ export default function AdminOverviewPage() {
           <Link href="/kb" className="btn btn-secondary">
             <BookMarked className="size-4" aria-hidden /> Knowledge base
           </Link>
+          <Link href="/admin/api" className="btn btn-secondary">
+            <ShieldCheck className="size-4" aria-hidden /> API &amp; webhooks
+          </Link>
         </div>
       </div>
 

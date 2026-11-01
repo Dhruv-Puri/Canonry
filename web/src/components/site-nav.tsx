@@ -30,7 +30,8 @@ export function SiteNav() {
   const onSubmission = pathname.startsWith("/submissions");
   const isActive = (href: string) => {
     if (href === "/review") return pathname.startsWith("/review") || (canReview(me?.role) && onSubmission);
-    if (href === "/admin") return pathname.startsWith("/admin");
+    if (href === "/admin") return pathname === "/admin" || (pathname.startsWith("/admin/") && !pathname.startsWith("/admin/api"));
+    if (href === "/admin/api") return pathname.startsWith("/admin/api");
     if (href === "/agency") return pathname.startsWith("/agency") || (me?.role === "agency" && onSubmission);
     if (href === "/") return pathname === "/" || (me?.role === "creator" && onSubmission);
     return pathname.startsWith(href);

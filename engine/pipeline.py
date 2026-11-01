@@ -14,10 +14,14 @@ import sqlite3
 import time
 from typing import Any, Dict, List, Optional
 
+import assets
 import checkers
 import claims
+import compliance
 import contract
+import documents
 import gateway
+import images
 import knowledge
 import quota
 from db import _now, gen_id, get_knowledge_version
@@ -99,6 +103,12 @@ def run_check(conn: sqlite3.Connection, revision_id: str, actor: Optional[str] =
     sub = conn.execute("SELECT * FROM submissions WHERE id = ?", (rev["submission_id"],)).fetchone()
     ws = sub["workspace_id"]
     text = rev["content"]
+    source_kind = (rev["source_kind"] if "source_kind" in rev.keys() else None) or "text"
+    asset_id = rev["asset_id"] if "asset_id" in rev.keys() else None
+    try:
+        locator_map = json.loads(rev["locator_map_json"] or "[]") if "locator_map_json" in rev.keys() else []
+    except (TypeError, ValueError):
+        locator_map = []
     words = len(text.split())
     kv_bumped = get_knowledge_version(conn)
     ctx = checkers.Ctx(conn, revision_id, sub["channel"], sub["source_type"], kv_bumped, ws=ws)
@@ -115,6 +125,18 @@ def run_check(conn: sqlite3.Connection, revision_id: str, actor: Optional[str] =
     findings += checkers.check_readability(ctx, text)
     findings += checkers.check_tone_rules(ctx, text)
     findings += checkers.check_confidential(ctx, text)
+
+    # image checkers work on the uploaded pixels, not the alt text
+    if asset_id and source_kind == "image":
+        raw = assets.asset_bytes(conn, asset_id)
+        asset_row = assets.get_asset(conn, asset_id) or {}
+        if raw:
+            try:
+                findings += images.check_image(ctx, raw, asset_row.get("alt_text") or text,
+                                               asset_id, asset_row.get("filename") or "")
+            except images.ImageError as exc:
+                if os.environ.get("CANON_DEBUG"):
+                    print("[image skip]", exc)
 
     # claims are verified against publishable facts only: a confidential fact can
     # never support public copy, and its text must never reach an explanation or
@@ -277,6 +299,11 @@ def run_check(conn: sqlite3.Connection, revision_id: str, actor: Optional[str] =
                                        "knowledge_version": kv_bumped},
                     })
 
+    # India pack: deterministic triggers over the retrieved clause candidates. It
+    # runs after claims so a legal risk cites its own clause even where a brand
+    # claim already answered the factual question.
+    findings += compliance.check(ctx, text)
+
     # claims are more specific: drop terminology/redundant findings whose span
     # is fully covered by a claims finding (keeps exactly one row per issue)
     claims_spans = [f["span"] for f in findings if f["checker"] == "claims"]
@@ -298,26 +325,37 @@ def run_check(conn: sqlite3.Connection, revision_id: str, actor: Optional[str] =
 
     # a finding the creator disputed (or a reviewer overrode) stays decided on
     # later revisions while its span is unchanged
-    decided = {
-        (r["checker"], r["category"], r["span_text"]): r["status"]
-        for r in conn.execute(
-            "SELECT f.checker, f.category, f.span_text, f.status FROM findings f "
+    decided = {}
+    for r in conn.execute(
+            "SELECT f.checker, f.category, f.span_text, f.location_key, f.status FROM findings f "
             "JOIN revisions v ON v.id = f.revision_id "
             "WHERE v.submission_id = ? AND v.id != ? AND f.status = 'disputed'",
-            (rev["submission_id"], revision_id),
-        ).fetchall()
-    }
+            (rev["submission_id"], revision_id)).fetchall():
+        decided[(r["checker"], r["category"], r["span_text"])] = r["status"]
+        if r["location_key"]:
+            decided[("key", r["location_key"])] = r["status"]
 
     # --- citation check (no citation, no finding) + persistence -------------
     kept, discarded = [], 0
     seen_final: set = set()
     for f in findings:
         span_text = f["span"].get("text", "")
-        span_key = (span_text, f["span"].get("start"))
-        if span_text and span_key in seen_final:
+        # Every finding gets a stable location identity before dedupe; image
+        # findings have no text span, so an empty span can never merge them.
+        if not f.get("locator"):
+            if source_kind in ("pdf", "docx") and locator_map:
+                f["locator"] = documents.locate(locator_map, f["span"]["start"], f["span"]["end"],
+                                                source_kind, asset_id)
+            elif span_text:
+                f["locator"] = {"kind": "text", "asset_id": asset_id,
+                                "char_start": f["span"]["start"], "char_end": f["span"]["end"]}
+        f["location_key"] = contract.location_key(f)
+        span_key = f["location_key"]
+        if span_key in seen_final:
             discarded += 1
             continue
-        f["status"] = decided.get((f["checker"], f["category"], f["span"]["text"]), "open")
+        f["status"] = decided.get(("key", f["location_key"]),
+                                   decided.get((f["checker"], f["category"], f["span"]["text"]), "open"))
         if not contract.conforms(f):
             discarded += 1
             if os.environ.get("CANON_DEBUG"):
@@ -329,19 +367,19 @@ def run_check(conn: sqlite3.Connection, revision_id: str, actor: Optional[str] =
                 print("[discard:citation]", f["checker"], f["category"],
                       repr(f["span"].get("text", ""))[:50], [c["id"] for c in f["citations"]])
             continue
-        if span_text:
-            seen_final.add(span_key)
+        seen_final.add(span_key)
         _pin_citation_versions(conn, ws, f["citations"])
         conn.execute(
             "INSERT INTO findings (id, revision_id, checker, category, span_start, span_end, "
             "span_text, tier, severity, citations_json, explanation, suggestion_json, "
-            "provenance_json, status, title) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "provenance_json, status, title, locator_json, location_key) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 f["id"], revision_id, f["checker"], f["category"], f["span"]["start"],
                 f["span"]["end"], f["span"]["text"], f["tier"], f["severity"],
                 json.dumps(f["citations"]), f["explanation"],
                 json.dumps(f["suggestion"]), json.dumps(f["provenance"]),
-                f["status"], f.get("title"),
+                f["status"], f.get("title"), json.dumps(f.get("locator")), f["location_key"],
             ),
         )
         kept.append(f)

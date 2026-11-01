@@ -1,0 +1,361 @@
+"use client";
+
+import Link from "next/link";
+import { useCallback, useEffect, useState } from "react";
+import { ArrowLeft, Check, Copy, KeyRound, RefreshCw, Send, ShieldCheck, Webhook } from "lucide-react";
+import { api } from "@/lib/api";
+import { useIdentity } from "@/components/identity";
+
+type ApiKey = {
+  id: string; name: string; prefix: string; scopes: string[];
+  created_at: string; last_used_at: string | null; revoked_at: string | null;
+};
+
+type Endpoint = {
+  id: string; url: string; events: string[]; active: number; description: string | null;
+  created_at: string;
+  last_delivery: { status: string; last_status: number | null; attempts: number; delivered_at: string | null; created_at: string } | null;
+};
+
+type Delivery = {
+  id: string; endpoint_id: string; url: string; event: string; status: string;
+  attempts: number; last_status: number | null; last_error: string | null;
+  created_at: string; delivered_at: string | null; next_attempt_at: string | null;
+};
+
+type Packs = {
+  packs: { id: string; name: string; version: string; source: string; clauses: number; workspace_active: number | null }[];
+  retrieval: { model: string; dimensions: number; clauses: number; cached_embeddings: number; provider: string };
+};
+
+const EVENTS = ["checked", "approved", "signed"] as const;
+
+export default function ApiSettingsPage() {
+  const { me } = useIdentity();
+  const isAdmin = me?.role === "admin";
+  const [keys, setKeys] = useState<ApiKey[]>([]);
+  const [endpoints, setEndpoints] = useState<Endpoint[]>([]);
+  const [deliveries, setDeliveries] = useState<Delivery[]>([]);
+  const [packs, setPacks] = useState<Packs | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [keyName, setKeyName] = useState("Demo CMS");
+  const [keyScopes, setKeyScopes] = useState<string[]>(["check", "read"]);
+  const [createdKey, setCreatedKey] = useState<string | null>(null);
+  const [createdSecret, setCreatedSecret] = useState<string | null>(null);
+  const [hookUrl, setHookUrl] = useState("https://canonry-cms.onrender.com/webhooks/canonry");
+  const [hookEvents, setHookEvents] = useState<string[]>([...EVENTS]);
+  const [hookDescription, setHookDescription] = useState("Demo CMS publisher");
+
+  const load = useCallback(async () => {
+    if (!isAdmin) return;
+    try {
+      const [k, e, d, p] = await Promise.all([
+        api<{ keys: ApiKey[] }>("/api-keys"),
+        api<{ endpoints: Endpoint[] }>("/webhook-endpoints"),
+        api<{ deliveries: Delivery[] }>("/webhook-deliveries?limit=25"),
+        api<Packs>("/compliance/packs"),
+      ]);
+      setKeys(k.keys);
+      setEndpoints(e.endpoints);
+      setDeliveries(d.deliveries);
+      setPacks(p);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, [isAdmin]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  async function run(fn: () => Promise<void>) {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await fn();
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!isAdmin) {
+    return (
+      <section className="surface mx-auto max-w-xl p-8 text-center">
+        <span className="mx-auto grid size-14 place-items-center rounded-2xl bg-muted text-brand">
+          <ShieldCheck className="size-6" aria-hidden />
+        </span>
+        <p className="eyebrow mt-5">Brand admin</p>
+        <h1 className="mt-1 text-3xl font-bold tracking-tight">API settings are for brand admins</h1>
+        <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-foreground-secondary">
+          Keys and webhook secrets can publish content and read the workspace. Only an administrator can issue or revoke them.
+        </p>
+        <Link href="/admin" className="btn btn-primary mt-6">Back to overview</Link>
+      </section>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <Link href="/admin" className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground">
+        <ArrowLeft className="size-3.5" aria-hidden /> Workspace overview
+      </Link>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="eyebrow">Integration surface</p>
+          <h1 className="page-title mt-1.5">API &amp; webhooks</h1>
+          <p className="page-lede max-w-2xl">
+            A versioned API with workspace-scoped keys, and HMAC-signed events for the systems that publish. Keys are
+            shown once; the database keeps only a hash.
+          </p>
+        </div>
+        <button onClick={() => void run(async () => { await api("/webhooks/flush", { method: "POST" }); setNotice("Outbox flushed."); })}
+          disabled={busy} className="btn btn-secondary">
+          <RefreshCw className={`size-4 ${busy ? "animate-spin" : ""}`} aria-hidden /> Flush outbox
+        </button>
+      </div>
+
+      {error && <p role="alert" className="rounded-xl border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger-fg">{error}</p>}
+      {notice && <p role="status" className="rounded-xl border border-success-border bg-success-bg px-3 py-2 text-sm text-success-fg">{notice}</p>}
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <section className="surface p-6">
+          <div className="flex items-center gap-2">
+            <KeyRound className="size-4 text-brand" aria-hidden />
+            <h2 className="section-title">API keys</h2>
+          </div>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Scope <code>check</code> can create and check submissions; <code>read</code> can read them; <code>admin</code>{" "}
+            includes both. Send <code>Authorization: Bearer ck_live_…</code>.
+          </p>
+          <form
+            className="mt-4 flex flex-wrap items-end gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void run(async () => {
+                const r = await api<{ key: string }>("/api-keys", { method: "POST", json: { name: keyName, scopes: keyScopes } });
+                setCreatedKey(r.key);
+                setKeyName("Demo CMS");
+              });
+            }}
+          >
+            <label className="min-w-40 flex-1 text-xs font-medium text-foreground-secondary">
+              Key name
+              <input className="field mt-1 h-9 px-3" value={keyName} onChange={(e) => setKeyName(e.target.value)} required />
+            </label>
+            <div className="flex flex-wrap gap-2 pb-1">
+              {["check", "read", "admin"].map((scope) => (
+                <label key={scope} className="inline-flex items-center gap-1.5 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={keyScopes.includes(scope)}
+                    onChange={(e) => setKeyScopes((s) => e.target.checked ? [...new Set([...s, scope])] : s.filter((x) => x !== scope))}
+                  />
+                  {scope}
+                </label>
+              ))}
+            </div>
+            <button className="btn btn-primary btn-sm" disabled={busy || !keyName.trim()}>Create key</button>
+          </form>
+
+          {createdKey && (
+            <div className="mt-3 rounded-xl border border-warning-border bg-warning-bg p-3">
+              <p className="text-xs font-semibold text-warning-fg">Copy this key now — it will not be shown again.</p>
+              <div className="mt-2 flex items-center gap-2">
+                <code className="min-w-0 flex-1 break-all rounded-md bg-card px-2 py-1.5 font-mono text-xs">{createdKey}</code>
+                <button className="btn btn-sm btn-secondary" onClick={() => void navigator.clipboard.writeText(createdKey)}>
+                  <Copy className="size-3.5" aria-hidden /> Copy
+                </button>
+              </div>
+            </div>
+          )}
+
+          <ul className="mt-4 divide-y divide-border text-sm">
+            {keys.map((k) => (
+              <li key={k.id} className="flex flex-wrap items-center gap-2 py-2.5">
+                <span className="font-medium">{k.name}</span>
+                <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px]">{k.prefix}…</code>
+                <span className="text-xs text-muted-foreground">{k.scopes.join(" · ")}</span>
+                {k.revoked_at ? (
+                  <span className="ml-auto rounded-full bg-muted px-2 py-0.5 text-[11px]">revoked</span>
+                ) : (
+                  <button
+                    className="btn btn-ghost btn-sm ml-auto"
+                    onClick={() => void run(async () => { await api(`/api-keys/${k.id}/revoke`, { method: "POST" }); })}
+                    disabled={busy}
+                  >
+                    Revoke
+                  </button>
+                )}
+              </li>
+            ))}
+            {keys.length === 0 && <li className="py-3 text-sm text-muted-foreground">No keys yet.</li>}
+          </ul>
+        </section>
+
+        <section className="surface p-6">
+          <div className="flex items-center gap-2">
+            <Webhook className="size-4 text-brand" aria-hidden />
+            <h2 className="section-title">Webhook endpoints</h2>
+          </div>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Each delivery is signed: <code>X-Canonry-Signature: sha256=HMAC(timestamp.body)</code>. Retries continue
+            with backoff from the durable outbox.
+          </p>
+          <form
+            className="mt-4 space-y-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void run(async () => {
+                const r = await api<{ secret: string }>("/webhook-endpoints", {
+                  method: "POST",
+                  json: { url: hookUrl, events: hookEvents, description: hookDescription },
+                });
+                setCreatedSecret(r.secret);
+              });
+            }}
+          >
+            <label className="block text-xs font-medium text-foreground-secondary">
+              HTTPS endpoint
+              <input className="field mt-1 h-9 px-3" type="url" value={hookUrl} onChange={(e) => setHookUrl(e.target.value)} required />
+            </label>
+            <div className="flex flex-wrap gap-3 pt-1">
+              {EVENTS.map((event) => (
+                <label key={event} className="inline-flex items-center gap-1.5 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={hookEvents.includes(event)}
+                    onChange={(e) => setHookEvents((s) => e.target.checked ? [...new Set([...s, event])] : s.filter((x) => x !== event))}
+                  />
+                  {event}
+                </label>
+              ))}
+            </div>
+            <button className="btn btn-primary btn-sm" disabled={busy || hookEvents.length === 0}>Add endpoint</button>
+          </form>
+
+          {createdSecret && (
+            <div className="mt-3 rounded-xl border border-warning-border bg-warning-bg p-3">
+              <p className="text-xs font-semibold text-warning-fg">Signing secret — copy it now, then set it on the receiver.</p>
+              <div className="mt-2 flex items-center gap-2">
+                <code className="min-w-0 flex-1 break-all rounded-md bg-card px-2 py-1.5 font-mono text-xs">{createdSecret}</code>
+                <button className="btn btn-sm btn-secondary" onClick={() => void navigator.clipboard.writeText(createdSecret)}>
+                  <Copy className="size-3.5" aria-hidden /> Copy
+                </button>
+              </div>
+            </div>
+          )}
+
+          <ul className="mt-4 divide-y divide-border text-sm">
+            {endpoints.map((e) => (
+              <li key={e.id} className="py-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <code className="min-w-0 flex-1 break-all text-xs">{e.url}</code>
+                  <span className={`rounded-full px-2 py-0.5 text-[11px] ${e.active ? "bg-success-bg text-success-fg" : "bg-muted text-muted-foreground"}`}>
+                    {e.active ? "active" : "disabled"}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {e.events.join(" · ")} · {e.last_delivery ? `${e.last_delivery.status} (${e.last_delivery.attempts} attempt${e.last_delivery.attempts === 1 ? "" : "s"})` : "no deliveries yet"}
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    disabled={busy}
+                    onClick={() => void run(async () => {
+                      const r = await api<{ secret: string }>(`/webhook-endpoints/${e.id}/rotate`, { method: "POST" });
+                      setCreatedSecret(r.secret);
+                    })}
+                  >
+                    Rotate secret
+                  </button>
+                  {Boolean(e.active) && (
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      disabled={busy}
+                      onClick={() => void run(async () => { await api(`/webhook-endpoints/${e.id}/disable`, { method: "POST" }); })}
+                    >
+                      Disable
+                    </button>
+                  )}
+                </div>
+              </li>
+            ))}
+            {endpoints.length === 0 && <li className="py-3 text-sm text-muted-foreground">No endpoints yet.</li>}
+          </ul>
+        </section>
+      </div>
+
+      <section className="surface p-6">
+        <div className="flex items-center gap-2">
+          <Send className="size-4 text-brand" aria-hidden />
+          <h2 className="section-title">Delivery log</h2>
+        </div>
+        <p className="mt-1 text-sm text-muted-foreground">Newest first. Retry re-queues the exact same signed payload.</p>
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="text-xs uppercase tracking-wide text-muted-foreground">
+              <tr><th className="py-2 pr-3">Event</th><th className="py-2 pr-3">Status</th><th className="py-2 pr-3">Attempts</th><th className="py-2 pr-3">Endpoint</th><th className="py-2 pr-3">When</th><th className="py-2" /></tr>
+            </thead>
+            <tbody>
+              {deliveries.map((d) => (
+                <tr key={d.id} className="border-t border-border align-top">
+                  <td className="py-2 pr-3 font-mono text-xs">{d.event}</td>
+                  <td className="py-2 pr-3">
+                    <span className={`rounded-full px-2 py-0.5 text-[11px] ${d.status === "delivered" ? "bg-success-bg text-success-fg" : d.status === "failed" ? "bg-danger-bg text-danger-fg" : "bg-warning-bg text-warning-fg"}`}>{d.status}</span>
+                    {d.last_error && <p className="mt-1 max-w-xs break-words text-[11px] text-danger-fg">{d.last_error}</p>}
+                  </td>
+                  <td className="py-2 pr-3 tabular-nums">{d.attempts}</td>
+                  <td className="max-w-xs break-all py-2 pr-3 text-xs text-muted-foreground">{d.url}</td>
+                  <td className="whitespace-nowrap py-2 pr-3 text-xs text-muted-foreground">{d.created_at.slice(0, 16).replace("T", " ")}</td>
+                  <td className="py-2">
+                    {d.status !== "delivered" && (
+                      <button className="btn btn-ghost btn-sm" disabled={busy}
+                        onClick={() => void run(async () => { await api(`/webhook-deliveries/${d.id}/retry`, { method: "POST" }); })}>
+                        Retry
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {deliveries.length === 0 && <tr><td colSpan={6} className="py-3 text-sm text-muted-foreground">No deliveries yet.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {packs && (
+        <section className="surface p-6">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="eyebrow">Compliance packs</p>
+              <h2 className="mt-1 text-xl font-bold tracking-tight">Retrieved law, cited clause by clause</h2>
+            </div>
+            <span className="rounded-full border border-border bg-muted/50 px-2.5 py-1 text-xs">
+              {packs.retrieval.provider} embeddings · {packs.retrieval.dimensions}d · {packs.retrieval.clauses} clauses
+            </span>
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            {packs.packs.map((p) => (
+              <div key={p.id} className="rounded-xl border border-border p-4">
+                <div className="flex items-center gap-2">
+                  <span className={`grid size-6 place-items-center rounded-full ${p.workspace_active ? "bg-success-bg text-success-fg" : "bg-muted text-muted-foreground"}`}>
+                    <Check className="size-3.5" aria-hidden />
+                  </span>
+                  <p className="font-medium">{p.name}</p>
+                  <span className="ml-auto font-mono text-xs text-muted-foreground">v{p.version}</span>
+                </div>
+                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{p.source}</p>
+                <p className="mt-2 text-xs text-foreground-secondary">{p.clauses} active clauses · retrieval {packs.retrieval.model}</p>
+              </div>
+            ))}
+            {packs.packs.length === 0 && <p className="text-sm text-muted-foreground">No packs installed.</p>}
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}

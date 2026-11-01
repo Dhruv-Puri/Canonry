@@ -13,9 +13,24 @@ export type Citation = {
   owner?: string;
   valid_to?: string | null;
   confidential?: number;
+  /** compliance pack citation: the exact clause and where to read it */
+  ref?: string;
+  source?: string;
+  url?: string;
 };
 
-export type Suggestion = { replace?: string; operation?: "replace" | "remove" };
+export type Suggestion = { replace?: string; operation?: "replace" | "remove" | "rewrite" | "upload" };
+
+export type FindingLocator = {
+  kind: "text" | "pdf" | "docx" | "image";
+  asset_id?: string | null;
+  page?: number | null;
+  line?: number | null;
+  paragraph?: number | null;
+  section?: string | null;
+  bbox?: [number, number, number, number] | null;
+  region?: string | null;
+};
 
 // ---- knowledge base (versioned: every change is a new version with a reason) ----
 
@@ -78,6 +93,8 @@ export type Finding = {
   provenance: Provenance;
   status: "open" | "accepted" | "edited" | "disputed" | "discarded";
   title?: string | null;
+  locator?: FindingLocator | null;
+  location_key?: string | null;
 };
 
 export type Revision = { id: string; revision_no: number; content: string; created_at: string };
@@ -131,7 +148,15 @@ export type SubmissionDetail = {
   findings: Finding[];
   decisions: Decision[];
   approvals: Approval[];
-  poc: { id: string; created_at: string } | null;
+  poc: {
+    id: string; created_at: string; content_kind?: "text" | "file";
+    asset_id?: string | null; stamped_sha256?: string | null;
+  } | null;
+  asset: {
+    id: string; kind: "pdf" | "docx" | "png" | "jpeg"; filename: string; mime: string;
+    size_bytes: number; width: number | null; height: number | null;
+    page_count: number | null; alt_text: string | null; sha256: string;
+  } | null;
   /** Latest check run on the latest revision; status "ai_pending" means only rule-based checks ran. */
   check: {
     status: string; started_at: string; finished_at: string | null; ai_calls: number; discarded: number;
@@ -218,6 +243,25 @@ export const CATEGORY_LABEL: Record<string, string> = {
   banned_term: "Banned word",
   tone: "Tone",
   readability: "Readability",
+  // documents, images and the India pack
+  logo_missing: "Logo missing",
+  logo_outdated: "Retired logo",
+  logo_too_small: "Logo too small",
+  logo_clear_space: "Logo clear space",
+  off_brand_colour: "Off-brand colour",
+  low_text_contrast: "Text contrast",
+  missing_alt_text: "Missing alt text",
+  alt_text_quality: "Alt text quality",
+  accessibility: "Accessibility",
+  bait_advertising: "Bait advertising",
+  surrogate_advertising: "Surrogate advertising",
+  free_claim: "Free claim",
+  children_directed: "Children-directed",
+  comparative_advertising: "Comparative advertising",
+  endorsement_disclosure: "Endorsement disclosure",
+  misleading_claim: "Misleading claim",
+  unsubstantiated_claim: "Unsubstantiated claim",
+  missing_disclosure: "Missing disclosure",
 };
 
 export const TIER_LABEL: Record<string, string> = {

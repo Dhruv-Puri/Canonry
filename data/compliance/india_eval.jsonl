@@ -1,0 +1,37 @@
+# India advertising pack evaluation set.
+# Each line is one independent sample: the clause refs that must be cited, and
+# which of them must reach the Definite bar. Drawn from published CCPA/ASCI
+# guidance and ASCI complaint-decision themes, then hand-labelled. Compliant
+# near-misses are included so every false legal warning counts.
+{"text": "Get a free 14-day trial at just ₹999 per month.", "expected": ["Section 5"], "definite": ["Section 5"]}
+{"text": "Guaranteed results in 30 days, or your money back.", "expected": ["Section 12(a)"], "definite": ["Section 12(a)"]}
+{"text": "Our platform is 100% effective at stopping every chargeback.", "expected": ["Section 12(a)"], "definite": ["Section 12(a)"]}
+{"text": "A risk-free investment with guaranteed returns of 18% a year.", "expected": ["Section 12(a)"], "definite": ["Section 12(a)"]}
+{"text": "Our new dashboard is up to 40% faster than the old one.", "expected": ["Section 12(e)"], "definite": []}
+{"text": "Prices from as low as ₹499 for the starter plan.", "expected": ["Section 12(e)"], "definite": []}
+{"text": "Save 30% on your first year — conditions apply.", "expected": ["Section 7"], "definite": []}
+{"text": "Only 5 seats left for this workshop.", "expected": ["Section 3"], "definite": []}
+{"text": "The first 100 customers get a free onboarding call.", "expected": ["Section 3"], "definite": []}
+{"text": "Our reports are better than Acme Analytics for every team.", "expected": ["Chapter IV, §1"], "definite": []}
+{"text": "Doctor recommended for daily use, without a prescription.", "expected": ["Section 13"], "definite": []}
+{"text": "Paid influencer collaboration: our ambassador loves the app.", "expected": ["Section 14"], "definite": []}
+{"text": "For kids: collect coupons from every pack and buy now.", "expected": ["Section 6"], "definite": []}
+{"text": "Win a prize every week when you refer a friend.", "expected": ["Section 12(f)"], "definite": []}
+{"text": "An award-winning platform used by teams across India.", "expected": ["Chapter I, §1"], "definite": []}
+{"text": "A miracle fix for every messy spreadsheet.", "expected": ["Chapter I, §4"], "definite": []}
+{"text": "Clinically proven to improve focus in ten minutes.", "expected": ["Section 12(a)"], "definite": []}
+{"text": "Our pan masala brand extension mineral water is now available.", "expected": ["Section 4"], "definite": []}
+{"text": "This plan is guaranteed to double your revenue in a quarter.", "expected": ["Section 12(a)"], "definite": ["Section 12(a)"]}
+{"text": "No risk investment, with zero risk trading signals included.", "expected": ["Section 12(a)"], "definite": ["Section 12(a)"]}
+{"text": "Start a free trial with no credit card required.", "expected": [], "definite": []}
+{"text": "Delivery is free; shipping charges apply at checkout.", "expected": [], "definite": []}
+{"text": "Only 5 seats left, and the offer is valid until 31 December.", "expected": [], "definite": []}
+{"text": "We guarantee delivery within 24 hours of your order.", "expected": [], "definite": []}
+{"text": "Our offices run on 100% renewable electricity.", "expected": [], "definite": []}
+{"text": "A risk-free 30-day trial, cancel anytime.", "expected": [], "definite": []}
+{"text": "Prices start at ₹499 and go up to ₹999 depending on seats.", "expected": [], "definite": []}
+{"text": "This release is better than our previous version in every way.", "expected": [], "definite": []}
+{"text": "Our doctors review every dashboard before it ships.", "expected": [], "definite": []}
+{"text": "An award-winning team, according to the 2025 Design Awards.", "expected": [], "definite": []}
+{"text": "A free plan for classrooms, no payment required.", "expected": [], "definite": []}
+{"text": "Win a prize? See full terms at example.com/terms.", "expected": [], "definite": []}

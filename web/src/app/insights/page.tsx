@@ -13,6 +13,8 @@ type Insights = {
   statuses: { status: string; c: number }[];
   possibly_unclear_rules: { id: string; statement: string; vague_flag: string }[];
   ai_calls: { task: string; provider: string; model: string; c: number; ok: number }[];
+  missing_facts?: { span_text: string; occurrences: number; sample_title: string; sample_id: string }[];
+  tier_calibration?: { tier: string; total: number; disputed: number; accepted: number; open: number; dispute_rate: number; needs_recalibration: boolean }[];
 };
 
 type ExpiryAlert = {
@@ -101,6 +103,46 @@ export default function InsightsPage() {
               <Row key={c.category} left={c.category.replace(/_/g, " ")} right={String(c.c)} />
             ))}
           </Card>
+
+          {ins.missing_facts && ins.missing_facts.length > 0 && (
+            <Card title="Clarity dashboard: claims missing a fact">
+              <p className="mb-2 text-xs text-muted-foreground">
+                These phrases recur without an approved fact behind them. One well-written fact can clear every occurrence
+                — a suggestion for the brand owner, never an auto-authored fact.
+              </p>
+              {ins.missing_facts.map((m) => (
+                <div key={m.span_text + m.sample_id} className="border-b border-border py-2.5 last:border-0 text-sm">
+                  <p className="font-serif italic">“{m.span_text}”</p>
+                  <p className="text-xs text-muted-foreground">
+                    {m.occurrences} submission{m.occurrences === 1 ? "" : "s"} · e.g.{" "}
+                    <Link href={`/submissions/${m.sample_id}`} className="link">{m.sample_title}</Link>{" "}
+                    · <Link href="/kb" className="link">add or link a fact</Link>
+                  </p>
+                </div>
+              ))}
+            </Card>
+          )}
+
+          {ins.tier_calibration && ins.tier_calibration.length > 0 && (
+            <Card title="Tier calibration">
+              <p className="mb-2 text-xs text-muted-foreground">
+                Human disputes by tier. A Definite tier above a 10% dispute rate needs re-calibration before it is trusted.
+              </p>
+              {ins.tier_calibration.map((t) => (
+                <div key={t.tier} className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border py-2 last:border-0 text-sm">
+                  <span className="font-medium capitalize">{t.tier}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {t.total} findings · {t.disputed} disputed · {(t.dispute_rate * 100).toFixed(1)}% dispute rate
+                  </span>
+                  {t.needs_recalibration && (
+                    <span className="rounded-full bg-warning-bg px-2 py-0.5 text-[11px] font-semibold text-warning-fg">
+                      needs re-calibration
+                    </span>
+                  )}
+                </div>
+              ))}
+            </Card>
+          )}
 
           <Card title="Disputes & overrides (latest 20)">
             {ins.dispute_overrides.map((o, i) => (

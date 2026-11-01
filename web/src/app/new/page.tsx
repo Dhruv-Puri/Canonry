@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { ShieldCheck } from "lucide-react";
+import { FileUp, PenLine, ShieldCheck } from "lucide-react";
 import { api } from "@/lib/api";
 import { AiLoadingScreen } from "@/components/ai-loading";
 import { useIdentity } from "@/components/identity";
@@ -26,6 +26,38 @@ export default function NewSubmissionPage() {
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<"text" | "file">("text");
+  const [file, setFile] = useState<File | null>(null);
+  const [altText, setAltText] = useState("");
+  const [uploading, setUploading] = useState(false);
+
+  async function upload() {
+    if (!file) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const qs = new URLSearchParams({
+        title: title.trim() || file.name,
+        channel,
+        source_type: isAgency ? "agency" : source,
+        filename: file.name,
+        alt_text: altText,
+      });
+      const res = await fetch(`/engine/submissions/upload?${qs.toString()}`, {
+        method: "POST",
+        body: file,
+        credentials: "same-origin",
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+      });
+      const text = await res.text();
+      const data = text ? (JSON.parse(text) as { submission_id?: string; detail?: string }) : {};
+      if (!res.ok) throw new Error(typeof data.detail === "string" ? data.detail : `Upload failed (${res.status}).`);
+      router.push(`/submissions/${data.submission_id}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setUploading(false);
+    }
+  }
 
   async function submit() {
     setBusy(true);
@@ -73,6 +105,27 @@ export default function NewSubmissionPage() {
       </div>
 
       <div className="surface space-y-4 p-6">
+        <div className="flex flex-wrap gap-1 rounded-full border border-border bg-muted/50 p-1 w-fit" role="tablist" aria-label="What are you submitting?">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === "text"}
+            onClick={() => { setMode("text"); setError(null); }}
+            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium ${mode === "text" ? "bg-card text-foreground shadow-card" : "text-muted-foreground"}`}
+          >
+            <PenLine className="size-3.5" aria-hidden /> Text
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === "file"}
+            onClick={() => { setMode("file"); setError(null); }}
+            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium ${mode === "file" ? "bg-card text-foreground shadow-card" : "text-muted-foreground"}`}
+          >
+            <FileUp className="size-3.5" aria-hidden /> PDF, Word or image
+          </button>
+        </div>
+
         <div className="grid gap-3 sm:grid-cols-3">
           <Field label="Title">
             <input
@@ -111,30 +164,67 @@ export default function NewSubmissionPage() {
           </Field>
         </div>
 
-        <Field label="Content">
-          <textarea
-            rows={7}
-            className="field p-3 font-serif text-base leading-relaxed"
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-          />
-        </Field>
+        {mode === "text" ? (
+          <>
+            <Field label="Content">
+              <textarea
+                rows={7}
+                className="field p-3 font-serif text-base leading-relaxed"
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+              />
+            </Field>
 
-        <div className="flex items-center justify-between">
-          <button
-            onClick={() => setContent(SAMPLE_POST)}
-            className="link text-xs"
-          >
-            Use a clean sample post instead
-          </button>
-          <button
-            onClick={() => void submit()}
-            disabled={busy || !content.trim() || !title.trim()}
-            className="btn btn-primary"
-          >
-            {busy ? "Checking…" : <>Submit for check <span aria-hidden className="btn-arrow">→</span></>}
-          </button>
-        </div>
+            <div className="flex items-center justify-between">
+              <button
+                onClick={() => setContent(SAMPLE_POST)}
+                className="link text-xs"
+              >
+                Use a clean sample post instead
+              </button>
+              <button
+                onClick={() => void submit()}
+                disabled={busy || !content.trim() || !title.trim()}
+                className="btn btn-primary"
+              >
+                {busy ? "Checking…" : <>Submit for check <span aria-hidden className="btn-arrow">→</span></>}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <Field label="File (PDF, DOCX, PNG or JPEG · 10 MB)">
+              <input
+                type="file"
+                accept=".pdf,.docx,.png,.jpg,.jpeg,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/png,image/jpeg"
+                className="field p-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-2 file:py-1 file:text-xs file:font-medium"
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              />
+            </Field>
+            <Field label="Alt text (for an image; findings check it)">
+              <input
+                className="field h-[38px] px-3"
+                value={altText}
+                onChange={(e) => setAltText(e.target.value)}
+                placeholder="Describe what a person who cannot see the image needs to know"
+              />
+            </Field>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              PDFs report the page and line of each finding; Word reports the section and paragraph. Scanned PDFs
+              without a text layer are refused rather than guessed at. An uploaded file is a snapshot: fix the source
+              file and upload a corrected copy.
+            </p>
+            <div className="flex justify-end">
+              <button
+                onClick={() => void upload()}
+                disabled={uploading || !file || !title.trim()}
+                className="btn btn-primary"
+              >
+                {uploading ? "Uploading…" : <>Upload and check <span aria-hidden className="btn-arrow">→</span></>}
+              </button>
+            </div>
+          </>
+        )}
         {error && <p className="text-sm text-danger-fg" role="alert">{error}</p>}
       </div>
 
@@ -144,7 +234,7 @@ export default function NewSubmissionPage() {
         finding → fix → review → approve loop in one pass.
       </p>
 
-      <AiLoadingScreen open={busy} title="Checking your submission" />
+      <AiLoadingScreen open={busy || uploading} title={mode === "file" ? "Reading and checking your file" : "Checking your submission"} />
     </div>
   );
 }
