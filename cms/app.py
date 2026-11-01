@@ -202,6 +202,7 @@ def layout(title: str, content: str, refresh: bool = False) -> str:
   ol {{ padding-left:20px; }} li {{ margin:4px 0; }}
   table {{ width:100%; border-collapse:collapse; margin-top:16px; font-size:14px; }}
   th, td {{ text-align:left; padding:10px 6px; border-bottom:1px solid var(--line); vertical-align:top; overflow-wrap:anywhere; }}
+  td code {{ white-space:nowrap; }}
   .pill {{ display:inline-block; border-radius:999px; padding:2px 9px; background:var(--sand); font-size:12px; white-space:nowrap; }}
   .published {{ background:#D1FAE5; color:#065F46; }}
   .held {{ background:#FEF3C7; color:#92400E; }}
@@ -429,7 +430,7 @@ async def canonry_webhook(req: Request):
         post = conn.execute("SELECT * FROM posts WHERE submission_id = ?", (data.get("submission_id"),)).fetchone()
     finally:
         conn.close()
-    outcome, detail, changes = "ignored", "No post here matches this submission.", {}
+    outcome, detail, changes = "ignored", "No post here is linked to this submission (yet).", {}
     if post and post["status"] == "published":
         outcome, detail = "ignored", "Already published."
     elif post and event == "checked":

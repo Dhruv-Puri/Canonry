@@ -30,6 +30,35 @@ type Packs = {
 
 const EVENTS = ["checked", "approved", "signed"] as const;
 
+function when(iso: string | null) {
+  return iso ? `${iso.slice(0, 16).replace("T", " ")} UTC` : "never";
+}
+
+/** A key or secret shown once: copy it (with feedback), then hide it for good. */
+function ShownOnce({ label, value, onDone }: { label: string; value: string; onDone: () => void }) {
+  const [copied, setCopied] = useState<"yes" | "no" | null>(null);
+  return (
+    <div className="mt-3 rounded-xl border border-warning-border bg-warning-bg p-3" role="status">
+      <p className="text-xs font-semibold text-warning-fg">{label}</p>
+      <code className="mt-2 block break-all rounded-md bg-card px-2 py-1.5 font-mono text-xs">{value}</code>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          className="btn btn-sm btn-secondary"
+          onClick={() =>
+            navigator.clipboard.writeText(value).then(() => setCopied("yes"), () => setCopied("no"))
+          }
+        >
+          {copied === "yes" ? <Check className="size-3.5" aria-hidden /> : <Copy className="size-3.5" aria-hidden />}
+          {copied === "yes" ? "Copied" : "Copy"}
+        </button>
+        <button type="button" className="btn btn-sm btn-ghost" onClick={onDone}>I have saved it — hide</button>
+        {copied === "no" && <span className="text-xs text-warning-fg">Copy did not work here; select the text and copy it by hand.</span>}
+      </div>
+    </div>
+  );
+}
+
 export default function ApiSettingsPage() {
   const { me } = useIdentity();
   const isAdmin = me?.role === "admin";
@@ -40,13 +69,12 @@ export default function ApiSettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [keyName, setKeyName] = useState("Demo CMS");
+  const [keyName, setKeyName] = useState("");
   const [keyScopes, setKeyScopes] = useState<string[]>(["check", "read"]);
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [createdSecret, setCreatedSecret] = useState<string | null>(null);
-  const [hookUrl, setHookUrl] = useState("https://canonry-cms.onrender.com/webhooks/canonry");
+  const [hookUrl, setHookUrl] = useState("");
   const [hookEvents, setHookEvents] = useState<string[]>([...EVENTS]);
-  const [hookDescription, setHookDescription] = useState("Demo CMS publisher");
 
   const load = useCallback(async () => {
     if (!isAdmin) return;
@@ -62,13 +90,21 @@ export default function ApiSettingsPage() {
       setDeliveries(d.deliveries);
       setPacks(p);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(`Could not load the API settings: ${err instanceof Error ? err.message : String(err)}`);
     }
   }, [isAdmin]);
 
   useEffect(() => { void load(); }, [load]);
 
-  async function run(fn: () => Promise<void>) {
+  // the demo publisher is mounted only in demo mode
+  const [publisherUp, setPublisherUp] = useState(false);
+  useEffect(() => {
+    if (!isAdmin) return;
+    api<{ ok: boolean }>("/cms/healthz").then((r) => setPublisherUp(Boolean(r.ok)), () => setPublisherUp(false));
+  }, [isAdmin]);
+
+  async function run(fn: () => Promise<void>, confirmText?: string) {
+    if (confirmText && !window.confirm(confirmText)) return;
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -112,11 +148,25 @@ export default function ApiSettingsPage() {
             shown once; the database keeps only a hash.
           </p>
         </div>
-        <button onClick={() => void run(async () => { await api("/webhooks/flush", { method: "POST" }); setNotice("Outbox flushed."); })}
+        <button onClick={() => void run(async () => {
+            const r = await api<{ attempted: number; delivered: number }>("/webhooks/flush", { method: "POST" });
+            setNotice(r.attempted ? `Sent ${r.attempted} waiting deliver${r.attempted === 1 ? "y" : "ies"}; ${r.delivered} delivered.` : "Nothing was waiting to be sent.");
+          })}
           disabled={busy} className="btn btn-secondary">
-          <RefreshCw className={`size-4 ${busy ? "animate-spin" : ""}`} aria-hidden /> Flush outbox
+          <RefreshCw className={`size-4 ${busy ? "animate-spin" : ""}`} aria-hidden /> Send waiting webhooks now
         </button>
       </div>
+
+      {publisherUp && <section className="surface flex flex-wrap items-center gap-3 p-5">
+        <div className="min-w-0 flex-1">
+          <p className="font-medium">Try the publishing gate</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            The demo publisher sends a post to Canonry through this API and publishes it only after the signed webhook
+            for its approval arrives. Its key and endpoint below are named <em>Demo publisher</em>.
+          </p>
+        </div>
+        <a href="/engine/cms" target="_blank" rel="noreferrer" className="btn btn-primary">Open the demo publisher</a>
+      </section>}
 
       {error && <p role="alert" className="rounded-xl border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger-fg">{error}</p>}
       {notice && <p role="status" className="rounded-xl border border-success-border bg-success-bg px-3 py-2 text-sm text-success-fg">{notice}</p>}
@@ -138,13 +188,14 @@ export default function ApiSettingsPage() {
               void run(async () => {
                 const r = await api<{ key: string }>("/api-keys", { method: "POST", json: { name: keyName, scopes: keyScopes } });
                 setCreatedKey(r.key);
-                setKeyName("Demo CMS");
+                setKeyName("");
               });
             }}
           >
             <label className="min-w-40 flex-1 text-xs font-medium text-foreground-secondary">
               Key name
-              <input className="field mt-1 h-9 px-3" value={keyName} onChange={(e) => setKeyName(e.target.value)} required />
+              <input className="field mt-1 h-9 px-3" value={keyName} maxLength={80} placeholder="e.g. Website CMS"
+                onChange={(e) => setKeyName(e.target.value)} required />
             </label>
             <div className="flex flex-wrap gap-2 pb-1">
               {["check", "read", "admin"].map((scope) => (
@@ -158,24 +209,18 @@ export default function ApiSettingsPage() {
                 </label>
               ))}
             </div>
-            <button className="btn btn-primary btn-sm" disabled={busy || !keyName.trim()}>Create key</button>
+            <button className="btn btn-primary btn-sm" disabled={busy || !keyName.trim() || keyScopes.length === 0}>Create key</button>
           </form>
+          {keyScopes.length === 0 && <p className="mt-2 text-xs text-warning-fg">Choose at least one scope.</p>}
 
           {createdKey && (
-            <div className="mt-3 rounded-xl border border-warning-border bg-warning-bg p-3">
-              <p className="text-xs font-semibold text-warning-fg">Copy this key now — it will not be shown again.</p>
-              <div className="mt-2 flex items-center gap-2">
-                <code className="min-w-0 flex-1 break-all rounded-md bg-card px-2 py-1.5 font-mono text-xs">{createdKey}</code>
-                <button className="btn btn-sm btn-secondary" onClick={() => void navigator.clipboard.writeText(createdKey)}>
-                  <Copy className="size-3.5" aria-hidden /> Copy
-                </button>
-              </div>
-            </div>
+            <ShownOnce label="Copy this key now. Canonry keeps only its hash, so it cannot show it again."
+              value={createdKey} onDone={() => setCreatedKey(null)} />
           )}
 
           <ul className="mt-4 divide-y divide-border text-sm">
             {keys.map((k) => (
-              <li key={k.id} className="flex flex-wrap items-center gap-2 py-2.5">
+              <li key={k.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 py-2.5">
                 <span className="font-medium">{k.name}</span>
                 <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px]">{k.prefix}…</code>
                 <span className="text-xs text-muted-foreground">{k.scopes.join(" · ")}</span>
@@ -184,15 +229,25 @@ export default function ApiSettingsPage() {
                 ) : (
                   <button
                     className="btn btn-ghost btn-sm ml-auto"
-                    onClick={() => void run(async () => { await api(`/api-keys/${k.id}/revoke`, { method: "POST" }); })}
+                    onClick={() => void run(async () => {
+                      await api(`/api-keys/${k.id}/revoke`, { method: "POST" });
+                      setNotice(`Key “${k.name}” is revoked. Requests with it now get 401.`);
+                    }, `Revoke “${k.name}”? Anything using this key stops working at once. This cannot be undone.`)}
                     disabled={busy}
                   >
                     Revoke
                   </button>
                 )}
+                <span className="basis-full text-[11px] text-muted-foreground">
+                  created {when(k.created_at)} · last used {when(k.last_used_at)}
+                </span>
               </li>
             ))}
-            {keys.length === 0 && <li className="py-3 text-sm text-muted-foreground">No keys yet.</li>}
+            {keys.length === 0 && (
+              <li className="py-3 text-sm text-muted-foreground">
+                No keys yet. Create one to let a CMS or script send content to Canonry.
+              </li>
+            )}
           </ul>
         </section>
 
@@ -202,8 +257,8 @@ export default function ApiSettingsPage() {
             <h2 className="section-title">Webhook endpoints</h2>
           </div>
           <p className="mt-2 text-sm text-muted-foreground">
-            Each delivery is signed: <code>X-Canonry-Signature: sha256=HMAC(timestamp.body)</code>. Retries continue
-            with backoff from the durable outbox.
+            Each delivery is signed: <code className="break-all">X-Canonry-Signature: sha256=HMAC(secret, timestamp + &quot;.&quot; + body)</code>.
+            A failed delivery is retried after 30 s, 2 min, 10 min, 30 min, 1 h, 2 h and 6 h, then marked failed.
           </p>
           <form
             className="mt-4 space-y-2"
@@ -212,15 +267,20 @@ export default function ApiSettingsPage() {
               void run(async () => {
                 const r = await api<{ secret: string }>("/webhook-endpoints", {
                   method: "POST",
-                  json: { url: hookUrl, events: hookEvents, description: hookDescription },
+                  json: { url: hookUrl, events: hookEvents },
                 });
                 setCreatedSecret(r.secret);
+                setHookUrl("");
               });
             }}
           >
             <label className="block text-xs font-medium text-foreground-secondary">
               HTTPS endpoint
-              <input className="field mt-1 h-9 px-3" type="url" value={hookUrl} onChange={(e) => setHookUrl(e.target.value)} required />
+              <input className="field mt-1 h-9 px-3" type="url" value={hookUrl} placeholder="https://cms.example.com/webhooks/canonry"
+                onChange={(e) => setHookUrl(e.target.value)} required />
+              <span className="mt-1 block font-normal text-muted-foreground">
+                Public HTTPS only: addresses inside a private network are refused.
+              </span>
             </label>
             <div className="flex flex-wrap gap-3 pt-1">
               {EVENTS.map((event) => (
@@ -234,24 +294,18 @@ export default function ApiSettingsPage() {
                 </label>
               ))}
             </div>
-            <button className="btn btn-primary btn-sm" disabled={busy || hookEvents.length === 0}>Add endpoint</button>
+            <button className="btn btn-primary btn-sm" disabled={busy || hookEvents.length === 0 || !hookUrl.trim()}>Add endpoint</button>
           </form>
 
           {createdSecret && (
-            <div className="mt-3 rounded-xl border border-warning-border bg-warning-bg p-3">
-              <p className="text-xs font-semibold text-warning-fg">Signing secret — copy it now, then set it on the receiver.</p>
-              <div className="mt-2 flex items-center gap-2">
-                <code className="min-w-0 flex-1 break-all rounded-md bg-card px-2 py-1.5 font-mono text-xs">{createdSecret}</code>
-                <button className="btn btn-sm btn-secondary" onClick={() => void navigator.clipboard.writeText(createdSecret)}>
-                  <Copy className="size-3.5" aria-hidden /> Copy
-                </button>
-              </div>
-            </div>
+            <ShownOnce label="Signing secret: copy it now and set it on the receiver. It is not shown again."
+              value={createdSecret} onDone={() => setCreatedSecret(null)} />
           )}
 
           <ul className="mt-4 divide-y divide-border text-sm">
             {endpoints.map((e) => (
               <li key={e.id} className="py-3">
+                {e.description && <p className="text-xs font-medium">{e.description}</p>}
                 <div className="flex flex-wrap items-center gap-2">
                   <code className="min-w-0 flex-1 break-all text-xs">{e.url}</code>
                   <span className={`rounded-full px-2 py-0.5 text-[11px] ${e.active ? "bg-success-bg text-success-fg" : "bg-muted text-muted-foreground"}`}>
@@ -268,7 +322,7 @@ export default function ApiSettingsPage() {
                     onClick={() => void run(async () => {
                       const r = await api<{ secret: string }>(`/webhook-endpoints/${e.id}/rotate`, { method: "POST" });
                       setCreatedSecret(r.secret);
-                    })}
+                    }, "Rotate the signing secret? The old secret stops working at once, so update the receiver straight away.")}
                   >
                     Rotate secret
                   </button>
@@ -276,7 +330,10 @@ export default function ApiSettingsPage() {
                     <button
                       className="btn btn-ghost btn-sm"
                       disabled={busy}
-                      onClick={() => void run(async () => { await api(`/webhook-endpoints/${e.id}/disable`, { method: "POST" }); })}
+                      onClick={() => void run(async () => {
+                        await api(`/webhook-endpoints/${e.id}/disable`, { method: "POST" });
+                        setNotice("Endpoint disabled. It receives no further events.");
+                      }, "Disable this endpoint? It stops receiving events and cannot be turned back on (add it again instead).")}
                     >
                       Disable
                     </button>
@@ -284,7 +341,11 @@ export default function ApiSettingsPage() {
                 </div>
               </li>
             ))}
-            {endpoints.length === 0 && <li className="py-3 text-sm text-muted-foreground">No endpoints yet.</li>}
+            {endpoints.length === 0 && (
+              <li className="py-3 text-sm text-muted-foreground">
+                No endpoints yet. Add one to be told when content is checked, approved and signed.
+              </li>
+            )}
           </ul>
         </section>
       </div>
@@ -350,6 +411,20 @@ export default function ApiSettingsPage() {
                 </div>
                 <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{p.source}</p>
                 <p className="mt-2 text-xs text-foreground-secondary">{p.clauses} active clauses · retrieval {packs.retrieval.model}</p>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span className="text-xs">{p.workspace_active ? "On: every check cites these clauses." : "Off: these clauses are not checked."}</span>
+                  <button
+                    className="btn btn-secondary btn-sm ml-auto"
+                    disabled={busy}
+                    onClick={() => void run(async () => {
+                      const next = await api<Packs>(`/compliance/packs/${p.id}`, { method: "POST", json: { active: !p.workspace_active } });
+                      setPacks(next);
+                      setNotice(p.workspace_active ? `${p.name} is off for new checks.` : `${p.name} is on for new checks.`);
+                    })}
+                  >
+                    {p.workspace_active ? "Switch off" : "Switch on"}
+                  </button>
+                </div>
               </div>
             ))}
             {packs.packs.length === 0 && <p className="text-sm text-muted-foreground">No packs installed.</p>}
