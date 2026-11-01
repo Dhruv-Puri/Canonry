@@ -23,6 +23,8 @@ RUN pip install --no-cache-dir -r /app/engine/requirements.txt
 
 COPY engine /app/engine
 COPY data /app/data
+# the demo publisher, mounted at /cms in demo mode (same dependencies)
+COPY cms /app/cms
 
 # Generated at first boot; the seed data lives outside the image in /app/data.
 ENV CANONRY_DB_PATH=/app/db/canonry.db \

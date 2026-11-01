@@ -215,8 +215,10 @@ async function request<T>(path: string, init?: RequestInit & { json?: unknown })
   const data = text ? safeJson(text) : null;
   if (!res.ok) {
     const d = (data ?? {}) as { detail?: unknown; message?: unknown };
+    const nested = d.detail && typeof d.detail === "object" ? (d.detail as { message?: unknown }).message : undefined;
     const msg =
       typeof d.detail === "string" ? d.detail :
+      typeof nested === "string" ? nested :
       typeof d.message === "string" ? d.message :
       `Engine error ${res.status}`;
     throw new ApiError(res.status, msg);

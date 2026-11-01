@@ -19,6 +19,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 def main() -> None:
     os.environ.setdefault("CANONRY_DEMO_MODE", "true")
     port = int(os.environ.get("PORT", "8000"))
+    # the demo publisher at http://127.0.0.1:<port>/cms receives this engine's
+    # signed webhooks over loopback, which only local development may use
+    os.environ.setdefault("CANONRY_PUBLIC_ENGINE_URL", f"http://127.0.0.1:{port}")
+    os.environ.setdefault("CANONRY_WEBHOOK_ALLOW_LOCAL", "true")
     print(f"Canonry engine (demo mode={os.environ['CANONRY_DEMO_MODE']}) on http://127.0.0.1:{port}")
     uvicorn.run("main:app", host="127.0.0.1", port=port, reload=True, app_dir=HERE, reload_dirs=[HERE])
 
