@@ -2110,7 +2110,30 @@ def get_asset_file(req: Request, asset_id: str):
 def compliance_packs(req: Request):
     conn = connect()
     try:
+        _user(req, conn)
+        return compliance.pack_overview(conn, _ws(conn))
+    finally:
+        conn.close()
+
+
+class PackSwitchIn(BaseModel):
+    active: bool
+
+
+@app.post("/compliance/packs/{pack_id}")
+def compliance_pack_switch(req: Request, pack_id: str, body: PackSwitchIn):
+    _require_same_origin(req)
+    conn = connect()
+    try:
         user = _user(req, conn)
+        if user["role"] != "admin":
+            raise HTTPException(403, "Only a workspace administrator can switch compliance packs.")
+        try:
+            compliance.set_pack_active(conn, _ws(conn), pack_id, body.active, user["email"])
+        except KeyError as exc:
+            raise HTTPException(404, "That compliance pack is not installed.") from exc
+        audit(conn, user["email"], "pack_enable" if body.active else "pack_disable", pack_id)
+        conn.commit()
         return compliance.pack_overview(conn, _ws(conn))
     finally:
         conn.close()
