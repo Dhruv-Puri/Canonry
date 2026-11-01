@@ -57,7 +57,10 @@ ROLES = ("creator", "reviewer", "agency", "admin")
 DEMO_MODE = os.environ.get("CANONRY_DEMO_MODE", "false").strip().lower() in ("1", "true", "yes")
 COOKIE_SECURE = os.environ.get("CANONRY_COOKIE_SECURE", "").strip().lower() in ("1", "true", "yes") if DEMO_MODE else os.environ.get("CANONRY_COOKIE_SECURE", "true").strip().lower() in ("1", "true", "yes")
 APP_ORIGINS = {origin.strip().rstrip("/").lower() for origin in os.environ.get("CANONRY_APP_ORIGINS", "http://localhost:3000").split(",") if origin.strip()}
-PUBLIC_WEB_URL = (os.environ.get("CANONRY_PUBLIC_WEB_URL") or "http://localhost:3000").rstrip("/")
+# where /verify links point: the web app; by default the first allowed web origin
+PUBLIC_WEB_URL = (os.environ.get("CANONRY_PUBLIC_WEB_URL")
+                  or (os.environ.get("CANONRY_APP_ORIGINS") or "").split(",")[0].strip()
+                  or "http://localhost:3000").rstrip("/")
 INVITE_TTL_HOURS = 72
 
 
@@ -116,7 +119,85 @@ def _startup() -> None:
         _seed_demo_submission()
     _ensure_integration_endpoint()
     _ensure_demo_api_key()
+    _start_publisher_demo()
     _flush_outbox_on_boot()
+
+
+PUBLISHER_NAME = "Demo publisher"
+
+
+def _publisher_enabled() -> bool:
+    setting = (os.environ.get("CANONRY_PUBLISHER_DEMO") or "").strip().lower()
+    return setting in ("1", "true", "yes") if setting else DEMO_MODE
+
+
+def _start_publisher_demo() -> None:
+    """Mount the demo publisher (cms/app.py) at /cms on this engine, with its own
+    API key and a signed webhook endpoint pointing back at this engine. One
+    deployment, no extra service: the publisher still talks to Canonry only
+    through the public API and verifies every webhook signature."""
+    if not _publisher_enabled() or getattr(app.state, "publisher", None):
+        return
+    import importlib.util
+    import httpx
+
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "cms", "app.py")
+    if not os.path.exists(path):
+        return
+    spec = importlib.util.spec_from_file_location("canonry_demo_publisher", path)
+    cms = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cms)  # type: ignore[union-attr]
+
+    # the engine's own public address, for the webhook it sends to the publisher
+    public = (os.environ.get("CANONRY_PUBLIC_ENGINE_URL") or os.environ.get("RENDER_EXTERNAL_URL") or "").rstrip("/")
+    hook_url = f"{public}/cms/webhooks/canonry" if public else ""
+    conn = connect(service=True)
+    try:
+        ws = _ws(conn)
+        # a fresh key each boot (only its hash is stored); earlier ones are revoked
+        conn.execute("UPDATE api_keys SET revoked_at = ? WHERE workspace_id = ? AND name = ? "
+                     "AND created_by = 'system' AND revoked_at IS NULL", (_now(), ws, PUBLISHER_NAME))
+        raw_key = api.create_key(conn, ws, PUBLISHER_NAME, ["check", "read"], "system")["key"]
+        endpoint_id, note = None, ""
+        if hook_url:
+            # an endpoint left from an earlier address stops receiving
+            conn.execute("UPDATE webhook_endpoints SET active = 0 WHERE workspace_id = ? AND description = ? "
+                         "AND created_by = 'system' AND url <> ?", (ws, PUBLISHER_NAME, hook_url))
+            row = conn.execute("SELECT id FROM webhook_endpoints WHERE workspace_id = ? AND url = ?",
+                               (ws, hook_url)).fetchone()
+            if row:
+                endpoint_id = row["id"]
+            else:
+                try:
+                    endpoint_id = webhooks.create_endpoint(conn, ws, hook_url, webhooks.EVENTS,
+                                                           PUBLISHER_NAME, "system")["id"]
+                except ValueError as exc:
+                    note = f"Canonry cannot send webhooks to {hook_url}: {exc}"
+        else:
+            note = ("Canonry does not know its own public address, so it cannot send this publisher its "
+                    "webhooks. Set CANONRY_PUBLIC_ENGINE_URL (engine/run_local.py does this for you).")
+        conn.commit()
+    finally:
+        conn.close()
+
+    def secret() -> str:
+        # read on every webhook, so "Rotate secret" in Canonry keeps working
+        if not endpoint_id:
+            return ""
+        c = connect(service=True)
+        try:
+            row = c.execute("SELECT secret_salt FROM webhook_endpoints WHERE id = ?", (endpoint_id,)).fetchone()
+            return row["secret_salt"] if row else ""
+        finally:
+            c.close()
+
+    cms.configure(api_key=raw_key, webhook_secret=secret,
+                  db_path=os.path.join(os.path.dirname(os.path.abspath(dbmod.DB_PATH)), "cms.db"),
+                  canonry_url=PUBLIC_WEB_URL, transport=httpx.ASGITransport(app=app),
+                  webhooks_ready=bool(endpoint_id), note=note)
+    app.state.publisher = cms
+    app.add_api_route("/cms", lambda: cms.render_home("cms/"), methods=["GET"], include_in_schema=False)
+    app.mount("/cms", cms.app)
 
 
 def _ensure_integration_endpoint() -> None:
@@ -1462,20 +1543,26 @@ def submit_review(req: Request, sid: str):
     try:
         user = _user(req, conn)
         _visible_sub(conn, user, sid, "submit")
-        risk = compute_risk(conn, sid)
-        status = "Exempt-approved" if risk["risk"] == "exempt" else "In review"
-        conn.execute("UPDATE submissions SET status=?, risk=?, router_note=? WHERE id=?",
-                     (status, risk["risk"], risk["note"], sid))
-        if risk["risk"] == "exempt":
-            conn.execute(
-                "INSERT INTO approvals (id, submission_id, action, reason, reviewer, at) VALUES (?,?,?,?,?,?)",
-                (gen_id("app"), sid, "exempt_approve", risk["note"], "exemption-policy:" + user["email"], _now()),
-            )
-        audit(conn, user["email"], "submit_review", f"{sid} risk={risk['risk']}")
+        result = _send_to_review(conn, sid, user["email"])
         conn.commit()
-        return {"status": status, **risk}
+        return result
     finally:
         conn.close()
+
+
+def _send_to_review(conn, sid: str, actor: str) -> Dict[str, Any]:
+    """Route a checked item into review (or the exemption lane). Caller commits."""
+    risk = compute_risk(conn, sid)
+    status = "Exempt-approved" if risk["risk"] == "exempt" else "In review"
+    conn.execute("UPDATE submissions SET status=?, risk=?, router_note=? WHERE id=?",
+                 (status, risk["risk"], risk["note"], sid))
+    if risk["risk"] == "exempt":
+        conn.execute(
+            "INSERT INTO approvals (id, submission_id, action, reason, reviewer, at) VALUES (?,?,?,?,?,?)",
+            (gen_id("app"), sid, "exempt_approve", risk["note"], "exemption-policy:" + actor, _now()),
+        )
+    audit(conn, actor, "submit_review", f"{sid} risk={risk['risk']}")
+    return {"status": status, **risk}
 
 
 @app.post("/submissions/{sid}/review")
@@ -1717,7 +1804,9 @@ def _api_submission(conn, sub) -> Dict[str, Any]:
         "id": sid, "title": sub["title"], "channel": sub["channel"],
         "source_type": sub["source_type"], "status": sub["status"], "risk": sub["risk"],
         "created_at": sub["created_at"],
-        "latest_revision": {k: rev[k] for k in ("id", "revision_no", "created_at", "source_kind", "asset_id")} if rev else None,
+        # `content` is the text that was checked (for a file, its extracted text);
+        # once signed it is the approved text, whose SHA-256 is poc.content_sha256
+        "latest_revision": {k: rev[k] for k in ("id", "revision_no", "created_at", "source_kind", "asset_id", "content")} if rev else None,
         "findings": findings,
         "approvals": approvals,
         "poc": ({"id": poc["id"], "content_sha256": poc["content_sha256"], "content_kind": poc["content_kind"],
@@ -1734,6 +1823,9 @@ class ApiCheckIn(BaseModel):
     channel: str
     source_type: str = "in-house"
     content: str = Field(max_length=200_000)
+    # true: after the check, route it straight into the review queue (a CMS
+    # that holds a post until a reviewer signs it)
+    submit_for_review: bool = False
 
 
 @app.post("/api/v1/checks")
@@ -1766,8 +1858,11 @@ def api_check(req: Request, body: ApiCheckIn):
             )
             audit(conn, "api:" + key["name"], "api_check", f"{sid}: {body.title}")
             result = run_check_for_submission(conn, sid, body.content, None)
+            status = "Checked"
+            if body.submit_for_review:
+                status = _send_to_review(conn, sid, "api:" + key["name"])["status"]
             response = {
-                "submission_id": sid, "revision_id": result["revision_id"], "status": "Checked",
+                "submission_id": sid, "revision_id": result["revision_id"], "status": status,
                 "contract_version": contract.CONTRACT_VERSION,
                 "findings": result.get("findings", []), "discarded": result.get("discarded", 0),
                 "ai_pending": result.get("ai_pending", False), "ai_reason": result.get("ai_reason"),

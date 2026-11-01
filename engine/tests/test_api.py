@@ -168,7 +168,7 @@ import api as api_mod  # noqa: E402
 
 with connect() as c:
     ws_id = c.execute("SELECT id FROM workspaces LIMIT 1").fetchone()["id"]
-    payload = {**GOOD, "title": "slow", "source_type": "in-house"}
+    payload = {**GOOD, "title": "slow", "source_type": "in-house", "submit_for_review": False}
     api_mod.claim_idempotent(c, ws_id, "slow-0001", "POST /api/v1/checks", api_mod.request_hash(payload))
 r = anon.post("/api/v1/checks", json=payload, headers={**auth(full_key), "Idempotency-Key": "slow-0001"})
 expect(r.status_code == 409 and detail(r).get("code") == "idempotency_in_progress",
