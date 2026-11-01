@@ -128,7 +128,35 @@ def _docx_paragraphs(data: bytes) -> List[Dict[str, Any]]:
     return paragraphs
 
 
+MAX_DOCX_INFLATED = 60 * 1024 * 1024   # every part of the package together, uncompressed
+MAX_DOCX_RATIO = 100                   # a part that inflates more than this is a zip bomb
+
+
+def check_package(data: bytes) -> None:
+    """Refuse a .docx that would exhaust memory when fixed or stamped later, or
+    that lacks the parts every Word file has."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            infos = archive.infolist()
+            names = {i.filename for i in infos}
+            total = 0
+            for info in infos:
+                total += info.file_size
+                if info.file_size > 1024 * 1024 and info.file_size / max(info.compress_size, 1) > MAX_DOCX_RATIO:
+                    raise DocumentError("This Word file has an unsafe compression ratio.", 413)
+            if total > MAX_DOCX_INFLATED:
+                raise DocumentError("This Word file is too large once unpacked (over 60 MB).", 413)
+            if "[Content_Types].xml" not in names or "word/document.xml" not in names:
+                raise DocumentError("This is not a complete Word document. Save it again from Word and retry.")
+            ElementTree.fromstring(archive.read("[Content_Types].xml"))
+    except DocumentError:
+        raise
+    except (zipfile.BadZipFile, RuntimeError, ElementTree.ParseError, KeyError) as exc:
+        raise DocumentError("This file is not a readable DOCX document.") from exc
+
+
 def _docx(data: bytes) -> Extracted:
+    check_package(data)
     paragraphs = _docx_paragraphs(data)
     if not paragraphs:
         raise DocumentError("This DOCX contains no readable paragraphs.")
@@ -280,6 +308,16 @@ def docx_with_text(data: bytes, content: str) -> bytes:
     fixed revision). Paragraph count must not change; text boxes are not edited."""
     from lxml import etree
 
+    check_package(data)
+    try:
+        return _docx_with_text(etree, data, content)
+    except DocumentError:
+        raise
+    except (etree.XMLSyntaxError, KeyError, zipfile.BadZipFile, ValueError) as exc:
+        raise DocumentError("This Word file could not be edited. Fix it in Word and upload it again.", 409) from exc
+
+
+def _docx_with_text(etree, data: bytes, content: str) -> bytes:
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
         xml = archive.read("word/document.xml")
         parser = etree.XMLParser(resolve_entities=False, no_network=True, huge_tree=False)

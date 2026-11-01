@@ -275,6 +275,19 @@ def without_logo_text(img: Image.Image, read: Optional[Dict[str, Any]], template
     return dict(read, lines=keep)
 
 
+TEMPLATE_MAX_SIDE = 960
+
+
+def template_art(img: Image.Image) -> Image.Image:
+    """Logo artwork at a bounded size: matching works at ~480 px, and a huge
+    master file would otherwise need hundreds of MB per comparison."""
+    art = img.convert("RGBA")
+    if max(art.size) > TEMPLATE_MAX_SIDE:
+        scale = TEMPLATE_MAX_SIDE / max(art.size)
+        art = art.resize((max(1, round(art.width * scale)), max(1, round(art.height * scale))), Image.LANCZOS)
+    return art
+
+
 def logo_templates(conn, workspace_id: str) -> List["logos.Template"]:
     rows = conn.execute(
         "SELECT l.*, d.bytes FROM brand_logos l LEFT JOIN asset_data d ON d.asset_id = l.asset_id "
@@ -287,7 +300,7 @@ def logo_templates(conn, workspace_id: str) -> List["logos.Template"]:
             art = _open(bytes(row["bytes"]))
         except ImageError:
             continue
-        out.append(logos.Template(row["id"], row["name"], row["variant"], art.convert("RGBA"),
+        out.append(logos.Template(row["id"], row["name"], row["variant"], template_art(art),
                                   row["min_width_ratio"] or 0.12, row["clear_space_ratio"] or 0.15))
     return out
 

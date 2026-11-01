@@ -225,9 +225,13 @@ def _stamp_docx(data: bytes, envelope: Dict[str, Any]) -> bytes:
 
     src = zipfile.ZipFile(io.BytesIO(data))
     names = set(src.namelist())
+    props = None
     if "docProps/custom.xml" in names:
-        props = _xml(src.read("docProps/custom.xml"))
-    else:
+        try:
+            props = _xml(src.read("docProps/custom.xml"))
+        except etree.XMLSyntaxError:
+            props = None  # unreadable custom properties are replaced by ours
+    if props is None:
         props = etree.Element(f"{{{_CUSTOM_NS}}}Properties", nsmap={None: _CUSTOM_NS, "vt": _VT_NS})
     for prop in list(props):
         if prop.get("name") == DOCX_PROPERTY:
@@ -298,6 +302,11 @@ def kind_of(data: bytes) -> Optional[str]:
 
 def stamp_file(data: bytes, envelope: Dict[str, Any], kind: Optional[str] = None) -> bytes:
     kind = kind or kind_of(data)
+    if kind == "docx":
+        try:
+            return _stamp_docx(data, envelope)
+        except (KeyError, zipfile.BadZipFile, SyntaxError) as exc:  # lxml's XMLSyntaxError is a SyntaxError
+            raise ValueError("the Word package is damaged; save it again from Word") from exc
     if kind == "pdf":
         return _stamp_pdf(data, envelope)
     if kind == "png":

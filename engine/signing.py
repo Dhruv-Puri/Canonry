@@ -135,11 +135,13 @@ def _load_poc(conn, poc_id: str):
 
 
 def _signature_ok(record: Dict[str, Any], signature_hex: str) -> bool:
-    canonical = json.dumps(record, sort_keys=True, separators=(",", ":")).encode()
+    if not isinstance(record, dict) or not isinstance(signature_hex, str):
+        return False  # an embedded proof is untrusted input: wrong types are simply not a valid seal
     try:
+        canonical = json.dumps(record, sort_keys=True, separators=(",", ":")).encode()
         VerifyKey(bytes(load_signing_key().verify_key)).verify(canonical, bytes.fromhex(signature_hex))
         return True
-    except (BadSignatureError, ValueError):
+    except (BadSignatureError, ValueError, TypeError):
         return False
 
 
