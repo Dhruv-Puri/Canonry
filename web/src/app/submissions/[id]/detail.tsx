@@ -255,16 +255,16 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
       )}
 
       {/* ---- content with span highlighting ---- */}
-      <section className="paper pb-5 pl-14 pr-6 pt-4">
-        <div className="mb-3 flex items-center gap-2">
-          <h2 className="eyebrow">Content under review</h2>
+      <section className="paper pb-5 pl-12 pr-4 pt-4 sm:pl-14 sm:pr-6">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <h2 className="eyebrow mr-auto">Content under review</h2>
           <button
             type="button"
             onClick={() => setDiffMode((v) => !v)}
             disabled={!prevRev}
             aria-pressed={diffMode}
             title={prevRev ? `Show what changed from rev ${prevRev.revision_no} to rev ${rev?.revision_no}` : "The first revision has nothing before it"}
-            className={`btn btn-sm ml-auto ${diffMode ? "btn-primary" : "btn-secondary"}`}
+            className={`btn btn-sm ${diffMode ? "btn-primary" : "btn-secondary"}`}
           >
             <GitCompare className="size-3.5" aria-hidden />
             {diffMode ? "Viewing changes" : "Compare with previous"}
@@ -700,7 +700,7 @@ function ContentWithSpans({ content, findings }: { content: string; findings: Fi
   });
 
   return (
-    <p className="whitespace-pre-wrap font-serif text-[17px] leading-[28px]">
+    <p className="whitespace-pre-wrap font-serif text-[17px] leading-[28px] [overflow-wrap:anywhere]">
       {pieces.map((p, i) =>
         p.covering.length ? (
           <mark key={i} className={`${p.covering.length > 1 ? "marker-strong" : "marker"} bg-transparent text-foreground`}>
@@ -753,7 +753,7 @@ function RevisionDiff({ before, after, fromNo, toNo }: {
         <span className="font-medium text-success-fg">+{added} word{added === 1 ? "" : "s"}</span> ·{" "}
         <span className="font-medium text-danger-fg">−{removed} word{removed === 1 ? "" : "s"}</span>
       </p>
-      <p className="whitespace-pre-wrap font-serif text-[15px] leading-relaxed text-foreground">
+      <p className="whitespace-pre-wrap font-serif text-[15px] leading-relaxed text-foreground [overflow-wrap:anywhere]">
         {tokens.map(show)}
       </p>
     </div>
@@ -823,7 +823,7 @@ function FindingCard({
       )}
 
       {f.span_text && (
-        <p className="mt-3 border-l-2 border-brand-highlight pl-3 font-serif text-[15px] italic text-foreground">
+        <p className="mt-3 border-l-2 border-brand-highlight pl-3 font-serif text-[15px] italic text-foreground [overflow-wrap:anywhere]">
           “{f.span_text}”
         </p>
       )}

@@ -201,6 +201,7 @@ body {
     color: var(--brand);
   }
   .page-title {
+    overflow-wrap: anywhere; /* a pasted URL or a long word never runs off a phone screen */
     font-size: clamp(2rem, 4vw, 2.75rem);
     font-weight: 700;
     line-height: 1.08;
@@ -375,6 +376,7 @@ body {
   }
 
   .link {
+    overflow-wrap: anywhere;
     color: var(--brand);
     font-weight: 600;
     text-decoration: underline;

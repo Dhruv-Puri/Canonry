@@ -36,7 +36,7 @@ export function SubmissionCard({
           {submission.channel} · {when(submission.created_at)}
         </span>
       </div>
-      <p className="mt-4 text-lg font-bold tracking-tight text-foreground">{submission.title}</p>
+      <p className="mt-4 text-lg font-bold tracking-tight text-foreground [overflow-wrap:anywhere]">{submission.title}</p>
       {submission.router_note && (
         <p className="mt-1.5 line-clamp-2 text-sm leading-relaxed text-foreground-secondary">
           {submission.router_note}
