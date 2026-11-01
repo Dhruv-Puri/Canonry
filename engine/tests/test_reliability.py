@@ -139,6 +139,12 @@ rs += [maya.post(f"/submissions/{sid}/review", json={"action": "request_changes"
 expect(rs[-1].status_code == 409, f"a decision after signing is refused ({rs[-1].status_code})")
 expect(detail(sid, maya)["submission"]["status"] == "Signed", "the item stays signed")
 
+# --- unknown ids say what is missing ------------------------------------------------------
+print("== unknown ids")
+r = arjun.get("/submissions/sub_does_not_exist")
+expect(r.status_code == 404 and "not found" in r.json().get("detail", "").lower()
+       and r.json()["detail"] != "Not Found", f"an unknown submission says so in words ({r.text[:80]})")
+
 # --- odd input -----------------------------------------------------------------------------
 print("== odd input")
 sid = new(title="T" * 5000)

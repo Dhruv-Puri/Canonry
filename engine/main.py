@@ -1170,7 +1170,7 @@ def get_submission(req: Request, sid: str):
         user = _user(req, conn)
         sub = conn.execute("SELECT * FROM submissions WHERE id = ?", (sid,)).fetchone()
         if not sub or not access.can_see_submission(user, sub):
-            raise HTTPException(404)
+            raise HTTPException(404, "Submission not found")
         revs = [dict(r) for r in conn.execute(
             "SELECT * FROM revisions WHERE submission_id=? ORDER BY revision_no", (sid,)).fetchall()]
         latest = revs[-1] if revs else None
