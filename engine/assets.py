@@ -15,6 +15,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import documents
 import images
+import ocr
 from db import _now
 
 MAX_PDF = 10 * 1024 * 1024
@@ -91,10 +92,13 @@ def create_asset(conn, workspace_id: str, submission_id: Optional[str], filename
         info = inspect_image(data)
         width, height, dhash = info.width, info.height, info.dhash
         palette_json = json.dumps(info.palette)
-        metadata = {"graphic": info.graphic, "format": info.fmt}
-        extracted_text = (alt_text or "").strip()
+        read = ocr.read_bytes(data)
+        if read:
+            read = images.without_logo_text(images._open(data), read, images.logo_templates(conn, workspace_id))
+        metadata = {"graphic": info.graphic, "format": info.fmt,
+                    "ocr": read if read is not None else {"unavailable": True, "lines": []}}
+        extracted_text, locator_map = images.image_text(alt_text, read)
         source_kind = "image"
-        locator_map = []
     else:
         extracted = documents.extract(filename, data)
         extracted_text = extracted.text
@@ -136,6 +140,23 @@ def get_asset(conn, asset_id: str) -> Optional[Dict[str, Any]]:
 def asset_bytes(conn, asset_id: str) -> Optional[bytes]:
     row = conn.execute("SELECT bytes FROM asset_data WHERE asset_id = ?", (asset_id,)).fetchone()
     return bytes(row["bytes"]) if row else None
+
+
+def image_ocr(asset_row: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """The words read from an image at upload (None for documents or old uploads)."""
+    try:
+        meta = json.loads((asset_row or {}).get("metadata_json") or "{}")
+    except (TypeError, ValueError):
+        return None
+    read = meta.get("ocr")
+    return None if not read or read.get("unavailable") else read
+
+
+def image_revision(asset_row: Dict[str, Any], alt_text: Optional[str]) -> Tuple[str, Dict[str, Any]]:
+    """Checked text and asset dict for a new revision of an image (after an alt-text
+    edit): the image's words stay in, so they are still checked."""
+    text, locator_map = images.image_text(alt_text, image_ocr(asset_row))
+    return text, dict(asset_row, source_kind="image", locator_map=locator_map)
 
 
 def update_alt_text(conn, asset_id: str, alt_text: str) -> None:

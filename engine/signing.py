@@ -135,11 +135,13 @@ def _load_poc(conn, poc_id: str):
 
 
 def _signature_ok(record: Dict[str, Any], signature_hex: str) -> bool:
-    canonical = json.dumps(record, sort_keys=True, separators=(",", ":")).encode()
+    if not isinstance(record, dict) or not isinstance(signature_hex, str):
+        return False  # an embedded proof is untrusted input: wrong types are simply not a valid seal
     try:
+        canonical = json.dumps(record, sort_keys=True, separators=(",", ":")).encode()
         VerifyKey(bytes(load_signing_key().verify_key)).verify(canonical, bytes.fromhex(signature_hex))
         return True
-    except (BadSignatureError, ValueError):
+    except (BadSignatureError, ValueError, TypeError):
         return False
 
 
@@ -225,9 +227,10 @@ def verify_file(conn, poc_id: str, data: bytes) -> Dict[str, Any]:
         else:
             status, reason = "signature_invalid", "The embedded proof could not be verified."
     elif embedded and embedded_ok and embedded.get("content_sha256") == record.get("content_sha256"):
-        # A different stamping (for example the engine re-stamped after a redeploy)
-        # still attests the same approved original.
-        status, reason = "verified", "The file carries a valid seal for the same approved original."
+        # A real seal copied onto other bytes proves nothing about those bytes:
+        # the file was changed after it was stamped (or the seal was moved).
+        status, reason = "modified", ("This file carries the seal of this approval, but its content was changed "
+                                      "after it was stamped.")
     elif not sig_ok:
         status, reason = "signature_invalid", "The stored seal signature does not verify."
     out = {

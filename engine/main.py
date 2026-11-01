@@ -19,6 +19,7 @@ from datetime import date, datetime, timedelta, timezone
 from xml.etree import ElementTree
 from typing import Any, Dict, List, Optional
 
+from starlette.concurrency import run_in_threadpool
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -975,6 +976,27 @@ def submit(req: Request, body: SubmitIn):
         conn.close()
 
 
+def _disposition(kind: str, filename: str) -> str:
+    """Content-Disposition that survives any file name: an ASCII fallback plus
+    the exact UTF-8 name (RFC 5987)."""
+    from urllib.parse import quote
+    ascii_name = re.sub(r'[^A-Za-z0-9._ -]', "_", filename) or "file"
+    return f"{kind}; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename)}"
+
+
+def _revision_asset(rev: sqlite3.Row) -> Optional[Dict[str, Any]]:
+    """The uploaded file behind a revision, so a re-check keeps it (and its
+    page/line or image locations) instead of turning it into plain text."""
+    keys = rev.keys()
+    if "asset_id" not in keys or not rev["asset_id"]:
+        return None
+    try:
+        locator_map = json.loads(rev["locator_map_json"] or "[]")
+    except (TypeError, ValueError):
+        locator_map = []
+    return {"id": rev["asset_id"], "source_kind": rev["source_kind"] or "text", "locator_map": locator_map}
+
+
 def run_check_for_submission(conn: sqlite3.Connection, sid: str, content: str,
                              actor: Optional[str] = None, reuse_ai_from: Optional[str] = None,
                              asset: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -1026,32 +1048,72 @@ async def upload_submission(req: Request, title: str, channel: str, source_type:
     if channel not in CHANNELS:
         raise HTTPException(422, f"Channel must be one of: {', '.join(CHANNELS)}.")
     data = await _read_limited_body(req, assets.MAX_PDF, "10 MB")
-    conn = connect()
-    try:
-        user = _user(req, conn)
-        ws = _ws(conn)
-        sid = gen_id("sub")
-        conn.execute(
-            "INSERT INTO submissions (id, workspace_id, title, channel, source_type, created_by, status, created_at) "
-            "VALUES (?,?,?,?,?,?,'Draft',?)",
-            (sid, ws, title[:240], channel, source_type[:40] or "in-house", user["email"], _now()),
-        )
+
+    def work():
+        conn = connect()
         try:
-            asset = assets.create_asset(conn, ws, sid, filename, data, alt_text, user["email"])
-        except assets.UploadError as exc:
-            raise HTTPException(exc.status, str(exc)) from exc
-        except documents.DocumentError as exc:
-            raise HTTPException(exc.status, str(exc)) from exc
-        except images.ImageError as exc:
-            raise HTTPException(exc.status, str(exc)) from exc
-        audit(conn, user["email"], "upload_content", f"{sid}: {asset['filename']} ({asset['kind']})")
-        result = run_check_for_submission(conn, sid, asset["extracted_text"], user["email"], asset=asset)
-        conn.commit()
-        return {"submission_id": sid, "revision_id": result["revision_id"], "asset": {
-            k: asset[k] for k in ("id", "kind", "filename", "size_bytes", "width", "height", "page_count")},
-            **{k: v for k, v in result.items() if k != "revision_id"}}
-    finally:
-        conn.close()
+            user = _user(req, conn)
+            ws = _ws(conn)
+            sid = gen_id("sub")
+            conn.execute(
+                "INSERT INTO submissions (id, workspace_id, title, channel, source_type, created_by, status, created_at) "
+                "VALUES (?,?,?,?,?,?,'Draft',?)",
+                (sid, ws, title[:240], channel, source_type[:40] or "in-house", user["email"], _now()),
+            )
+            try:
+                asset = assets.create_asset(conn, ws, sid, filename, data, alt_text, user["email"])
+            except assets.UploadError as exc:
+                raise HTTPException(exc.status, str(exc)) from exc
+            except documents.DocumentError as exc:
+                raise HTTPException(exc.status, str(exc)) from exc
+            except images.ImageError as exc:
+                raise HTTPException(exc.status, str(exc)) from exc
+            audit(conn, user["email"], "upload_content", f"{sid}: {asset['filename']} ({asset['kind']})")
+            result = run_check_for_submission(conn, sid, asset["extracted_text"], user["email"], asset=asset)
+            conn.commit()
+            return {"submission_id": sid, "revision_id": result["revision_id"], "asset": {
+                k: asset[k] for k in ("id", "kind", "filename", "size_bytes", "width", "height", "page_count")},
+                **{k: v for k, v in result.items() if k != "revision_id"}}
+        finally:
+            conn.close()
+
+    # OCR and logo matching are CPU-bound: run them off the event loop
+    return await run_in_threadpool(work)
+
+
+@app.post("/submissions/{sid}/upload")
+async def upload_new_version(req: Request, sid: str, filename: str, alt_text: Optional[str] = None):
+    """A corrected file becomes the next revision of the same submission, so its
+    history, decisions and review stay together. An image keeps its alt text
+    unless a new one is given."""
+    _require_same_origin(req)
+    data = await _read_limited_body(req, assets.MAX_PDF, "10 MB")
+
+    def work():
+        conn = connect()
+        try:
+            user = _user(req, conn)
+            sub = _visible_sub(conn, user, sid, "edit")
+            latest = conn.execute(
+                "SELECT * FROM revisions WHERE submission_id=? ORDER BY revision_no DESC LIMIT 1", (sid,)).fetchone()
+            previous = assets.get_asset(conn, latest["asset_id"]) if latest and "asset_id" in latest.keys() \
+                and latest["asset_id"] else None
+            alt = alt_text if alt_text is not None else (previous or {}).get("alt_text")
+            try:
+                asset = assets.create_asset(conn, sub["workspace_id"], sid, filename, data, alt, user["email"])
+            except (assets.UploadError, documents.DocumentError, images.ImageError) as exc:
+                raise HTTPException(exc.status, str(exc)) from exc
+            audit(conn, user["email"], "upload_new_version", f"{sid}: {asset['filename']} ({asset['kind']})")
+            result = run_check_for_submission(conn, sid, asset["extracted_text"], user["email"], asset=asset)
+            conn.commit()
+            return {"submission_id": sid, "revision_id": result["revision_id"], "asset": {
+                k: asset[k] for k in ("id", "kind", "filename", "size_bytes", "width", "height", "page_count")},
+                **{k: v for k, v in result.items() if k != "revision_id"}}
+        finally:
+            conn.close()
+
+    # OCR and logo matching are CPU-bound: run them off the event loop
+    return await run_in_threadpool(work)
 
 
 @app.get("/submissions")
@@ -1178,9 +1240,18 @@ def resolve_finding(req: Request, sid: str, body: ResolveIn):
         # Uploaded documents are snapshots: the source file is fixed, so a text
         # edit would silently diverge from what would be published. Make the
         # creator upload a corrected file instead.
-        if source_kind in ("pdf", "docx") and body.action in ("accept", "edit"):
-            raise HTTPException(409, "This is an uploaded document. Fix it in the source file and upload a corrected copy; accepting a text edit would not change the published file.")
+        if source_kind == "pdf" and body.action in ("accept", "edit"):
+            raise HTTPException(409, "Canonry cannot edit a PDF. Fix this in the source document, export the PDF "
+                                     "again and upload it, or dispute the finding.")
         suggestion = json.loads(f["suggestion_json"]) if f["suggestion_json"] not in (None, "", "null") else {}
+        rev_map = json.loads(rev["locator_map_json"] or "[]") if "locator_map_json" in rev.keys() else []
+        finding_region = (json.loads(f["locator_json"]) or {}).get("region") if f["locator_json"] else None
+        in_picture = source_kind == "image" and (
+            finding_region == images.IMAGE_TEXT_REGION if finding_region
+            else images.in_image_text(rev_map, f["span_start"]))
+        if source_kind == "image" and in_picture and body.action != "dispute":
+            raise HTTPException(409, "This text is part of the image. Change it in the design file and upload a "
+                                     "corrected image, or dispute the finding.")
         if source_kind == "image" and body.action == "edit":
             alt = (body.replacement or "").strip()
             if not alt:
@@ -1192,9 +1263,8 @@ def resolve_finding(req: Request, sid: str, body: ResolveIn):
                 (gen_id("dec"), body.revision_id, body.finding_id, "edit", alt, body.reason, user["email"], _now()),
             )
             conn.execute("UPDATE findings SET status='edited' WHERE id=?", (body.finding_id,))
-            asset_row = assets.get_asset(conn, asset_id) or {}
-            asset_row.update({"source_kind": "image", "locator_map": []})
-            result = run_check_for_submission(conn, sid, alt, user["email"], asset=asset_row)
+            image_content, asset_row = assets.image_revision(assets.get_asset(conn, asset_id) or {"id": asset_id}, alt)
+            result = run_check_for_submission(conn, sid, image_content, user["email"], asset=asset_row)
             audit(conn, user["email"], "finding_edit_alt", f"{body.finding_id}")
             conn.commit()
             return {"ok": True, "revision_id": result["revision_id"], "ai_pending": result["ai_pending"],
@@ -1223,14 +1293,37 @@ def resolve_finding(req: Request, sid: str, body: ResolveIn):
             (gen_id("dec"), body.revision_id, body.finding_id, body.action, body.replacement, body.reason, user["email"], _now()),
         )
         conn.execute("UPDATE findings SET status=? WHERE id=?", (RESOLVE_ACTIONS[body.action], body.finding_id))
+        revision_asset = _revision_asset(rev)  # a dispute keeps the uploaded file
+        if source_kind == "docx" and body.action in ("accept", "edit"):
+            revision_asset = _fixed_docx(conn, sid, asset_id, content, user["email"])
         # rules re-run now; the AI's findings carry over (Re-check runs the AI again)
-        result = run_check_for_submission(conn, sid, content, user["email"], reuse_ai_from=body.revision_id)
+        result = run_check_for_submission(conn, sid, content, user["email"], reuse_ai_from=body.revision_id,
+                                          asset=revision_asset)
         audit(conn, user["email"], f"finding_{body.action}", f"{body.finding_id} reason={body.reason or ''}")
         conn.commit()
         return {"ok": True, "revision_id": result["revision_id"], "ai_pending": result["ai_pending"],
                 "ai_reason": result["ai_reason"]}
     finally:
         conn.close()
+
+
+def _fixed_docx(conn: sqlite3.Connection, sid: str, asset_id: Optional[str], content: str,
+                actor: str) -> Dict[str, Any]:
+    """Make the fix inside the Word file: a new version of the file whose own text
+    is the fixed revision, so what is approved, stamped and downloaded is fixed too."""
+    row = assets.get_asset(conn, asset_id) if asset_id else None
+    raw = assets.asset_bytes(conn, asset_id) if asset_id else None
+    if not row or raw is None:
+        raise HTTPException(409, "The Word file behind this revision is missing; upload it again.")
+    try:
+        fixed = documents.docx_with_text(raw, content)
+        asset = assets.create_asset(conn, row["workspace_id"], sid, row["filename"], fixed, None, actor)
+    except (documents.DocumentError, assets.UploadError) as exc:
+        raise HTTPException(getattr(exc, "status", 409), str(exc)) from exc
+    if asset["extracted_text"] != content:
+        raise HTTPException(409, "This fix could not be made inside the Word file. Edit the document and upload "
+                                 "it again, or dispute the finding.")
+    return asset
 
 
 def apply_fix(content: str, start: Optional[int], span: Optional[str], replacement: str) -> str:
@@ -1243,12 +1336,17 @@ def apply_fix(content: str, start: Optional[int], span: Optional[str], replaceme
         start = content.find(span)
         if start < 0:
             return content
-    content = content[:start] + replacement + content[start + len(span):]
+    # the paragraph that holds the span: tidying never reaches other paragraphs
+    para_start = content.rfind("\n\n", 0, start)
+    para_start = 0 if para_start < 0 else para_start + 2
+    para_end = content.find("\n\n", start + len(span))
+    para_end = len(content) if para_end < 0 else para_end
+    para = content[para_start:start] + replacement + content[start + len(span):para_end]
     if not replacement:
-        content = re.sub(r"(?:\s*(?:,|—|–|--|\band\b|\bor\b))+\s*(?=[.!?;,]|$)", "", content)
-    content = re.sub(r"[ 	]{2,}", " ", content)
-    content = re.sub(r"\s+([.!?;,])", r"\1", content)
-    return content.strip()
+        para = re.sub(r"(?:\s*(?:,|—|–|--|\band\b|\bor\b))+\s*(?=[.!?;,]|$)", "", para)
+    para = re.sub(r"[ \t]{2,}", " ", para)
+    para = re.sub(r"\s+([.!?;,])", r"\1", para)
+    return (content[:para_start] + para.strip() + content[para_end:]).strip()
 
 
 @app.post("/submissions/{sid}/recheck")
@@ -1260,7 +1358,7 @@ def recheck(req: Request, sid: str):
         _visible_sub(conn, user, sid, "edit")
         rev = conn.execute(
             "SELECT * FROM revisions WHERE submission_id=? ORDER BY revision_no DESC LIMIT 1", (sid,)).fetchone()
-        result = run_check_for_submission(conn, sid, rev["content"], user["email"])
+        result = run_check_for_submission(conn, sid, rev["content"], user["email"], asset=_revision_asset(rev))
         conn.commit()
         return result
     finally:
@@ -1384,7 +1482,7 @@ def review(req: Request, sid: str, body: ReviewIn):
                     conn.execute("UPDATE proof_of_compliance SET stamped_sha256=? WHERE id=?",
                                  (stamping.sha256(stamped), signed["poc_id"]))
                     signed["stamped_sha256"] = stamping.sha256(stamped)
-                except ValueError as exc:
+                except (ValueError, KeyError) as exc:
                     raise HTTPException(422, f"This file could not be stamped: {exc}") from exc
             conn.execute("UPDATE submissions SET status='Signed' WHERE id=?", (sid,))
             verify_url = f"{PUBLIC_WEB_URL}/verify/{signed['poc_id']}"
@@ -1508,7 +1606,7 @@ def download_proof_file(req: Request, sid: str):
             raise HTTPException(404, "This submission has no stamped file.")
         filename = row["filename"] or "canonry-approved-file"
         return Response(content=bytes(row["bytes"]), media_type=row["mime"] or "application/octet-stream",
-                        headers={"Content-Disposition": f'attachment; filename="canonry-{filename}"'})
+                        headers={"Content-Disposition": _disposition("attachment", f"canonry-{filename}")})
     finally:
         conn.close()
 
@@ -1632,47 +1730,52 @@ def api_check(req: Request, body: ApiCheckIn):
 async def api_upload(req: Request, title: str, channel: str, filename: str,
                      source_type: str = "in-house", alt_text: str = ""):
     """Upload a PDF/DOCX/PNG/JPEG via raw body (no multipart parser)."""
-    conn = connect()
-    try:
-        key = api.authenticate(req, conn, "check")
-        ws = key["workspace_id"]
-        if channel not in CHANNELS:
-            raise HTTPException(422, {"code": "bad_channel", "message": f"Channel must be one of: {', '.join(CHANNELS)}."})
-        data = await _read_limited_body(req, assets.MAX_PDF, "10 MB")
-        endpoint = "POST /api/v1/uploads"
-        payload_hash = api.request_hash({"title": title, "channel": channel, "filename": filename,
-                                         "source_type": source_type, "alt_text": alt_text,
-                                         "sha256": hashlib.sha256(data).hexdigest()})
-        key_header = api.idempotency_key(req)
-        cached = api.lookup_idempotent(conn, ws, key_header, endpoint, payload_hash)
-        if cached:
-            return JSONResponse(cached["body"], status_code=cached["status"], headers=_api_headers())
-        sid = gen_id("sub")
-        conn.execute(
-            "INSERT INTO submissions (id, workspace_id, title, channel, source_type, created_by, status, created_at) "
-            "VALUES (?,?,?,?,?,?,'Draft',?)",
-            (sid, ws, " ".join(title.split())[:240], channel, source_type[:40] or "in-house",
-             "api:" + key["name"], _now()),
-        )
+    data = await _read_limited_body(req, assets.MAX_PDF, "10 MB")
+
+    def work():
+        conn = connect()
         try:
-            asset = assets.create_asset(conn, ws, sid, filename, data, alt_text, "api:" + key["name"])
-        except (assets.UploadError, documents.DocumentError, images.ImageError) as exc:
-            raise HTTPException(getattr(exc, "status", 422), {"code": "bad_upload", "message": str(exc)}) from exc
-        audit(conn, "api:" + key["name"], "api_upload", f"{sid}: {asset['filename']}")
-        result = run_check_for_submission(conn, sid, asset["extracted_text"], None, asset=asset)
-        response = {
-            "submission_id": sid, "revision_id": result["revision_id"], "status": "Checked",
-            "contract_version": contract.CONTRACT_VERSION,
-            "asset": {k: asset[k] for k in ("id", "kind", "filename", "size_bytes", "width", "height", "page_count")},
-            "findings": result.get("findings", []), "ai_pending": result.get("ai_pending", False),
-            "links": {"self": f"/api/v1/submissions/{sid}", "file": f"/api/v1/assets/{asset['id']}"},
-        }
-        conn.commit()
-        api.store_idempotent(conn, ws, key_header, endpoint, payload_hash, 200, response)
-        conn.commit()
-        return JSONResponse(response, headers=_api_headers())
-    finally:
-        conn.close()
+            key = api.authenticate(req, conn, "check")
+            ws = key["workspace_id"]
+            if channel not in CHANNELS:
+                raise HTTPException(422, {"code": "bad_channel", "message": f"Channel must be one of: {', '.join(CHANNELS)}."})
+            endpoint = "POST /api/v1/uploads"
+            payload_hash = api.request_hash({"title": title, "channel": channel, "filename": filename,
+                                             "source_type": source_type, "alt_text": alt_text,
+                                             "sha256": hashlib.sha256(data).hexdigest()})
+            key_header = api.idempotency_key(req)
+            cached = api.lookup_idempotent(conn, ws, key_header, endpoint, payload_hash)
+            if cached:
+                return JSONResponse(cached["body"], status_code=cached["status"], headers=_api_headers())
+            sid = gen_id("sub")
+            conn.execute(
+                "INSERT INTO submissions (id, workspace_id, title, channel, source_type, created_by, status, created_at) "
+                "VALUES (?,?,?,?,?,?,'Draft',?)",
+                (sid, ws, " ".join(title.split())[:240], channel, source_type[:40] or "in-house",
+                 "api:" + key["name"], _now()),
+            )
+            try:
+                asset = assets.create_asset(conn, ws, sid, filename, data, alt_text, "api:" + key["name"])
+            except (assets.UploadError, documents.DocumentError, images.ImageError) as exc:
+                raise HTTPException(getattr(exc, "status", 422), {"code": "bad_upload", "message": str(exc)}) from exc
+            audit(conn, "api:" + key["name"], "api_upload", f"{sid}: {asset['filename']}")
+            result = run_check_for_submission(conn, sid, asset["extracted_text"], None, asset=asset)
+            response = {
+                "submission_id": sid, "revision_id": result["revision_id"], "status": "Checked",
+                "contract_version": contract.CONTRACT_VERSION,
+                "asset": {k: asset[k] for k in ("id", "kind", "filename", "size_bytes", "width", "height", "page_count")},
+                "findings": result.get("findings", []), "ai_pending": result.get("ai_pending", False),
+                "links": {"self": f"/api/v1/submissions/{sid}", "file": f"/api/v1/assets/{asset['id']}"},
+            }
+            conn.commit()
+            api.store_idempotent(conn, ws, key_header, endpoint, payload_hash, 200, response)
+            conn.commit()
+            return JSONResponse(response, headers=_api_headers())
+        finally:
+            conn.close()
+
+    # OCR and logo matching are CPU-bound: run them off the event loop
+    return await run_in_threadpool(work)
 
 
 @app.get("/api/v1/submissions")
@@ -1915,7 +2018,7 @@ def get_asset_file(req: Request, asset_id: str):
         if raw is None:
             raise HTTPException(404)
         return Response(content=raw, media_type=row["mime"],
-                        headers={"Content-Disposition": f'inline; filename="{row["filename"]}"',
+                        headers={"Content-Disposition": _disposition("inline", row["filename"]),
                                  "Cache-Control": "private, no-store"})
     finally:
         conn.close()

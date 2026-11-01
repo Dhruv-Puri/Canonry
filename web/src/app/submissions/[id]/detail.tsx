@@ -14,6 +14,7 @@ import {
   type FindingLocator,
   type Revision,
   type SubmissionDetail,
+  uploadFile,
 } from "@/lib/api";
 import { diffSummary, diffWords, type DiffToken } from "@/lib/diff";
 import { CategoryBadge, LevelBadge, RiskBadge, StatusBadge } from "@/components/fx";
@@ -64,6 +65,15 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
       setError(e instanceof ApiError ? e.message : String(e));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function uploadVersion(file: File) {
+    setChecking(true);
+    try {
+      await act(() => uploadFile(`/submissions/${sid}/upload?filename=${encodeURIComponent(file.name)}`, file));
+    } finally {
+      setChecking(false);
     }
   }
 
@@ -173,7 +183,15 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
         </div>
       )}
 
-      {d.asset && <AssetPreview asset={d.asset} findings={d.findings} />}
+      {d.asset && (
+        <AssetPreview
+          asset={d.asset}
+          findings={d.findings}
+          canUpload={canResolve && editable}
+          busy={busy || checking}
+          onUpload={uploadVersion}
+        />
+      )}
 
       {canReview && inReview && (
         <ReviewBar busy={busy} onReview={review} openHigh={openFindings.some((f) => f.severity === "high")} />
@@ -369,8 +387,25 @@ const BOX_COLOR: Record<string, string> = {
   low: "border-brand bg-brand/10",
 };
 
-function AssetPreview({ asset, findings }: { asset: NonNullable<SubmissionDetail["asset"]>; findings: Finding[] }) {
-  const boxes = findings.filter((f) => f.status === "open" && f.locator?.bbox);
+function AssetPreview({
+  asset,
+  findings,
+  canUpload,
+  busy,
+  onUpload,
+}: {
+  asset: NonNullable<SubmissionDetail["asset"]>;
+  findings: Finding[];
+  canUpload: boolean;
+  busy: boolean;
+  onUpload: (file: File) => Promise<void>;
+}) {
+  // whole-image findings (palette, a missing logo) would only frame the picture
+  const boxes = findings.filter((f) => {
+    const b = f.locator?.bbox;
+    if (f.status !== "open" || !b) return false;
+    return !(b[0] === 0 && b[1] === 0 && b[2] >= (asset.width || 0) && b[3] >= (asset.height || 0));
+  });
   return (
     <section className="surface p-5">
       <div className="flex flex-wrap items-center gap-2">
@@ -422,7 +457,7 @@ function AssetPreview({ asset, findings }: { asset: NonNullable<SubmissionDetail
             </p>
           </div>
           <a className="btn btn-sm btn-secondary ml-auto" href={`/engine/assets/${asset.id}`} target="_blank" rel="noreferrer">
-            Open the original file
+            {asset.kind === "docx" ? "Download this version" : "Open the file"}
           </a>
         </div>
       )}
@@ -430,6 +465,22 @@ function AssetPreview({ asset, findings }: { asset: NonNullable<SubmissionDetail
         <p className="mt-3 text-xs text-muted-foreground">
           Alt text: {asset.alt_text ? `“${asset.alt_text}”` : "missing"} · boxes mark where the visual findings sit.
         </p>
+      )}
+      {canUpload && (
+        <label className={`btn btn-sm btn-secondary mt-3 w-fit ${busy ? "pointer-events-none opacity-60" : "cursor-pointer"}`}>
+          Upload new version
+          <input
+            type="file"
+            className="sr-only"
+            accept=".pdf,.docx,.png,.jpg,.jpeg"
+            disabled={busy}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) void onUpload(file);
+            }}
+          />
+        </label>
       )}
     </section>
   );
@@ -703,8 +754,12 @@ function FindingCard({
   const [editText, setEditText] = useState(f.suggestion?.replace ?? "");
   const [reason, setReason] = useState("");
   const open = f.status === "open";
-  const uploadedDocument = assetKind === "pdf" || assetKind === "docx";
   const uploadedImage = assetKind === "png" || assetKind === "jpeg";
+  // Where the fix can happen: Word files are edited in place; a PDF, or anything
+  // in the picture itself, must be fixed in the source file (alt text lives here).
+  const inAltText = uploadedImage && f.locator?.region === "alt text";
+  const fixInSource = assetKind === "pdf" || (uploadedImage && !inAltText);
+  const canAccept = !uploadedImage && !fixInSource;
   const where = describeLocator(f.locator);
 
   return (
@@ -806,16 +861,39 @@ function FindingCard({
         </div>
       )}
 
-      {active && open && canResolve && uploadedDocument && (
-        <p className="mt-3 rounded-lg border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-          This is an uploaded document, so the file itself is the record. Fix the source file and upload a corrected
-          copy; a text edit here would not change what gets published.
-        </p>
+      {active && open && canResolve && fixInSource && (
+        <div className="mt-3 space-y-2.5 border-t border-border pt-3">
+          <p className="rounded-lg border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+            {assetKind === "pdf"
+              ? "Canonry can't edit a PDF. Fix this in the source document, export the PDF again and use Upload new version, or dispute the finding."
+              : "This is part of the image. Change it in the design file and use Upload new version, or dispute the finding."}
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              className="field h-[30px] w-auto grow px-2 text-xs"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Dispute reason: rule doesn't apply / unclear rule / fact outdated / misread"
+            />
+            <button
+              disabled={disabled || !reason.trim()}
+              onClick={() => void onDispute(reason)}
+              className="btn btn-sm btn-secondary"
+            >
+              Dispute
+            </button>
+          </div>
+        </div>
       )}
 
-      {active && open && canResolve && !uploadedDocument && (
+      {active && open && canResolve && !fixInSource && (
         <div className="mt-3 space-y-2.5 border-t border-border pt-3">
-          {f.suggestion?.replace && !uploadedImage && (
+          {assetKind === "docx" && (
+            <p className="text-xs text-muted-foreground">
+              Fixes are made inside your Word file, keeping its formatting. Download the fixed file from the file panel.
+            </p>
+          )}
+          {f.suggestion?.replace && canAccept && (
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground">Suggested fix:</span>
               <code className="rounded-md border border-border bg-muted px-1.5 py-0.5 font-mono text-xs">{f.suggestion.replace}</code>
@@ -828,7 +906,7 @@ function FindingCard({
               </button>
             </div>
           )}
-          {f.suggestion?.operation === "remove" && !uploadedImage && (
+          {f.suggestion?.operation === "remove" && canAccept && (
             <button
               disabled={disabled}
               onClick={() => void onAccept()}
@@ -837,10 +915,9 @@ function FindingCard({
               Remove the flagged phrase
             </button>
           )}
-          {uploadedImage && (
+          {inAltText && (
             <p className="text-xs text-muted-foreground">
-              Images have no safe one-click pixel fix. Replace the alt text below, upload a corrected image, or dispute
-              the finding.
+              Write better alt text below: say what the image shows, in one sentence.
             </p>
           )}
           {/* Secondary paths stay folded away until wanted; open by default when there is no one-click fix. */}

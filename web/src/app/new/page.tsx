@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { FileUp, PenLine, ShieldCheck } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, uploadFile } from "@/lib/api";
 import { AiLoadingScreen } from "@/components/ai-loading";
 import { useIdentity } from "@/components/identity";
 import { canReview } from "@/lib/roles";
@@ -43,15 +43,7 @@ export default function NewSubmissionPage() {
         filename: file.name,
         alt_text: altText,
       });
-      const res = await fetch(`/engine/submissions/upload?${qs.toString()}`, {
-        method: "POST",
-        body: file,
-        credentials: "same-origin",
-        headers: { "Content-Type": file.type || "application/octet-stream" },
-      });
-      const text = await res.text();
-      const data = text ? (JSON.parse(text) as { submission_id?: string; detail?: string }) : {};
-      if (!res.ok) throw new Error(typeof data.detail === "string" ? data.detail : `Upload failed (${res.status}).`);
+      const data = await uploadFile<{ submission_id: string }>(`/submissions/upload?${qs.toString()}`, file);
       router.push(`/submissions/${data.submission_id}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -193,7 +185,7 @@ export default function NewSubmissionPage() {
           </>
         ) : (
           <>
-            <Field label="File (PDF, DOCX, PNG or JPEG · 10 MB)">
+            <Field label="File (PDF, DOCX, PNG or JPEG · up to 4 MB)">
               <input
                 type="file"
                 accept=".pdf,.docx,.png,.jpg,.jpeg,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/png,image/jpeg"
@@ -211,8 +203,8 @@ export default function NewSubmissionPage() {
             </Field>
             <p className="text-xs leading-relaxed text-muted-foreground">
               PDFs report the page and line of each finding; Word reports the section and paragraph. Scanned PDFs
-              without a text layer are refused rather than guessed at. An uploaded file is a snapshot: fix the source
-              file and upload a corrected copy.
+              without a text layer are refused rather than guessed at. Fixes to a Word file are made inside the file; a PDF or an
+              image is fixed in its source, then uploaded as a new version.
             </p>
             <div className="flex justify-end">
               <button

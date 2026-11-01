@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from PIL import Image, ImageChops, ImageOps, ImageStat
 
+import logos
 from db import gen_id
 
 Image.MAX_IMAGE_PIXELS = 40_000_000
@@ -183,6 +184,55 @@ def inspect(data: bytes) -> ImageInfo:
                      graphic=color_count <= 256 or top_coverage >= 0.90, dhash=dhash(img))
 
 
+ALT_REGION = "alt text"
+IMAGE_TEXT_REGION = "text in image"
+
+
+def image_text(alt_text: Optional[str], ocr_result: Optional[Dict[str, Any]]) -> Tuple[str, List[Dict[str, Any]]]:
+    """The text an image's checks read: its alt text, then each line read from the
+    pixels; and a locator map so a finding can point at the alt text or at the
+    box of the line on the image."""
+    alt = (alt_text or "").strip()
+    parts: List[str] = []
+    blocks: List[Dict[str, Any]] = []
+    at = 0
+    if alt:
+        parts.append(alt)
+        blocks.append({"start": 0, "end": len(alt), "region": ALT_REGION})
+        at = len(alt)
+    lines = [ln for ln in (ocr_result or {}).get("lines") or [] if (ln.get("text") or "").strip()]
+    for i, line in enumerate(lines):
+        sep = ("\n\n" if i == 0 else "\n") if parts else ""
+        at += len(sep)
+        parts.append(sep + line["text"])
+        blocks.append({"start": at, "end": at + len(line["text"]), "region": IMAGE_TEXT_REGION,
+                       "line": i + 1, "bbox": list(line["bbox"])})
+        at += len(line["text"])
+    return "".join(parts), blocks
+
+
+def locate(locator_map: List[Dict[str, Any]], start: int, end: int,
+           asset_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    for block in locator_map or []:
+        if block["start"] <= start <= block["end"]:
+            loc: Dict[str, Any] = {"kind": "image", "asset_id": asset_id, "region": block["region"],
+                                   "char_start": start - block["start"],
+                                   "char_end": max(start - block["start"], end - block["start"])}
+            if block.get("bbox"):
+                loc["bbox"] = list(block["bbox"])
+                loc["line"] = block["line"]
+            return loc
+    return None
+
+
+def in_image_text(locator_map: List[Dict[str, Any]], start: Optional[int]) -> bool:
+    """True when a character offset falls in words read from the pixels."""
+    if start is None:
+        return False
+    loc = locate(locator_map, start, start)
+    return bool(loc and loc["region"] == IMAGE_TEXT_REGION)
+
+
 def _finding(ctx, checker: str, category: str, rule: str, tier: str, severity: str,
              explanation: str, title: str, locator: Dict[str, Any], bbox=None,
              suggestion: Optional[Dict[str, Any]] = None, span_text: str = "") -> Dict[str, Any]:
@@ -201,91 +251,143 @@ def _finding(ctx, checker: str, category: str, rule: str, tier: str, severity: s
     }
 
 
-def _logo_templates(ctx) -> List[Dict[str, Any]]:
-    rows = ctx.conn.execute(
+def _logo_templates(ctx) -> List["logos.Template"]:
+    return logo_templates(ctx.conn, ctx.ws)
+
+
+def without_logo_text(img: Image.Image, read: Optional[Dict[str, Any]], templates) -> Optional[Dict[str, Any]]:
+    """Drop OCR lines that are the logo's own lettering (its wordmark is checked as
+    a logo, not as copy) and one-character noise."""
+    if not read:
+        return read
+    match = logos.find(img, templates) if templates else None
+    keep = []
+    for line in read.get("lines") or []:
+        if sum(ch.isalnum() for ch in line["text"]) < 2:
+            continue
+        if match:
+            x, y, w, h = line["bbox"]
+            cx, cy = x + w / 2, y + h / 2
+            lx, ly, lw, lh = match.bbox
+            if lx <= cx <= lx + lw and ly <= cy <= ly + lh:
+                continue
+        keep.append(line)
+    return dict(read, lines=keep)
+
+
+TEMPLATE_MAX_SIDE = 960
+
+
+def template_art(img: Image.Image) -> Image.Image:
+    """Logo artwork at a bounded size: matching works at ~480 px, and a huge
+    master file would otherwise need hundreds of MB per comparison."""
+    art = img.convert("RGBA")
+    if max(art.size) > TEMPLATE_MAX_SIDE:
+        scale = TEMPLATE_MAX_SIDE / max(art.size)
+        art = art.resize((max(1, round(art.width * scale)), max(1, round(art.height * scale))), Image.LANCZOS)
+    return art
+
+
+def logo_templates(conn, workspace_id: str) -> List["logos.Template"]:
+    rows = conn.execute(
         "SELECT l.*, d.bytes FROM brand_logos l LEFT JOIN asset_data d ON d.asset_id = l.asset_id "
-        "WHERE l.workspace_id = ? AND l.active = 1", (ctx.ws,)).fetchall()
+        "WHERE l.workspace_id = ? AND l.active = 1", (workspace_id,)).fetchall()
     out = []
     for row in rows:
-        raw = row["bytes"]
-        if not raw:
+        if not row["bytes"]:
             continue
         try:
-            img = _flatten(_open(bytes(raw)))
+            art = _open(bytes(row["bytes"]))
         except ImageError:
             continue
-        out.append({"id": row["id"], "name": row["name"], "variant": row["variant"],
-                    "dhash": row["dhash"] or dhash(img), "width": row["width"] or img.width,
-                    "height": row["height"] or img.height,
-                    "min_width_ratio": row["min_width_ratio"] or 0.12,
-                    "clear_space_ratio": row["clear_space_ratio"] or 0.15,
-                    "image": img})
+        out.append(logos.Template(row["id"], row["name"], row["variant"], template_art(art),
+                                  row["min_width_ratio"] or 0.12, row["clear_space_ratio"] or 0.15))
     return out
 
 
-def _corr(a: Image.Image, b: Image.Image, size=(48, 24)) -> float:
-    """Mean per-channel Pearson correlation: discriminative enough to reject text
-    that happens to share a coarse dHash with a wordmark."""
-    a = _flatten(a).resize(size)
-    b = _flatten(b).resize(size)
-    pa, pb = list(a.getdata()), list(b.getdata())
-    scores = []
-    for channel in range(3):
-        va = [p[channel] for p in pa]
-        vb = [p[channel] for p in pb]
-        ma, mb = sum(va) / len(va), sum(vb) / len(vb)
-        da = [v - ma for v in va]
-        db = [v - mb for v in vb]
-        denom = math.sqrt(sum(v * v for v in da) * sum(v * v for v in db))
-        scores.append(sum(x * y for x, y in zip(da, db)) / denom if denom else 0.0)
-    return sum(scores) / 3
+ASPECT_TOLERANCE = 0.06   # a logo more than 6% wider or taller than approved is distorted
+TILT_TOLERANCE = 3.0      # degrees
+RECOLOUR_DELTA = 20.0     # mean ΔE of the logo's ink against the approved artwork
+BUSY_BACKGROUND = 0.08    # share of the area behind the logo that is not plain
+CLEAR_SPACE_CLUTTER = 0.03
 
 
-def _rms(a: Image.Image, b: Image.Image) -> float:
-    """Fast per-pixel colour RMS (Pillow's C core), the logo match score."""
-    a = _flatten(a).resize((64, 32))
-    b = _flatten(b).resize((64, 32))
-    diff = ImageChops.difference(a, b)
-    rms = ImageStat.Stat(diff).rms
-    return sum(rms) / 3
-
-
-def _logo_match(img: Image.Image, templates: List[Dict[str, Any]]):
-    """Coarse colour-template scan at several logo widths, then a fine refinement.
-    Returns (template, bbox, distance, rms); lower rms is a closer visual match."""
-    base = _flatten(img)
-    scale = min(1.0, 256 / max(base.width, base.height))
-    small = base.resize((max(1, int(base.width * scale)), max(1, int(base.height * scale)))) if scale < 1 else base
-    coarse = []
-    for tpl in templates:
-        aspect = (tpl["width"] / tpl["height"]) if tpl["height"] else 1.0
-        for ratio in (0.10, 0.14, 0.18, 0.22, 0.26, 0.28, 0.30, 0.34, 0.38):
-            cw = int(small.width * ratio)
-            ch = max(8, int(cw / max(aspect, 0.1)))
-            if cw < 12 or ch < 8 or cw >= small.width or ch >= small.height:
-                continue
-            step = max(6, small.width // 32)
-            for y in range(0, small.height - ch + 1, step):
-                for x in range(0, small.width - cw + 1, step):
-                    score = _rms(small.crop((x, y, x + cw, y + ch)), tpl["image"])
-                    coarse.append((score, tpl, (x, y, cw, ch)))
-    coarse.sort(key=lambda c: c[0])
-    best = None
-    for score0, tpl, (x, y, cw, ch) in coarse[:12]:
-        for dx in (-6, -4, -2, 0, 2, 4, 6):
-            for dy in (-6, -4, -2, 0, 2, 4, 6):
-                xx, yy = max(0, x + dx), max(0, y + dy)
-                if xx + cw > small.width or yy + ch > small.height:
-                    continue
-                score = _rms(small.crop((xx, yy, xx + cw, yy + ch)), tpl["image"])
-                if best is None or score < best[0]:
-                    best = (score, tpl, (xx, yy, cw, ch))
-    if best and best[0] <= 42:
-        score, tpl, (x, y, cw, ch) = best
-        if scale < 1:
-            x, y, cw, ch = (int(x / scale), int(y / scale), int(cw / scale), int(ch / scale))
-        return tpl, (x, y, cw, ch), int(score), score
-    return None
+def _logo_findings(ctx, flat: Image.Image, templates, logo_rule: Optional[str], use_rule: Optional[str],
+                   asset_id: str, graphic: bool) -> List[Dict[str, Any]]:
+    """Version, size and clear space cite the logo rule; distortion, colour and
+    background cite the logo-use rule (Quillmark: BRD-02)."""
+    out: List[Dict[str, Any]] = []
+    match = logos.find(flat, templates)
+    loc = {"kind": "image", "asset_id": asset_id, "region": "logo"}
+    if match is None:
+        if graphic and logo_rule:
+            out.append(_finding(
+                ctx, "image", "logo_missing", logo_rule, "consider", "low",
+                "No approved logo was found in this designed image. If it is meant to carry the brand, add the "
+                "current logo from the brand kit.", "No approved logo found", loc,
+                suggestion={"replace": "Add the current logo from the brand kit.", "operation": "upload"}))
+        return out
+    tpl, bbox = match.template, match.bbox
+    if tpl.variant != "current":
+        if logo_rule:
+            out.append(_finding(
+                ctx, "image", "logo_outdated", logo_rule, "definite", "high",
+                f"This is the retired logo “{tpl.name}”. Use the current approved logo.",
+                "Old logo version", loc, bbox=bbox,
+                suggestion={"replace": "Replace with the current logo from the brand kit.", "operation": "upload"}))
+        return out  # judging how a retired logo is placed would only add noise
+    if logo_rule:
+        share = match.width / max(flat.width, 1)
+        if share < tpl.min_width_ratio:
+            out.append(_finding(
+                ctx, "image", "logo_too_small", logo_rule, "likely", "medium",
+                f"The logo is {round(match.width)} px wide, {share:.0%} of the image; the brand kit asks for at "
+                f"least {tpl.min_width_ratio:.0%} ({round(tpl.min_width_ratio * flat.width)} px here).",
+                "Logo too small", loc, bbox=bbox,
+                suggestion={"replace": "Enlarge the logo or use a wider lock-up.", "operation": "rewrite"}))
+        crowded = match.clear_space_clutter > CLEAR_SPACE_CLUTTER
+        if crowded or match.edge_margin < match.clear_space_px:
+            why = (f"other content takes up {match.clear_space_clutter:.0%} of the clear space around it"
+                   if crowded else f"it sits {match.edge_margin} px from the edge of the image")
+            out.append(_finding(
+                ctx, "image", "logo_clear_space", logo_rule, "likely", "low",
+                f"The logo needs {match.clear_space_px} px of clear space on every side "
+                f"({tpl.clear_space_ratio:.0%} of its height), but {why}.",
+                "Logo needs clear space", loc, bbox=bbox,
+                suggestion={"replace": "Move other elements, or the logo, to free the clear space.",
+                            "operation": "rewrite"}))
+    if use_rule:
+        change = match.aspect_change - 1.0
+        if abs(change) > ASPECT_TOLERANCE or abs(match.rotation) > TILT_TOLERANCE:
+            parts = []
+            if abs(change) > ASPECT_TOLERANCE:
+                parts.append(f"stretched {abs(change):.0%} {'wider' if change > 0 else 'narrower'} than approved"
+                             if change > 0 else f"squashed {abs(change):.0%} narrower than approved")
+            if abs(match.rotation) > TILT_TOLERANCE:
+                parts.append(f"tilted {abs(match.rotation):.0f}°")
+            out.append(_finding(
+                ctx, "image", "logo_distorted", use_rule, "definite", "medium",
+                f"The logo is {' and '.join(parts)} (rule {use_rule}). Scale it evenly and keep it level.",
+                "Logo is distorted", loc, bbox=bbox,
+                suggestion={"replace": "Place the logo from the brand kit at its original proportions.",
+                            "operation": "upload"}))
+        if match.colour_delta > RECOLOUR_DELTA:
+            out.append(_finding(
+                ctx, "image", "logo_recoloured", use_rule, "likely", "medium",
+                f"The logo's colours differ from the approved artwork (average ΔE {match.colour_delta:.0f}; "
+                f"rule {use_rule}). Use the logo file from the brand kit without recolouring it.",
+                "Logo is recoloured", loc, bbox=bbox,
+                suggestion={"replace": "Use the approved logo file without changing its colours.",
+                            "operation": "upload"}))
+        if match.background_clutter > BUSY_BACKGROUND:
+            out.append(_finding(
+                ctx, "image", "logo_busy_background", use_rule, "likely", "medium",
+                f"The background behind the logo is busy ({match.background_clutter:.0%} of it is not plain; rule "
+                f"{use_rule}), so the mark is hard to read. Place it on a plain brand colour.",
+                "Logo on a busy background", loc, bbox=bbox,
+                suggestion={"replace": "Put the logo on a plain Paper or brand-colour area.",
+                            "operation": "rewrite"}))
+    return out
 
 
 def _alt_findings(ctx, alt: Optional[str], rule: str, asset_id: str) -> List[Dict[str, Any]]:
@@ -323,58 +425,21 @@ def _alt_findings(ctx, alt: Optional[str], rule: str, asset_id: str) -> List[Dic
 
 
 def check_image(ctx, data: bytes, alt_text: Optional[str], asset_id: str,
-                filename: str = "") -> List[Dict[str, Any]]:
+                filename: str = "", ocr_result: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     """Return image/accessibility findings. Any rule that is unbound switches its check off."""
     img = _open(data)
     flat = _flatten(img)
     info = inspect(data)
     out: List[Dict[str, Any]] = []
     logo_rule = ctx.rule("brand.logo")
+    logo_use_rule = ctx.rule("brand.logo_use")
     colour_rule = ctx.rule("brand.colour")
     contrast_rule = ctx.rule("accessibility.contrast")
     alt_rule = ctx.rule("accessibility.alt_text")
 
-    templates = _logo_templates(ctx) if logo_rule else []
+    templates = _logo_templates(ctx) if (logo_rule or logo_use_rule) else []
     if templates:
-        match = _logo_match(flat, templates)
-        if match:
-            tpl, bbox, dist, score = match
-            x, y, w, h = bbox
-            loc = {"kind": "image", "asset_id": asset_id, "region": "logo"}
-            if tpl["variant"] != "current":
-                out.append(_finding(
-                    ctx, "image", "logo_outdated", logo_rule, "definite", "high",
-                    f"This looks like the retired logo \"{tpl['name']}\". Use the current approved logo.",
-                    "Old logo variant", loc, bbox=bbox,
-                    suggestion={"replace": "Replace with the current logo from the brand kit.", "operation": "upload"},
-                ))
-            else:
-                if w / max(flat.width, 1) < (tpl["min_width_ratio"] or 0.12):
-                    out.append(_finding(
-                        ctx, "image", "logo_too_small", logo_rule, "likely", "medium",
-                        f"The logo is {w / flat.width:.0%} of the image width; the brand kit asks for at least "
-                        f"{(tpl['min_width_ratio'] or 0.12):.0%}.",
-                        "Logo too small", loc, bbox=bbox,
-                        suggestion={"replace": "Enlarge the logo or use a wider lock-up.", "operation": "rewrite"},
-                    ))
-                margin = min(x, y, flat.width - (x + w), flat.height - (y + h))
-                required = int((tpl["clear_space_ratio"] or 0.15) * h)
-                if margin < required:
-                    out.append(_finding(
-                        ctx, "image", "logo_clear_space", logo_rule, "likely", "low",
-                        f"The logo has {margin}px clear space; the brand kit asks for {required}px "
-                        f"({(tpl['clear_space_ratio'] or 0.15):.0%} of its height).",
-                        "Logo needs clear space", loc, bbox=bbox,
-                        suggestion={"replace": "Move the logo away from the edge or other elements.", "operation": "rewrite"},
-                    ))
-        elif info.graphic and logo_rule:
-            out.append(_finding(
-                ctx, "image", "logo_missing", logo_rule, "likely", "medium",
-                "No current approved logo was found in this designed image. Add the brand mark or confirm this is a logo-free layout.",
-                "No approved logo found", {"kind": "image", "asset_id": asset_id, "region": "logo"},
-                bbox=(0, 0, flat.width, flat.height),
-                suggestion={"replace": "Add the current logo from the brand kit.", "operation": "upload"},
-            ))
+        out += _logo_findings(ctx, flat, templates, logo_rule, logo_use_rule, asset_id, info.graphic)
 
     if colour_rule and info.graphic:
         brand = ctx.conn.execute(
@@ -407,7 +472,25 @@ def check_image(ctx, data: bytes, alt_text: Optional[str], asset_id: str,
                             "operation": "rewrite"},
             ))
 
-    if contrast_rule and info.graphic:
+    lines = [ln for ln in (ocr_result or {}).get("lines") or [] if ln.get("ratio") is not None]
+    if contrast_rule and lines:
+        # measured on the words actually read: each line's ink against its background
+        for line in lines:
+            if line["ratio"] >= line["needs"]:
+                continue
+            kind = "large text" if line["needs"] == 3.0 else "normal text"
+            out.append(_finding(
+                ctx, "accessibility", "low_text_contrast", contrast_rule, "likely", "medium",
+                f"“{line['text']}” has a contrast ratio of about {line['ratio']:.1f}:1 against its "
+                f"background; WCAG AA asks for {line['needs']:.1f}:1 for {kind}.",
+                "Text is hard to read", {"kind": "image", "asset_id": asset_id, "region": IMAGE_TEXT_REGION,
+                                         "line": lines.index(line) + 1},
+                bbox=line["bbox"],
+                suggestion={"replace": "Darken the text or lighten the background; aim for "
+                                       f"{line['needs']:.1f}:1 or more.", "operation": "rewrite"},
+            ))
+    elif contrast_rule and info.graphic and not (ocr_result or {}).get("lines"):
+        # no words could be read: only a rough colour-pair estimate, never more than "consider"
         entries = [(_rgb(h), share) for h, share in info.palette if share >= 0.02]
         if len(entries) >= 2:
             darkest = min(entries, key=lambda item: _luminance(item[0]))[0]
@@ -415,12 +498,14 @@ def check_image(ctx, data: bytes, alt_text: Optional[str], asset_id: str,
             ratio = contrast_ratio(darkest, lightest)
             if ratio < 3.0:
                 out.append(_finding(
-                    ctx, "accessibility", "low_text_contrast", contrast_rule, "likely", "medium",
-                    f"The strongest colour pair in this graphic is {ratio:.1f}:1 ({_hex(darkest)} on {_hex(lightest)}). "
-                    "WCAG asks for at least 4.5:1 for normal text and 3:1 for large text.",
-                    "Low text contrast", {"kind": "image", "asset_id": asset_id, "region": "text"},
+                    ctx, "accessibility", "low_text_contrast", contrast_rule, "consider", "low",
+                    f"No text could be read in this image, so this is an estimate: its most distant colours are "
+                    f"only {ratio:.1f}:1 apart ({_hex(darkest)} and {_hex(lightest)}). If it carries text, "
+                    "check it meets 4.5:1 (3:1 for large text).",
+                    "Check text contrast", {"kind": "image", "asset_id": asset_id, "region": "text"},
                     bbox=(0, 0, flat.width, flat.height),
-                    suggestion={"replace": f"Darken the text or lighten the background; aim for 4.5:1.", "operation": "rewrite"},
+                    suggestion={"replace": "Darken the text or lighten the background; aim for 4.5:1.",
+                                "operation": "rewrite"},
                 ))
 
     if alt_rule:

@@ -39,6 +39,7 @@ QUILLMARK_BINDINGS = {
     "claims.statistic": "CLM-01", "claims.superlative": "CLM-02", "claims.certification": "CLM-05",
     "voice.sentence_length": "VOICE-3.1", "voice.hard_sell": "VOICE-3.2", "voice.tone": "VOICE-3.2",
     "voice.exclamation": "VOICE-3.4", "social.length": "SOC-01", "messaging.cta": "MSG-03",
+    "brand.logo_use": "BRD-02",
 }
 
 

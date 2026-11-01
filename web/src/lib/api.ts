@@ -269,3 +269,32 @@ export const TIER_LABEL: Record<string, string> = {
   likely: "Likely",
   consider: "Consider",
 };
+
+
+/** Vercel's proxy refuses request bodies above about 4.5 MB, so the web app checks first. */
+export const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
+
+/** POST a raw file to the engine; a friendly error for every failure, never a JSON parse error. */
+export async function uploadFile<T>(path: string, file: File): Promise<T> {
+  if (file.size > MAX_UPLOAD_BYTES) {
+    throw new ApiError(413, `This file is ${(file.size / 1024 / 1024).toFixed(1)} MB; uploads can be up to 4 MB. Compress it or export a smaller copy.`);
+  }
+  const res = await fetch(`${BASE}${path}`, {
+    method: "POST",
+    body: file,
+    credentials: "same-origin",
+    headers: { "Content-Type": file.type || "application/octet-stream" },
+    cache: "no-store",
+  });
+  const text = await res.text();
+  const data = (text ? safeJson(text) : null) as { detail?: unknown } | null;
+  if (!res.ok) {
+    if (res.status === 401 && typeof window !== "undefined") window.dispatchEvent(new Event(SIGNED_OUT_EVENT));
+    const msg =
+      typeof data?.detail === "string" ? data.detail :
+      res.status === 413 ? "This file is too large to upload. Keep it under 4 MB." :
+      `Upload failed (${res.status}). Try again in a moment.`;
+    throw new ApiError(res.status, msg);
+  }
+  return data as T;
+}

@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import zipfile
 import struct
 import zlib
 from typing import Any, Dict, Optional
@@ -197,6 +198,91 @@ def _extract_jpeg(data: bytes) -> Optional[Dict[str, Any]]:
 
 # ---- public helpers ----------------------------------------------------------
 
+# ---- DOCX --------------------------------------------------------------------
+# The proof travels as a Word custom document property (File > Info > Properties
+# > Advanced > Custom in Word), so it survives opening and saving the file.
+
+DOCX_PROPERTY = "CanonryProof"
+_CUSTOM_NS = "http://schemas.openxmlformats.org/officeDocument/2006/custom-properties"
+_VT_NS = "http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes"
+_CUSTOM_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/custom-properties"
+_CUSTOM_TYPE = "application/vnd.openxmlformats-officedocument.custom-properties+xml"
+_FMTID = "{D5CDD505-2E9C-101B-9397-08002B2CF9AE}"
+
+
+def _xml(raw: bytes):
+    from lxml import etree
+    return etree.fromstring(raw, etree.XMLParser(resolve_entities=False, no_network=True, huge_tree=False))
+
+
+def _xml_bytes(node) -> bytes:
+    from lxml import etree
+    return etree.tostring(node, xml_declaration=True, encoding="UTF-8", standalone=True)
+
+
+def _stamp_docx(data: bytes, envelope: Dict[str, Any]) -> bytes:
+    from lxml import etree
+
+    src = zipfile.ZipFile(io.BytesIO(data))
+    names = set(src.namelist())
+    props = None
+    if "docProps/custom.xml" in names:
+        try:
+            props = _xml(src.read("docProps/custom.xml"))
+        except etree.XMLSyntaxError:
+            props = None  # unreadable custom properties are replaced by ours
+    if props is None:
+        props = etree.Element(f"{{{_CUSTOM_NS}}}Properties", nsmap={None: _CUSTOM_NS, "vt": _VT_NS})
+    for prop in list(props):
+        if prop.get("name") == DOCX_PROPERTY:
+            props.remove(prop)
+    pid = max([int(p.get("pid", "1")) for p in props] + [1]) + 1
+    prop = etree.SubElement(props, f"{{{_CUSTOM_NS}}}property", fmtid=_FMTID, pid=str(pid), name=DOCX_PROPERTY)
+    etree.SubElement(prop, f"{{{_VT_NS}}}lpwstr").text = _json_bytes(envelope).decode("utf-8")
+    parts = {"docProps/custom.xml": _xml_bytes(props)}
+    types = _xml(src.read("[Content_Types].xml"))
+    tns = types.nsmap.get(None, "http://schemas.openxmlformats.org/package/2006/content-types")
+    if not any(o.get("PartName") == "/docProps/custom.xml" for o in types):
+        etree.SubElement(types, f"{{{tns}}}Override", PartName="/docProps/custom.xml", ContentType=_CUSTOM_TYPE)
+        parts["[Content_Types].xml"] = _xml_bytes(types)
+    if "_rels/.rels" in names:
+        rels = _xml(src.read("_rels/.rels"))
+    else:
+        rels = etree.Element("{http://schemas.openxmlformats.org/package/2006/relationships}Relationships",
+                             nsmap={None: "http://schemas.openxmlformats.org/package/2006/relationships"})
+    rns = rels.nsmap.get(None, "http://schemas.openxmlformats.org/package/2006/relationships")
+    if not any(r.get("Type") == _CUSTOM_REL for r in rels):
+        etree.SubElement(rels, f"{{{rns}}}Relationship", Id="rIdCanonryProof", Type=_CUSTOM_REL,
+                         Target="docProps/custom.xml")
+        parts["_rels/.rels"] = _xml_bytes(rels)
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as dst:
+        for info in src.infolist():
+            dst.writestr(info, parts.pop(info.filename) if info.filename in parts else src.read(info))
+        for name, body in parts.items():
+            dst.writestr(name, body)
+    return out.getvalue()
+
+
+def _extract_docx(data: bytes) -> Optional[Dict[str, Any]]:
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            info = z.getinfo("docProps/custom.xml")
+            if info.file_size > 2 * 1024 * 1024:
+                return None
+            props = _xml(z.read(info))
+    except Exception:  # noqa: BLE001 - not a stamped Word file
+        return None
+    for prop in props:
+        if prop.get("name") == DOCX_PROPERTY and len(prop):
+            try:
+                obj = json.loads(prop[0].text or "")
+            except ValueError:
+                return None
+            return obj if isinstance(obj, dict) and obj.get("record") else None
+    return None
+
+
 def kind_of(data: bytes) -> Optional[str]:
     if data.startswith(b"%PDF-"):
         return "pdf"
@@ -204,18 +290,32 @@ def kind_of(data: bytes) -> Optional[str]:
         return "png"
     if data.startswith(b"\xff\xd8"):
         return "jpeg"
+    if data.startswith(b"PK"):
+        try:
+            with zipfile.ZipFile(io.BytesIO(data)) as z:
+                z.getinfo("word/document.xml")
+            return "docx"
+        except Exception:  # noqa: BLE001 - some other zip
+            return None
     return None
 
 
 def stamp_file(data: bytes, envelope: Dict[str, Any], kind: Optional[str] = None) -> bytes:
     kind = kind or kind_of(data)
+    if kind == "docx":
+        try:
+            return _stamp_docx(data, envelope)
+        except (KeyError, zipfile.BadZipFile, SyntaxError) as exc:  # lxml's XMLSyntaxError is a SyntaxError
+            raise ValueError("the Word package is damaged; save it again from Word") from exc
     if kind == "pdf":
         return _stamp_pdf(data, envelope)
     if kind == "png":
         return _stamp_png(data, envelope)
     if kind == "jpeg":
         return _stamp_jpeg(data, envelope)
-    raise ValueError("Only PDF, PNG and JPEG files can carry a Proof of Compliance stamp.")
+    if kind == "docx":
+        return _stamp_docx(data, envelope)
+    raise ValueError("Only PDF, Word, PNG and JPEG files can carry a Proof of Compliance stamp.")
 
 
 def extract_record(data: bytes) -> Optional[Dict[str, Any]]:
@@ -226,6 +326,8 @@ def extract_record(data: bytes) -> Optional[Dict[str, Any]]:
         return _extract_png(data)
     if kind == "jpeg":
         return _extract_jpeg(data)
+    if kind == "docx":
+        return _extract_docx(data)
     return None
 
 
