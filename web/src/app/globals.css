@@ -28,7 +28,7 @@
   --foreground: #2b1d14;
   --foreground-secondary: #4a3527;
   --muted-foreground: #7a5f4a;
-  --placeholder: #a08a73;
+  --placeholder: #7f6954; /* 4.7-5.1:1 on the cream surfaces (was #a08a73, 2.8-3.3:1) */
 
   --primary: #3b2618;
   --primary-hover: #55382a;
@@ -417,15 +417,15 @@ body {
    Motion. Everything below is disabled under prefers-reduced-motion.
    ------------------------------------------------------------------ */
 
-/* Scroll reveal: <Reveal> adds .is-visible when the block enters view. */
+/* Scroll reveal: <Reveal> adds .is-visible when the block enters view.
+   Content is never hidden: only a short lift is animated, so a block that is
+   printed, captured mid-scroll or never observed is still fully readable. */
 .reveal {
-  opacity: 0;
-  transform: translateY(28px);
-  transition: opacity 900ms var(--ease-out), transform 900ms var(--ease-out);
+  transform: translateY(16px);
+  transition: transform 700ms var(--ease-out);
   transition-delay: var(--reveal-delay, 0ms);
 }
 .reveal.is-visible {
-  opacity: 1;
   transform: none;
 }
 
@@ -605,14 +605,16 @@ body {
 }
 
 /* ---- bars that grow when their block is revealed ---- */
+/* Full length by default (a bar is data); they grow from zero only once revealed. */
 .bar {
-  transform: scaleX(0);
   transform-origin: left;
-  transition: transform 1200ms var(--ease-out);
-  transition-delay: calc(var(--i, 0) * 110ms + 200ms);
 }
 .is-visible .bar {
-  transform: scaleX(1);
+  animation: bar-grow 1200ms var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 110ms + 200ms);
+}
+@keyframes bar-grow {
+  from { transform: scaleX(0); }
 }
 
 /* ---- scroll progress hairline (CSS scroll-driven; absent where unsupported) ---- */
@@ -667,7 +669,6 @@ body {
     animation: none;
   }
   .reveal {
-    opacity: 1;
     transform: none;
   }
   .demo-chip,
