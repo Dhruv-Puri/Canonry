@@ -44,8 +44,7 @@ export function LevelBadge({ tier, severity }: { tier?: string; severity?: strin
   return (
     <span className={`${PILL} ${TONE[tone]}`}>
       <Icon className="size-3" strokeWidth={2.25} aria-hidden />
-      {tier === "definite" ? "Definite" : tier === "likely" ? "Likely" : "Consider"}
-      {severity && severity !== "medium" ? ` · ${severity}` : ""}
+      {tier === "definite" ? "Must fix" : tier === "likely" ? "Should fix" : "Worth a look"}
     </span>
   );
 }

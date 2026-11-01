@@ -110,6 +110,7 @@ export type Submission = {
   content?: string;
   open_findings?: number;
   poc_sig?: string | null;
+  created_by?: string;
   created_at: string;
 };
 
@@ -286,9 +287,9 @@ export const CATEGORY_LABEL: Record<string, string> = {
 };
 
 export const TIER_LABEL: Record<string, string> = {
-  definite: "Definite",
-  likely: "Likely",
-  consider: "Consider",
+  definite: "Must fix",
+  likely: "Should fix",
+  consider: "Worth a look",
 };
 
 

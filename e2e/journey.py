@@ -75,10 +75,10 @@ def guest(ctx: BrowserContext, role: str) -> Page:
     """Pick a role on the welcome screen and Continue as guest (sign-in is async)."""
     page = ctx.new_page()
     page.goto("/")
-    page.get_by_role("button", name=re.compile("Continue as guest")).wait_for()
+    page.get_by_role("button", name=re.compile("Continue as guest|Start the demo|Continue as ")).wait_for()
     label = {"creator": "Creator", "reviewer": "Reviewer", "agency": "Agency partner", "admin": "Brand admin"}[role]
     page.locator("label", has_text=label).first.click()
-    page.get_by_role("button", name=re.compile("Continue as guest")).click()
+    page.get_by_role("button", name=re.compile("Continue as guest|Start the demo|Continue as ")).click()
     # the button turns into "Opening Canonry…" first; signed in once the app's main nav exists
     page.locator("nav[aria-label=Main]").first.wait_for(state="attached", timeout=60_000)
     page.wait_for_load_state("networkidle")
@@ -505,7 +505,7 @@ def phase_reliability(browser: Browser) -> None:
     ctx.clear_cookies()
     page.get_by_role("button", name="Re-check").click()
     try:
-        page.get_by_role("button", name=re.compile("Continue as guest")).wait_for(timeout=20_000)
+        page.get_by_role("button", name=re.compile("Continue as guest|Start the demo|Continue as ")).wait_for(timeout=20_000)
         check(True, "an expired session returns to the welcome screen")
     except PWTimeout:
         check(False, "an expired session returns to the welcome screen")
@@ -579,7 +579,7 @@ def phase_layout(browser: Browser) -> None:
     ctx = new_context(browser, 390, 844)
     page = ctx.new_page()
     page.goto("/")
-    page.get_by_role("button", name=re.compile("Continue as guest")).wait_for()
+    page.get_by_role("button", name=re.compile("Continue as guest|Start the demo|Continue as ")).wait_for()
     shot(page, "l-welcome-390")
     info = page.evaluate(LAYOUT_JS)
     check(info["overflow"] <= 0, f"welcome@390: no sideways overflow ({info['overflow']}px)")

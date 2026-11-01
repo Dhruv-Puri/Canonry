@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import { ArrowRight, Check } from "lucide-react";
+import { ArrowRight, Check, ChevronRight } from "lucide-react";
 import { api, ApiError, ENGINE_UNREACHABLE, SIGNED_OUT_EVENT, type AuthMode, type User } from "@/lib/api";
 import { ROLES, type Role } from "@/lib/roles";
 import { BrandMark } from "@/components/brand";
@@ -184,10 +184,28 @@ function GuestWelcome({ onJoined }: { onJoined: (u: User) => void }) {
             if (!busy) void start();
           }}
         >
-          <h2 className="text-2xl font-bold tracking-tight text-foreground">Continue as a guest</h2>
-          <p className="mt-1.5 text-foreground-secondary">Pick a role to start. No account needed.</p>
+          <h2 className="text-2xl font-bold tracking-tight text-foreground">Try Canonry</h2>
+          <p className="mt-1.5 text-foreground-secondary">
+            No account needed. You start as a <strong className="text-foreground">{ROLES.find((r) => r.id === role)?.label ?? "Creator"}</strong>
+            {role === "creator" ? " (someone who writes marketing content)" : ""}, and a short checklist walks you
+            through the rest.
+          </p>
 
-          <fieldset className="mt-6 space-y-2.5">
+          <button type="submit" disabled={busy} className="btn btn-primary btn-lg mt-6 w-full">
+            {busy ? "Opening Canonry…" : (
+              <>
+                {role === "creator" ? "Start the demo" : `Continue as ${ROLES.find((r) => r.id === role)?.label}`}
+                <ArrowRight className="btn-arrow size-4" aria-hidden />
+              </>
+            )}
+          </button>
+
+          <details className="group/roles mt-5">
+            <summary className="flex w-fit cursor-pointer list-none items-center gap-1 text-sm font-medium text-brand hover:underline [&::-webkit-details-marker]:hidden">
+              <ChevronRight className="size-4 transition-transform group-open/roles:rotate-90" aria-hidden />
+              Or choose a different role
+            </summary>
+          <fieldset className="mt-3 space-y-2.5">
             <legend className="sr-only">Role</legend>
             {ROLES.map(({ id, label, short, icon: Icon }) => {
               const on = role === id;
@@ -211,17 +229,16 @@ function GuestWelcome({ onJoined }: { onJoined: (u: User) => void }) {
               );
             })}
           </fieldset>
+          </details>
 
           {error && (
             <p role="alert" className="mt-4 rounded-xl border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger-fg">
               {error}
             </p>
           )}
-          <button type="submit" disabled={busy} className="btn btn-primary btn-lg mt-6 w-full">
-            {busy ? "Opening Canonry…" : <>Continue as guest <ArrowRight className="btn-arrow size-4" aria-hidden /></>}
-          </button>
-          <p className="mt-4 text-center text-xs leading-relaxed text-muted-foreground">
-            Switch roles anytime from the top bar. This is a shared demo workspace, so please don&apos;t enter real brand material.
+          <p className="mt-5 text-xs leading-relaxed text-muted-foreground">
+            Switch roles any time from the menu at the top right. This is a shared demo workspace, so please don&apos;t
+            enter real brand material.
           </p>
         </form>
       </div>

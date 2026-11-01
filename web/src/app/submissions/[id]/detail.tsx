@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronRight, GitCompare, TriangleAlert } from "lucide-react";
+import { ChevronRight, GitCompare, Info, TriangleAlert } from "lucide-react";
 import {
   api,
   ApiError,
@@ -19,6 +19,8 @@ import {
 import { diffSummary, diffWords, type DiffToken } from "@/lib/diff";
 import { CategoryBadge, LevelBadge, RiskBadge, StatusBadge } from "@/components/fx";
 import { AiLoadingScreen } from "@/components/ai-loading";
+import { JourneySteps, NextStep, VerifyLink } from "@/components/journey";
+import { markIssueHandled } from "@/components/start-here";
 import { ROLE_LABEL, roleHome } from "@/lib/roles";
 import { useIdentity } from "@/components/identity";
 
@@ -54,6 +56,10 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
   }, [d, revIdx]);
 
   const openFindings = d?.findings.filter((f) => f.status === "open") ?? [];
+  const mustFix = openFindings.filter((f) => f.severity === "high").length;
+  const acceptable = openFindings.filter((f) => f.suggestion?.replace || f.suggestion?.operation === "remove").length;
+  // the same number on a highlight and on its card
+  const issueNumber = new Map(openFindings.map((f, i) => [f.id, i + 1] as const));
   const showActionsForRev = rev?.id === d?.latest_revision?.id;
   // the revision before the one on screen, for the diff view
   const revListIndex = d && revIdx === -1 ? d.revisions.length - 1 : revIdx;
@@ -82,6 +88,38 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
     } finally {
       setChecking(false);
     }
+  }
+
+  async function acceptAll() {
+    setChecking(true);
+    setBusy(true);
+    setError(null);
+    try {
+      for (let round = 0; round < 20; round++) {
+        const cur = await api<SubmissionDetail>(`/submissions/${sid}`);
+        const kind = cur.asset?.kind;
+        if (kind === "pdf" || kind === "png" || kind === "jpeg") break; // fixed in the source file
+        const next = cur.findings.find(
+          (f) => f.status === "open" && (f.suggestion?.replace || f.suggestion?.operation === "remove"),
+        );
+        if (!next || !cur.latest_revision) break;
+        await api(`/submissions/${sid}/resolve`, {
+          method: "POST",
+          json: { revision_id: cur.latest_revision.id, finding_id: next.id, action: "accept" },
+        });
+        markIssueHandled();
+      }
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      await load();
+      setBusy(false);
+      setChecking(false);
+    }
+  }
+
+  async function submitForReview() {
+    await act(() => api(`/submissions/${sid}/submit-review`, { method: "POST" }));
   }
 
   async function recheck() {
@@ -159,58 +197,118 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
         <h1 className="page-title mr-1">{s.title}</h1>
         <StatusBadge status={s.status} />
         <RiskBadge risk={s.risk} />
-        <span className="rounded-md bg-muted px-1.5 py-0.5 text-[11px] capitalize text-foreground-secondary">
-          {s.channel} · {s.source_type}
+        <span className="rounded-md bg-muted px-1.5 py-0.5 text-[11px] text-foreground-secondary">
+          {sourceLabel(s.channel)} · {sourceLabel(s.source_type)}
         </span>
       </div>
-
-      {s.router_note && <p className="text-sm text-foreground-secondary">Routing: {s.router_note}</p>}
-
-      {d.check?.status === "ai_pending" && (
-        <div role="status" className="flex gap-3 rounded-xl border border-warning-border bg-warning-bg px-4 py-3 text-sm text-warning-fg">
-          <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
-          <p>
-            <AiSkipped reason={d.check.ai_reason} allowance={d.ai_allowance} />{" "}
-            <Link href="/insights" className="font-medium underline underline-offset-2">
-              See AI status
-            </Link>
-          </p>
-        </div>
-      )}
+      <JourneySteps status={s.status} open={openFindings.length} />
 
       {error && (
-        <p role="alert" className="rounded-md border border-warning-border bg-warning-bg px-3 py-2 text-sm text-warning-fg">
+        <p role="alert" className="rounded-xl border border-warning-border bg-warning-bg px-4 py-3 text-sm text-warning-fg">
           {error}
         </p>
       )}
-      {pocId && (
-        <p className="rounded-md border border-success-border bg-success-bg px-3 py-2 text-sm text-success-fg">
-          Proof of Compliance signed.{" "}
-          <Link className="font-medium underline underline-offset-2" href={`/verify/${pocId}`}>
-            Open public verification page
-          </Link>
-        </p>
-      )}
 
-      {d.poc && (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-success-border bg-success-bg px-4 py-3 text-sm text-success-fg">
+      {d.poc || pocId ? (
+        <NextStep
+          tone="success"
+          title="Approved and signed"
+          actions={
+            <>
+              <VerifyLink pocId={d.poc?.id ?? pocId ?? ""} />
+              {d.poc?.content_kind === "file" && (
+                <a className="btn btn-secondary" href={`/engine/submissions/${sid}/proof-file`} download>
+                  Download the approved file
+                </a>
+              )}
+            </>
+          }
+        >
+          This version is locked. Anyone can check that a published copy matches it on the public verify page
+          {d.poc?.content_kind === "file" ? ", and the approved file carries its proof inside it." : "."}
+        </NextStep>
+      ) : inReview ? (
+        canReview ? (
+          <NextStep title="Approve it, or send it back">
+            Read the issues below, then decide. Approving signs it with a Proof of Compliance that anyone can verify.
+          </NextStep>
+        ) : (
+          <NextStep tone="muted" title="Waiting for a reviewer">
+            It is locked while a reviewer looks at it. To finish the demo yourself, open the menu at the top right,
+            switch to <strong>Reviewer</strong>, and open this draft from the review queue.
+          </NextStep>
+        )
+      ) : editable && (canResolve || canReview) && showActionsForRev ? (
+        openFindings.length > 0 ? (
+          <NextStep
+            title={`${openFindings.length} issue${openFindings.length === 1 ? "" : "s"} to handle`}
+            progress={{ done: d.decisions.length, total: d.decisions.length + openFindings.length }}
+            actions={
+              <>
+                <a href={`#finding-${openFindings[0].id}`} className="btn btn-primary">
+                  Go to issue 1 <span aria-hidden className="btn-arrow">→</span>
+                </a>
+                {acceptable > 1 && (
+                  <button type="button" disabled={busy} onClick={() => void acceptAll()} className="btn btn-secondary">
+                    Accept all {acceptable} suggested fixes
+                  </button>
+                )}
+                {d.allowed.submit && (
+                  <button type="button" disabled={busy} onClick={() => void submitForReview()} className="btn btn-ghost">
+                    Send for review anyway
+                  </button>
+                )}
+                <button type="button" disabled={busy} onClick={() => void recheck()} className="btn btn-ghost">
+                  Re-check
+                </button>
+              </>
+            }
+          >
+            For each one: accept the suggested fix, write your own, or dispute it if Canonry got it wrong. Then send it
+            to a reviewer.
+            {mustFix > 0 && (
+              <>
+                {" "}
+                <strong className="text-foreground">
+                  {mustFix} {mustFix === 1 ? "is" : "are"} marked Must fix
+                </strong>
+                : a reviewer can&apos;t approve while {mustFix === 1 ? "it is" : "they are"} open.
+              </>
+            )}
+          </NextStep>
+        ) : (
+          <NextStep
+            title="Ready for review"
+            progress={d.decisions.length ? { done: d.decisions.length, total: d.decisions.length } : undefined}
+            actions={
+              <>
+                {d.allowed.submit && (
+                  <button type="button" disabled={busy} onClick={() => void submitForReview()} className="btn btn-primary">
+                    Send for review <span aria-hidden className="btn-arrow">→</span>
+                  </button>
+                )}
+                <button type="button" disabled={busy} onClick={() => void recheck()} className="btn btn-secondary">
+                  Re-check
+                </button>
+              </>
+            }
+          >
+            {d.decisions.length ? "Every issue is handled." : "Canonry found nothing to fix."} A reviewer approves it and
+            signs it.
+          </NextStep>
+        )
+      ) : null}
+
+      {d.check?.status === "ai_pending" && (
+        <p role="status" className="flex gap-2 text-xs leading-relaxed text-muted-foreground">
+          <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
           <span>
-            This revision was approved and signed.
-            {d.poc.content_kind === "file" && " The approved file carries the seal in its metadata."}
+            <AiSkipped reason={d.check.ai_reason} allowance={d.ai_allowance} />{" "}
+            <Link href="/insights" className="underline underline-offset-2 hover:text-foreground">
+              AI status
+            </Link>
           </span>
-          <Link className="font-medium underline underline-offset-2" href={`/verify/${d.poc.id}`}>
-            Verify its Proof of Compliance <span aria-hidden className="btn-arrow">→</span>
-          </Link>
-          {d.poc.content_kind === "file" && (
-            <a
-              className="btn btn-sm btn-secondary"
-              href={`/engine/submissions/${sid}/proof-file`}
-              download
-            >
-              Download stamped file
-            </a>
-          )}
-        </div>
+        </p>
       )}
 
       {d.asset && (
@@ -227,37 +325,11 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
         <ReviewBar busy={busy} onReview={review} openHigh={openFindings.some((f) => f.severity === "high")} />
       )}
 
-      {!editable && (
-        <p className="rounded-md border border-border bg-muted px-3 py-2 text-sm text-foreground-secondary">
-          {inReview
-            ? "Content is locked while in review. The reviewer approves it or requests changes."
-            : "This content is approved and locked. To change it, start a new submission."}
-        </p>
-      )}
-
-      {(canResolve || canReview) && showActionsForRev && editable && (
-        <ActionsBar
-          busy={busy}
-          onRecheck={() => void recheck()}
-          onSubmitReview={
-            canResolve || canReview
-              ? () =>
-                  act(() =>
-                    api(`/submissions/${sid}/submit-review`, { method: "POST" }).catch((e) => {
-                      throw e;
-                    })
-                  )
-              : null
-          }
-          canSubmit={d.allowed.submit}
-          allowance={d.check?.ai_reason === "no_provider" ? null : d.ai_allowance}
-        />
-      )}
-
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] lg:items-start">
       {/* ---- content with span highlighting ---- */}
-      <section className="paper pb-5 pl-12 pr-4 pt-4 sm:pl-14 sm:pr-6">
+      <section className="paper pb-5 pl-12 pr-4 pt-4 sm:pl-14 sm:pr-6 lg:sticky lg:top-24 lg:max-h-[calc(100dvh-7rem)] lg:overflow-auto">
         <div className="mb-3 flex flex-wrap items-center gap-2">
-          <h2 className="eyebrow mr-auto">Content under review</h2>
+          <h2 className="eyebrow mr-auto">Your content</h2>
           <button
             type="button"
             onClick={() => setDiffMode((v) => !v)}
@@ -294,14 +366,18 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
             This is an image. The visual findings are drawn on the preview above; its alt text is “{d.asset.alt_text || "—"}”.
           </p>
         ) : (
-          <ContentWithSpans content={rev?.content ?? ""} findings={rev?.id === d.latest_revision?.id ? d.findings : []} />
+          <ContentWithSpans
+            content={rev?.content ?? ""}
+            findings={rev?.id === d.latest_revision?.id ? d.findings : []}
+            numbers={issueNumber}
+          />
         )}
       </section>
 
       {/* ---- findings ---- */}
       <section className="space-y-2.5">
         <h2 className="section-title">
-          Findings {showActionsForRev ? `(${openFindings.length} open)` : "(historical)"}
+          {showActionsForRev ? `Issues (${openFindings.length} open)` : "Issues on this earlier version"}
         </h2>
         {d.findings.length === 0 && (
           <p className="rounded-xl border border-dashed border-border-strong p-8 text-center text-sm text-muted-foreground">
@@ -312,6 +388,7 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
           <FindingCard
             key={f.id}
             f={f}
+            index={issueNumber.get(f.id)}
             disabled={busy}
             active={showActionsForRev}
             assetKind={d.asset?.kind ?? null}
@@ -322,7 +399,7 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
                 api(`/submissions/${sid}/resolve`, {
                   method: "POST",
                   json: { revision_id: rev?.id, finding_id: f.id, action: "accept" },
-                })
+                }).then(markIssueHandled)
               )
             }
             onEdit={(replacement) =>
@@ -330,7 +407,7 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
                 api(`/submissions/${sid}/resolve`, {
                   method: "POST",
                   json: { revision_id: rev?.id, finding_id: f.id, action: "edit", replacement },
-                })
+                }).then(markIssueHandled)
               )
             }
             onDispute={(reason) =>
@@ -338,15 +415,25 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
                 api(`/submissions/${sid}/resolve`, {
                   method: "POST",
                   json: { revision_id: rev?.id, finding_id: f.id, action: "dispute", reason },
-                })
+                }).then(markIssueHandled)
               )
             }
           />
         ))}
       </section>
 
+      </div>
+
       {/* ---- trail ---- */}
-      <section className="grid gap-3 md:grid-cols-2">
+      <details className="group/hist surface p-4">
+        <summary className="flex cursor-pointer list-none items-center gap-1.5 text-sm font-semibold text-foreground [&::-webkit-details-marker]:hidden">
+          <ChevronRight className="size-4 transition-transform group-open/hist:rotate-90" aria-hidden />
+          History: decisions and approvals
+          <span className="ml-1 text-xs font-normal text-muted-foreground">
+            ({d.decisions.length + d.approvals.length})
+          </span>
+        </summary>
+      <section className="mt-3 grid gap-3 md:grid-cols-2">
         <TrailCard title="Decisions by creators">
           {d.decisions.length === 0 && <Empty text="No resolves yet." />}
           {d.decisions.map((dec) => (
@@ -385,6 +472,7 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
           ))}
         </TrailCard>
       </section>
+      </details>
 
       <AiLoadingScreen open={checking} title="Re-checking this revision" />
     </div>
@@ -531,6 +619,22 @@ function ReviewBar({
   return (
     <div className="surface p-5">
       <p className="eyebrow mb-2">Reviewer decision</p>
+      {openHigh && (
+        <div role="note" className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-warning-border bg-warning-bg px-3 py-2 text-sm text-warning-fg">
+          <span className="mr-auto">
+            Issues marked <strong>Must fix</strong> are still open, so it can&apos;t be approved yet. Send it back to the
+            writer, or override each one below with a reason.
+          </span>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void onReview("request_changes", reason.trim() || "Please fix the issues marked Must fix.")}
+            className="btn btn-sm btn-secondary"
+          >
+            Send back to the writer
+          </button>
+        </div>
+      )}
       <div className="flex flex-wrap items-end gap-2">
         <label className="grow space-y-1">
           <span className="text-xs font-medium text-foreground-secondary">
@@ -545,8 +649,8 @@ function ReviewBar({
         </label>
         <div className="flex gap-2">
           <button
-            disabled={busy || (openHigh && true)}
-            title={openHigh ? "High-severity findings must be resolved or explicitly overridden first" : ""}
+            disabled={busy || openHigh}
+            title={openHigh ? "Resolve or override the Must fix issues first" : ""}
             onClick={() => void onReview("approve", reason)}
             className="btn btn-primary"
           >
@@ -564,46 +668,6 @@ function ReviewBar({
       <p className="mt-2 text-xs text-muted-foreground">
         Approval signs a Proof of Compliance for this exact revision.
       </p>
-    </div>
-  );
-}
-
-function ActionsBar({
-  busy,
-  onRecheck,
-  onSubmitReview,
-  canSubmit,
-  allowance,
-}: {
-  busy: boolean;
-  onRecheck: () => void;
-  onSubmitReview: (() => void) | null;
-  canSubmit: boolean;
-  allowance: AiAllowance | null;
-}) {
-  return (
-    <div className="flex items-center gap-2">
-      <button
-        disabled={busy}
-        onClick={onRecheck}
-        className="btn btn-secondary"
-      >
-        Re-check
-      </button>
-      {onSubmitReview && canSubmit && (
-        <button
-          disabled={busy}
-          onClick={onSubmitReview}
-          className="btn btn-primary"
-        >
-          Submit for review <span aria-hidden className="btn-arrow">→</span>
-        </button>
-      )}
-      {allowance && (
-        <span className="ml-auto text-xs text-muted-foreground" title="AI-assisted checks reset at 00:00 UTC">
-          AI checks today: {allowance.used} of {allowance.limit} used
-        </span>
-      )}
     </div>
   );
 }
@@ -683,7 +747,12 @@ function locate(content: string, f: Finding): [number, number] | null {
  * their boundaries instead of dropped: each piece knows all findings covering
  * it, overlaps get a deeper marker, and a click jumps to the most severe card.
  */
-function ContentWithSpans({ content, findings }: { content: string; findings: Finding[] }) {
+function ContentWithSpans({ content, findings, numbers }: {
+  content: string;
+  findings: Finding[];
+  numbers?: Map<string, number>;
+}) {
+  const endsAt = new Map<string, number>();
   const located = findings
     .filter((f) => f.status === "open")
     .map((f) => ({ f, at: locate(content, f) }))
@@ -696,8 +765,9 @@ function ContentWithSpans({ content, findings }: { content: string; findings: Fi
       .filter((x) => x.at[0] <= start && x.at[1] >= end)
       .map((x) => x.f)
       .sort((a, b) => (SEVERITY_RANK[a.severity] ?? 1) - (SEVERITY_RANK[b.severity] ?? 1));
-    return { text: content.slice(start, end), covering };
+    return { text: content.slice(start, end), covering, end };
   });
+  for (const x of located) endsAt.set(x.f.id, x.at[1]);
 
   return (
     <p className="whitespace-pre-wrap font-serif text-[17px] leading-[28px] [overflow-wrap:anywhere]">
@@ -710,6 +780,17 @@ function ContentWithSpans({ content, findings }: { content: string; findings: Fi
               title={p.covering.map((f) => `${CATEGORY_LABEL[f.category] ?? f.category} · ${TIER_LABEL[f.tier]}`).join("\n")}
             >
               {p.text}
+              {p.covering
+                .filter((f) => endsAt.get(f.id) === p.end && numbers?.has(f.id))
+                .sort((a, b) => (numbers!.get(a.id) ?? 0) - (numbers!.get(b.id) ?? 0))
+                .map((f) => (
+                  <sup
+                    key={f.id}
+                    className="ml-0.5 rounded-full bg-foreground px-1 font-sans text-[10px] font-bold not-italic text-background"
+                  >
+                    {numbers!.get(f.id)}
+                  </sup>
+                ))}
             </a>
           </mark>
         ) : (
@@ -760,6 +841,24 @@ function RevisionDiff({ before, after, fromNo, toNo }: {
   );
 }
 
+const SOURCE_LABEL: Record<string, string> = {
+  "ai-assisted": "AI-assisted", "in-house": "In-house", agency: "Agency", social: "Social", blog: "Blog",
+  email: "Email", web: "Web", ad: "Ad", print: "Print", press: "Press release",
+};
+function sourceLabel(v: string): string {
+  return SOURCE_LABEL[v] ?? v.charAt(0).toUpperCase() + v.slice(1);
+}
+
+/** The explanation without engine reference codes such as "(rule TERM-04; fact F-001)":
+ *  a newcomer reads the reason; the codes stay under "Why is this flagged?". */
+function plainExplanation(text: string): string {
+  return text
+    .replace(/\s*\((?:rule|fact|facts|source|voice rule|term)\b[^()]*\)/gi, "")
+    .replace(/\s*\((?:[A-Z]{1,6}-\d[\w.\-/]*(?:[;,]\s*)?)+\)/g, "")
+    .replace(/\s+([.,;:])/g, "$1")
+    .trim();
+}
+
 function FindingCard({
   f,
   disabled,
@@ -770,7 +869,9 @@ function FindingCard({
   onAccept,
   onEdit,
   onDispute,
+  index,
 }: {
+  index?: number;
   f: Finding;
   disabled: boolean;
   active: boolean;
@@ -804,11 +905,16 @@ function FindingCard({
       }`}
     >
       <div className="flex flex-wrap items-center gap-2">
+        {index !== undefined && open && (
+          <span
+            aria-label={`Issue ${index}`}
+            className="grid size-6 shrink-0 place-items-center rounded-full bg-foreground text-[11px] font-bold text-background"
+          >
+            {index}
+          </span>
+        )}
         <CategoryBadge category={f.category} />
         <LevelBadge tier={f.tier} severity={f.severity} />
-        <span className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground-secondary">
-          {f.checker}
-        </span>
         {!open && (
           <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] capitalize text-muted-foreground">
             {f.status}
@@ -828,48 +934,55 @@ function FindingCard({
         </p>
       )}
 
-      <p className="mt-2 text-sm leading-relaxed text-foreground-secondary">{f.explanation}</p>
+      <p className="mt-2 text-sm leading-relaxed text-foreground-secondary">{plainExplanation(f.explanation)}</p>
 
-      {f.citations?.length > 0 && (
-        <div className="mt-2 space-y-1">
-          {f.citations.map((c, i) => (
-            <p key={i} className="text-xs text-muted-foreground">
-              <span className="font-mono font-medium text-brand">
-                {({ fact: "Fact ", rule: "Rule ", term: "Term ", pack: "Clause " }[c.type] ?? "") + c.id}
-                {c.version ? ` v${c.version}` : ""}:
-              </span>{" "}
-              {c.type === "pack" && c.ref ? (
-                <>
-                  <span className="font-medium text-foreground">{c.source} {c.ref}</span>{" "}
-                  {c.url && (
-                    <a href={c.url} target="_blank" rel="noreferrer" className="link ml-1">
-                      read the clause
-                    </a>
-                  )}{" "}
-                </>
-              ) : null}
-              {c.excerpt}
-              {c.valid_to ? ` (valid until ${c.valid_to})` : ""}
-              {c.confidential ? " · confidential" : ""}
-              {c.version && c.current_version && c.current_version > c.version ? (
-                <Link
-                  href="/kb"
-                  className="ml-1.5 inline-flex rounded-full bg-warning-bg px-2 py-0.5 text-[11px] font-semibold text-warning-fg no-underline"
-                  title="This finding shows the version it was checked against. Re-check to use the current one."
-                >
-                  Updated since (now v{c.current_version})
-                </Link>
-              ) : null}
-            </p>
-          ))}
-        </div>
-      )}
+      <details className="group/why mt-2">
+        <summary className="flex w-fit cursor-pointer list-none items-center gap-1 text-xs font-medium text-brand hover:underline [&::-webkit-details-marker]:hidden">
+          <ChevronRight className="size-3.5 transition-transform group-open/why:rotate-90" aria-hidden />
+          Why is this flagged?
+        </summary>
+        {f.citations?.length > 0 && (
+          <div className="mt-2 space-y-1">
+            {f.citations.map((c, i) => (
+              <p key={i} className="text-xs text-muted-foreground">
+                <span className="font-mono font-medium text-brand">
+                  {({ fact: "Fact ", rule: "Rule ", term: "Term ", pack: "Clause " }[c.type] ?? "") + c.id}
+                  {c.version ? ` v${c.version}` : ""}:
+                </span>{" "}
+                {c.type === "pack" && c.ref ? (
+                  <>
+                    <span className="font-medium text-foreground">{c.source} {c.ref}</span>{" "}
+                    {c.url && (
+                      <a href={c.url} target="_blank" rel="noreferrer" className="link ml-1">
+                        read the clause
+                      </a>
+                    )}{" "}
+                  </>
+                ) : null}
+                {c.excerpt}
+                {c.valid_to ? ` (valid until ${c.valid_to})` : ""}
+                {c.confidential ? " · confidential" : ""}
+                {c.version && c.current_version && c.current_version > c.version ? (
+                  <Link
+                    href="/kb"
+                    className="ml-1.5 inline-flex rounded-full bg-warning-bg px-2 py-0.5 text-[11px] font-semibold text-warning-fg no-underline"
+                    title="This finding shows the version it was checked against. Re-check to use the current one."
+                  >
+                    Updated since (now v{c.current_version})
+                  </Link>
+                ) : null}
+              </p>
+            ))}
+          </div>
+        )}
 
-      <p className="mt-2 text-[11px] text-muted-foreground">
-        {f.provenance.model
-          ? `checked by ${f.provenance.model}`
-          : "deterministic rule check"} · contract {f.provenance.prompt_version}
-      </p>
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          {f.provenance.model
+            ? `checked by ${f.provenance.model}`
+            : "deterministic rule check"} · contract {f.provenance.prompt_version}
+        </p>
+        <p className="mt-1 text-[11px] text-muted-foreground">Checker: {f.checker}</p>
+      </details>
 
       {active && open && onOverride && (
         <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
