@@ -30,6 +30,7 @@ def main() -> int:
         env = {k: v for k, v in os.environ.items()
                if k not in ("GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY", "OLLAMA_URL")}
         env["CANONRY_ENV_FILE"] = ""
+        env["PYTHONIOENCODING"] = "utf-8"  # suites print ₹, ΔE and quotes; a Windows console must not fail them
         r = subprocess.run(cmd, cwd=HERE, capture_output=True, text=True, encoding="utf-8", errors="replace", env=env)
         ok = r.returncode == 0
         print(f"{'PASS' if ok else 'FAIL'}  {name}  ({time.perf_counter() - t:.1f}s)")
