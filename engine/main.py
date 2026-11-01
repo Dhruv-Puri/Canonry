@@ -6,6 +6,7 @@ is small documents, so checks run inline but through the same job-table seam
 """
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
 import json
@@ -14,6 +15,7 @@ import re
 import hashlib
 import secrets
 import sqlite3
+import traceback
 import zipfile
 from datetime import date, datetime, timedelta, timezone
 from xml.etree import ElementTree
@@ -55,7 +57,10 @@ ROLES = ("creator", "reviewer", "agency", "admin")
 DEMO_MODE = os.environ.get("CANONRY_DEMO_MODE", "false").strip().lower() in ("1", "true", "yes")
 COOKIE_SECURE = os.environ.get("CANONRY_COOKIE_SECURE", "").strip().lower() in ("1", "true", "yes") if DEMO_MODE else os.environ.get("CANONRY_COOKIE_SECURE", "true").strip().lower() in ("1", "true", "yes")
 APP_ORIGINS = {origin.strip().rstrip("/").lower() for origin in os.environ.get("CANONRY_APP_ORIGINS", "http://localhost:3000").split(",") if origin.strip()}
-PUBLIC_WEB_URL = (os.environ.get("CANONRY_PUBLIC_WEB_URL") or "http://localhost:3000").rstrip("/")
+# where /verify links point: the web app; by default the first allowed web origin
+PUBLIC_WEB_URL = (os.environ.get("CANONRY_PUBLIC_WEB_URL")
+                  or (os.environ.get("CANONRY_APP_ORIGINS") or "").split(",")[0].strip()
+                  or "http://localhost:3000").rstrip("/")
 INVITE_TTL_HOURS = 72
 
 
@@ -71,6 +76,25 @@ app = FastAPI(title="Canonry engine", version="0.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=sorted(APP_ORIGINS), allow_credentials=True,
                    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
                    allow_headers=["Content-Type", "Authorization", "X-Canon-Session"])
+
+
+JSON_BODY_LIMIT = 2 * 1024 * 1024  # 200,000 characters of content, even fully \u-escaped, fit
+
+
+@app.middleware("http")
+async def refuse_oversized_json(request: Request, call_next):
+    # a JSON body is parsed whole into memory; refuse a huge one before reading it
+    # (files have their own limits on the upload routes)
+    if (request.headers.get("content-type") or "").lower().startswith("application/json"):
+        try:
+            length = int(request.headers.get("content-length") or 0)
+        except ValueError:
+            length = 0
+        if length > JSON_BODY_LIMIT:
+            return JSONResponse({"detail": {"code": "too_large",
+                                            "message": "This request is larger than the 2 MB limit for JSON."}},
+                                status_code=413)
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -95,7 +119,85 @@ def _startup() -> None:
         _seed_demo_submission()
     _ensure_integration_endpoint()
     _ensure_demo_api_key()
+    _start_publisher_demo()
     _flush_outbox_on_boot()
+
+
+PUBLISHER_NAME = "Demo publisher"
+
+
+def _publisher_enabled() -> bool:
+    setting = (os.environ.get("CANONRY_PUBLISHER_DEMO") or "").strip().lower()
+    return setting in ("1", "true", "yes") if setting else DEMO_MODE
+
+
+def _start_publisher_demo() -> None:
+    """Mount the demo publisher (cms/app.py) at /cms on this engine, with its own
+    API key and a signed webhook endpoint pointing back at this engine. One
+    deployment, no extra service: the publisher still talks to Canonry only
+    through the public API and verifies every webhook signature."""
+    if not _publisher_enabled() or getattr(app.state, "publisher", None):
+        return
+    import importlib.util
+    import httpx
+
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "cms", "app.py")
+    if not os.path.exists(path):
+        return
+    spec = importlib.util.spec_from_file_location("canonry_demo_publisher", path)
+    cms = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cms)  # type: ignore[union-attr]
+
+    # the engine's own public address, for the webhook it sends to the publisher
+    public = (os.environ.get("CANONRY_PUBLIC_ENGINE_URL") or os.environ.get("RENDER_EXTERNAL_URL") or "").rstrip("/")
+    hook_url = f"{public}/cms/webhooks/canonry" if public else ""
+    conn = connect(service=True)
+    try:
+        ws = _ws(conn)
+        # a fresh key each boot (only its hash is stored); earlier ones are revoked
+        conn.execute("UPDATE api_keys SET revoked_at = ? WHERE workspace_id = ? AND name = ? "
+                     "AND created_by = 'system' AND revoked_at IS NULL", (_now(), ws, PUBLISHER_NAME))
+        raw_key = api.create_key(conn, ws, PUBLISHER_NAME, ["check", "read"], "system")["key"]
+        endpoint_id, note = None, ""
+        if hook_url:
+            # an endpoint left from an earlier address stops receiving
+            conn.execute("UPDATE webhook_endpoints SET active = 0 WHERE workspace_id = ? AND description = ? "
+                         "AND created_by = 'system' AND url <> ?", (ws, PUBLISHER_NAME, hook_url))
+            row = conn.execute("SELECT id FROM webhook_endpoints WHERE workspace_id = ? AND url = ?",
+                               (ws, hook_url)).fetchone()
+            if row:
+                endpoint_id = row["id"]
+            else:
+                try:
+                    endpoint_id = webhooks.create_endpoint(conn, ws, hook_url, webhooks.EVENTS,
+                                                           PUBLISHER_NAME, "system")["id"]
+                except ValueError as exc:
+                    note = f"Canonry cannot send webhooks to {hook_url}: {exc}"
+        else:
+            note = ("Canonry does not know its own public address, so it cannot send this publisher its "
+                    "webhooks. Set CANONRY_PUBLIC_ENGINE_URL (engine/run_local.py does this for you).")
+        conn.commit()
+    finally:
+        conn.close()
+
+    def secret() -> str:
+        # read on every webhook, so "Rotate secret" in Canonry keeps working
+        if not endpoint_id:
+            return ""
+        c = connect(service=True)
+        try:
+            row = c.execute("SELECT secret_salt FROM webhook_endpoints WHERE id = ?", (endpoint_id,)).fetchone()
+            return row["secret_salt"] if row else ""
+        finally:
+            c.close()
+
+    cms.configure(api_key=raw_key, webhook_secret=secret,
+                  db_path=os.path.join(os.path.dirname(os.path.abspath(dbmod.DB_PATH)), "cms.db"),
+                  canonry_url=PUBLIC_WEB_URL, transport=httpx.ASGITransport(app=app),
+                  webhooks_ready=bool(endpoint_id), note=note)
+    app.state.publisher = cms
+    app.add_api_route("/cms", lambda: cms.render_home("cms/"), methods=["GET"], include_in_schema=False)
+    app.mount("/cms", cms.app)
 
 
 def _ensure_integration_endpoint() -> None:
@@ -133,6 +235,39 @@ def _flush_outbox_on_boot() -> None:
         webhooks.flush(conn, limit=10, timeout=2.0)
     finally:
         conn.close()
+
+
+def webhook_tick() -> Dict[str, Any]:
+    """One pass over the outbox: every delivery whose retry time has come."""
+    conn = connect(service=True)
+    try:
+        return webhooks.flush(conn, limit=20, timeout=3.0)
+    finally:
+        conn.close()
+
+
+async def _webhook_retry_loop(every: float) -> None:
+    # retries follow their schedule even when no new product event happens
+    while True:
+        await asyncio.sleep(every)
+        try:
+            await run_in_threadpool(webhook_tick)
+        except Exception:  # noqa: BLE001 - a bad receiver must never stop the loop
+            traceback.print_exc()
+
+
+@app.on_event("startup")
+async def _start_webhook_retries() -> None:
+    every = float(os.environ.get("CANONRY_WEBHOOK_RETRY_SECONDS") or 15)
+    if every > 0:
+        app.state.webhook_retries = asyncio.create_task(_webhook_retry_loop(every))
+
+
+@app.on_event("shutdown")
+async def _stop_webhook_retries() -> None:
+    task = getattr(app.state, "webhook_retries", None)
+    if task:
+        task.cancel()
 
 
 def _ensure_production_workspace() -> None:
@@ -1444,20 +1579,26 @@ def submit_review(req: Request, sid: str):
         user = _user(req, conn)
         _lock_submission(conn, sid)  # a double click submits once
         _visible_sub(conn, user, sid, "submit")
-        risk = compute_risk(conn, sid)
-        status = "Exempt-approved" if risk["risk"] == "exempt" else "In review"
-        conn.execute("UPDATE submissions SET status=?, risk=?, router_note=? WHERE id=?",
-                     (status, risk["risk"], risk["note"], sid))
-        if risk["risk"] == "exempt":
-            conn.execute(
-                "INSERT INTO approvals (id, submission_id, action, reason, reviewer, at) VALUES (?,?,?,?,?,?)",
-                (gen_id("app"), sid, "exempt_approve", risk["note"], "exemption-policy:" + user["email"], _now()),
-            )
-        audit(conn, user["email"], "submit_review", f"{sid} risk={risk['risk']}")
+        result = _send_to_review(conn, sid, user["email"])
         conn.commit()
-        return {"status": status, **risk}
+        return result
     finally:
         conn.close()
+
+
+def _send_to_review(conn, sid: str, actor: str) -> Dict[str, Any]:
+    """Route a checked item into review (or the exemption lane). Caller commits."""
+    risk = compute_risk(conn, sid)
+    status = "Exempt-approved" if risk["risk"] == "exempt" else "In review"
+    conn.execute("UPDATE submissions SET status=?, risk=?, router_note=? WHERE id=?",
+                 (status, risk["risk"], risk["note"], sid))
+    if risk["risk"] == "exempt":
+        conn.execute(
+            "INSERT INTO approvals (id, submission_id, action, reason, reviewer, at) VALUES (?,?,?,?,?,?)",
+            (gen_id("app"), sid, "exempt_approve", risk["note"], "exemption-policy:" + actor, _now()),
+        )
+    audit(conn, actor, "submit_review", f"{sid} risk={risk['risk']}")
+    return {"status": status, **risk}
 
 
 @app.post("/submissions/{sid}/review")
@@ -1700,7 +1841,9 @@ def _api_submission(conn, sub) -> Dict[str, Any]:
         "id": sid, "title": sub["title"], "channel": sub["channel"],
         "source_type": sub["source_type"], "status": sub["status"], "risk": sub["risk"],
         "created_at": sub["created_at"],
-        "latest_revision": {k: rev[k] for k in ("id", "revision_no", "created_at", "source_kind", "asset_id")} if rev else None,
+        # `content` is the text that was checked (for a file, its extracted text);
+        # once signed it is the approved text, whose SHA-256 is poc.content_sha256
+        "latest_revision": {k: rev[k] for k in ("id", "revision_no", "created_at", "source_kind", "asset_id", "content")} if rev else None,
         "findings": findings,
         "approvals": approvals,
         "poc": ({"id": poc["id"], "content_sha256": poc["content_sha256"], "content_kind": poc["content_kind"],
@@ -1717,6 +1860,9 @@ class ApiCheckIn(BaseModel):
     channel: str
     source_type: str = "in-house"
     content: str = Field(max_length=200_000)
+    # true: after the check, route it straight into the review queue (a CMS
+    # that holds a post until a reviewer signs it)
+    submit_for_review: bool = False
 
 
 @app.post("/api/v1/checks")
@@ -1736,28 +1882,35 @@ def api_check(req: Request, body: ApiCheckIn):
         endpoint = "POST /api/v1/checks"
         payload_hash = api.request_hash(body.model_dump())
         key_header = api.idempotency_key(req)
-        cached = api.lookup_idempotent(conn, ws, key_header, endpoint, payload_hash)
+        cached = api.claim_idempotent(conn, ws, key_header, endpoint, payload_hash)
         if cached:
             return JSONResponse(cached["body"], status_code=cached["status"], headers=_api_headers())
-        sid = gen_id("sub")
-        conn.execute(
-            "INSERT INTO submissions (id, workspace_id, title, channel, source_type, created_by, status, created_at) "
-            "VALUES (?,?,?,?,?,?,'Draft',?)",
-            (sid, ws, body.title, body.channel, body.source_type[:40] or "in-house",
-             "api:" + key["name"], _now()),
-        )
-        audit(conn, "api:" + key["name"], "api_check", f"{sid}: {body.title}")
-        result = run_check_for_submission(conn, sid, body.content, None)
-        response = {
-            "submission_id": sid, "revision_id": result["revision_id"], "status": "Checked",
-            "contract_version": contract.CONTRACT_VERSION,
-            "findings": result.get("findings", []), "discarded": result.get("discarded", 0),
-            "ai_pending": result.get("ai_pending", False), "ai_reason": result.get("ai_reason"),
-            "links": {"self": f"/api/v1/submissions/{sid}"},
-        }
-        conn.commit()
-        api.store_idempotent(conn, ws, key_header, endpoint, payload_hash, 200, response)
-        conn.commit()
+        try:
+            sid = gen_id("sub")
+            conn.execute(
+                "INSERT INTO submissions (id, workspace_id, title, channel, source_type, created_by, status, created_at) "
+                "VALUES (?,?,?,?,?,?,'Draft',?)",
+                (sid, ws, body.title, body.channel, body.source_type[:40] or "in-house",
+                 "api:" + key["name"], _now()),
+            )
+            audit(conn, "api:" + key["name"], "api_check", f"{sid}: {body.title}")
+            result = run_check_for_submission(conn, sid, body.content, None)
+            status = "Checked"
+            if body.submit_for_review:
+                status = _send_to_review(conn, sid, "api:" + key["name"])["status"]
+            response = {
+                "submission_id": sid, "revision_id": result["revision_id"], "status": status,
+                "contract_version": contract.CONTRACT_VERSION,
+                "findings": result.get("findings", []), "discarded": result.get("discarded", 0),
+                "ai_pending": result.get("ai_pending", False), "ai_reason": result.get("ai_reason"),
+                "links": {"self": f"/api/v1/submissions/{sid}"},
+            }
+            # the answer is stored in the same transaction as the submission
+            api.store_idempotent(conn, ws, key_header, endpoint, payload_hash, 200, response)
+            conn.commit()
+        except BaseException:
+            api.release_idempotent(conn, ws, key_header, endpoint)
+            raise
         return JSONResponse(response, headers=_api_headers())
     finally:
         conn.close()
@@ -1781,32 +1934,35 @@ async def api_upload(req: Request, title: str, channel: str, filename: str,
                                              "source_type": source_type, "alt_text": alt_text,
                                              "sha256": hashlib.sha256(data).hexdigest()})
             key_header = api.idempotency_key(req)
-            cached = api.lookup_idempotent(conn, ws, key_header, endpoint, payload_hash)
+            cached = api.claim_idempotent(conn, ws, key_header, endpoint, payload_hash)
             if cached:
                 return JSONResponse(cached["body"], status_code=cached["status"], headers=_api_headers())
-            sid = gen_id("sub")
-            conn.execute(
-                "INSERT INTO submissions (id, workspace_id, title, channel, source_type, created_by, status, created_at) "
-                "VALUES (?,?,?,?,?,?,'Draft',?)",
-                (sid, ws, " ".join(title.split())[:240], channel, source_type[:40] or "in-house",
-                 "api:" + key["name"], _now()),
-            )
             try:
-                asset = assets.create_asset(conn, ws, sid, filename, data, alt_text, "api:" + key["name"])
-            except (assets.UploadError, documents.DocumentError, images.ImageError) as exc:
-                raise HTTPException(getattr(exc, "status", 422), {"code": "bad_upload", "message": str(exc)}) from exc
-            audit(conn, "api:" + key["name"], "api_upload", f"{sid}: {asset['filename']}")
-            result = run_check_for_submission(conn, sid, asset["extracted_text"], None, asset=asset)
-            response = {
-                "submission_id": sid, "revision_id": result["revision_id"], "status": "Checked",
-                "contract_version": contract.CONTRACT_VERSION,
-                "asset": {k: asset[k] for k in ("id", "kind", "filename", "size_bytes", "width", "height", "page_count")},
-                "findings": result.get("findings", []), "ai_pending": result.get("ai_pending", False),
-                "links": {"self": f"/api/v1/submissions/{sid}", "file": f"/api/v1/assets/{asset['id']}"},
-            }
-            conn.commit()
-            api.store_idempotent(conn, ws, key_header, endpoint, payload_hash, 200, response)
-            conn.commit()
+                sid = gen_id("sub")
+                conn.execute(
+                    "INSERT INTO submissions (id, workspace_id, title, channel, source_type, created_by, status, created_at) "
+                    "VALUES (?,?,?,?,?,?,'Draft',?)",
+                    (sid, ws, " ".join(title.split())[:240], channel, source_type[:40] or "in-house",
+                     "api:" + key["name"], _now()),
+                )
+                try:
+                    asset = assets.create_asset(conn, ws, sid, filename, data, alt_text, "api:" + key["name"])
+                except (assets.UploadError, documents.DocumentError, images.ImageError) as exc:
+                    raise HTTPException(getattr(exc, "status", 422), {"code": "bad_upload", "message": str(exc)}) from exc
+                audit(conn, "api:" + key["name"], "api_upload", f"{sid}: {asset['filename']}")
+                result = run_check_for_submission(conn, sid, asset["extracted_text"], None, asset=asset)
+                response = {
+                    "submission_id": sid, "revision_id": result["revision_id"], "status": "Checked",
+                    "contract_version": contract.CONTRACT_VERSION,
+                    "asset": {k: asset[k] for k in ("id", "kind", "filename", "size_bytes", "width", "height", "page_count")},
+                    "findings": result.get("findings", []), "ai_pending": result.get("ai_pending", False),
+                    "links": {"self": f"/api/v1/submissions/{sid}", "file": f"/api/v1/assets/{asset['id']}"},
+                }
+                api.store_idempotent(conn, ws, key_header, endpoint, payload_hash, 200, response)
+                conn.commit()
+            except BaseException:
+                api.release_idempotent(conn, ws, key_header, endpoint)
+                raise
             return JSONResponse(response, headers=_api_headers())
         finally:
             conn.close()
@@ -1853,6 +2009,25 @@ def api_proof(req: Request, poc_id: str):
         if not row:
             raise HTTPException(404, {"code": "not_found", "message": "Proof not found in this workspace."})
         return JSONResponse(signing.verify(conn, poc_id), headers=_api_headers())
+    finally:
+        conn.close()
+
+
+@app.get("/api/v1/assets/{asset_id}")
+def api_asset(req: Request, asset_id: str):
+    """The uploaded file behind a submission (the `links.file` of an upload)."""
+    conn = connect()
+    try:
+        key = api.authenticate(req, conn, "read")
+        row = assets.get_asset(conn, asset_id)
+        sub = conn.execute("SELECT id FROM submissions WHERE id = ? AND workspace_id = ?",
+                           (row["submission_id"], key["workspace_id"])).fetchone() if row else None
+        raw = assets.asset_bytes(conn, asset_id) if sub else None
+        if raw is None:
+            raise HTTPException(404, {"code": "not_found", "message": "File not found in this workspace."})
+        return Response(content=raw, media_type=row["mime"],
+                        headers={**_api_headers(), "Content-Disposition": _disposition("attachment", row["filename"]),
+                                 "Cache-Control": "private, no-store"})
     finally:
         conn.close()
 
@@ -1976,6 +2151,7 @@ def webhook_endpoints_rotate(req: Request, endpoint_id: str):
             rotated = webhooks.rotate_secret(conn, _ws(conn), endpoint_id)
         except ValueError as exc:
             raise HTTPException(404, str(exc)) from exc
+        audit(conn, user["email"], "webhook_rotate", endpoint_id)
         conn.commit()
         return rotated
     finally:
@@ -1993,6 +2169,7 @@ def webhook_endpoints_disable(req: Request, endpoint_id: str):
             webhooks.disable_endpoint(conn, _ws(conn), endpoint_id)
         except ValueError as exc:
             raise HTTPException(404, str(exc)) from exc
+        audit(conn, user["email"], "webhook_disable", endpoint_id)
         conn.commit()
         return {"ok": True}
     finally:
@@ -2065,7 +2242,30 @@ def get_asset_file(req: Request, asset_id: str):
 def compliance_packs(req: Request):
     conn = connect()
     try:
+        _user(req, conn)
+        return compliance.pack_overview(conn, _ws(conn))
+    finally:
+        conn.close()
+
+
+class PackSwitchIn(BaseModel):
+    active: bool
+
+
+@app.post("/compliance/packs/{pack_id}")
+def compliance_pack_switch(req: Request, pack_id: str, body: PackSwitchIn):
+    _require_same_origin(req)
+    conn = connect()
+    try:
         user = _user(req, conn)
+        if user["role"] != "admin":
+            raise HTTPException(403, "Only a workspace administrator can switch compliance packs.")
+        try:
+            compliance.set_pack_active(conn, _ws(conn), pack_id, body.active, user["email"])
+        except KeyError as exc:
+            raise HTTPException(404, "That compliance pack is not installed.") from exc
+        audit(conn, user["email"], "pack_enable" if body.active else "pack_disable", pack_id)
+        conn.commit()
         return compliance.pack_overview(conn, _ws(conn))
     finally:
         conn.close()

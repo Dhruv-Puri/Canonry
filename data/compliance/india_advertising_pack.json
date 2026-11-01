@@ -1,7 +1,7 @@
 {
   "id": "in_advertising",
   "name": "India advertising compliance",
-  "version": "2022.1",
+  "version": "2022.2",
   "source": "CCPA Guidelines for Prevention of Misleading Advertisements and Endorsements for Misleading Advertisements, 2022; ASCI Code for Self-Regulation in Advertising",
   "description": "Consumer-protection and self-regulation rules for advertising in India. Deterministic triggers decide a finding; retrieved clause text supplies the legal basis and the exact reference.",
   "url": "https://consumeraffairs.nic.in/sites/default/files/Guidelines%20for%20Prevention%20of%20Misleading%20Advertisements%20and%20Endorsements%20for%20Misleading%20Advertisements%2C%202022.pdf",
@@ -16,7 +16,7 @@
       "severity": "medium",
       "triggers": [
         {
-          "pattern": "\\b(?:only\\s+\\d+|first\\s+\\d+|limited\\s+(?:stock|seats|spots|quantities)|today\\s+only|while\\s+(?:stocks?|supplies)\\s+last)\\b",
+          "pattern": "\\b(?:only\\s+\\d+\\s+(?:\\w+\\s+)?(?:left|remaining|available|seats?|spots?|slots?|units?|pieces?|items?|places?|tickets?)|first\\s+\\d+\\s+(?:customers?|buyers?|users?|teams?|sign-?ups?|orders?|people|subscribers?|registrations?)|limited\\s+(?:stock|seats|spots|quantities)|today\\s+only|while\\s+(?:stocks?|supplies)\\s+last)\\b",
           "category": "bait_advertising",
           "tier": "likely",
           "severity": "medium",
@@ -63,7 +63,7 @@
       "severity": "high",
       "triggers": [
         {
-          "pattern": "\\bfree\\b(?=[^.]{0,120}(?:\\bpay(?:able|\\s+only)?\\b|\\bprice\\b|\\bfee\\b|\\bsubscription\\b|\u20b9|\\brs\\.?\\s*\\d|\\binr\\b))",
+          "pattern": "(?<![-\u2011])(?<!feel\\s)\\bfree\\b(?![-\u2011])(?=[^.]{0,120}(?:\\bpay(?:able|\\s+only)?\\b|\\bprice\\b|\\bfee\\b|\\bsubscription\\b|\u20b9|\\brs\\.?\\s*\\d|\\binr\\b))",
           "category": "free_claim",
           "tier": "definite",
           "severity": "high",
@@ -194,7 +194,7 @@
       "severity": "medium",
       "triggers": [
         {
-          "pattern": "\\b(?:win|winner|prize|lottery|giveaway|sweepstake)\\b[^.]{0,120}(?!\\b(?:terms|conditions|rules)\\b)",
+          "pattern": "\\b(?:win|winners?)\\b[^.]{0,60}?\\b(?:prizes?|gifts?|vouchers?|cash|trips?|iphones?|rewards?|hampers?)\\b|\\b(?:prizes?|lottery|lotteries|giveaways?|sweepstakes?|lucky\\s+draws?|contests?)\\b",
           "category": "missing_disclosure",
           "tier": "likely",
           "severity": "medium",
@@ -233,7 +233,7 @@
       "severity": "medium",
       "triggers": [
         {
-          "pattern": "\\b(?:influencer|collab(?:oration)?|ambassador|gifted|partner(?:ed|ship)?)\\b(?![^.]{0,80}\\b(?:#ad|#sponsored|#paid|paid\\s+partnership|advertisement)\\b)",
+          "pattern": "\\b(?:influencers?|collab(?:oration)?|ambassadors?|gifted)\\b(?![^.]{0,80}(?:#(?:ad|sponsored|paid)\\b|\\bpaid\\s+partnership\\b|\\badvertisement\\b))",
           "category": "endorsement_disclosure",
           "tier": "likely",
           "severity": "medium",
@@ -291,7 +291,7 @@
       "severity": "medium",
       "triggers": [
         {
-          "pattern": "\\b(?:better|cheaper|faster|superior|more\\s+accurate)\\s+than\\s+(?:[A-Z][\\w&.-]+|[a-z]+\\s+competitors?)\\b",
+          "pattern": "\\b(?:better|cheaper|faster|superior|more\\s+accurate)\\s+than\\s+(?:(?-i:[A-Z])[\\w&.-]+|[a-z]+\\s+competitors?)\\b",
           "category": "comparative_advertising",
           "tier": "likely",
           "severity": "medium",

@@ -110,9 +110,9 @@ def ensure_pack(conn, workspace_id: str, pack_path: str = PACK_FILE) -> Dict[str
         installed += 1
     conn.execute(
         "INSERT INTO workspace_packs (workspace_id, pack_id, active, activated_by, activated_at) "
-        "VALUES (?,?,1,'system',?) ON CONFLICT (workspace_id, pack_id) DO UPDATE SET active=1",
+        "VALUES (?,?,1,'system',?) ON CONFLICT (workspace_id, pack_id) DO NOTHING",
         (workspace_id, pack["id"], _now()),
-    )
+    )  # an upgrade never overrides an admin who switched the pack off
     return {"pack_id": pack["id"], "version": pack["version"], "installed_clauses": installed}
 
 
@@ -236,11 +236,15 @@ def check(ctx, text: str) -> List[Dict[str, Any]]:
     if not clauses:
         return []
     findings: List[Dict[str, Any]] = []
-    for s_start, s_end, sentence in checkers._sentences(text):
+    sentences = list(checkers._sentences(text))
+    for index, (s_start, s_end, sentence) in enumerate(sentences):
         candidates = _candidate_clauses(ctx.conn, ctx.ws, sentence, clauses)
         best_by_issue: Dict[Tuple[str, str], Dict[str, Any]] = {}
+        # a qualifier often follows in the next sentence ("Win a prize? See full
+        # terms at ..."), so exemptions look one sentence ahead
+        following = sentences[index + 1][2] if index + 1 < len(sentences) else ""
         for clause in candidates:
-            if _exempt(clause, sentence):
+            if _exempt(clause, sentence + " " + following):
                 continue
             for trigger in clause.get("triggers", []):
                 pattern = trigger.get("pattern") or ""
@@ -270,6 +274,18 @@ def check(ctx, text: str) -> List[Dict[str, Any]]:
 
 def _tier_rank(tier: str) -> int:
     return {"consider": 0, "likely": 1, "definite": 2}.get(tier, 0)
+
+
+def set_pack_active(conn, workspace_id: str, pack_id: str, active: bool, by: str) -> None:
+    """Switch a pack on or off for one workspace. Off means its checks stop, not
+    just its display; findings already stored keep their citations."""
+    if not conn.execute("SELECT 1 FROM compliance_packs WHERE id = ?", (pack_id,)).fetchone():
+        raise KeyError(pack_id)
+    conn.execute(
+        "INSERT INTO workspace_packs (workspace_id, pack_id, active, activated_by, activated_at) "
+        "VALUES (?,?,?,?,?) ON CONFLICT (workspace_id, pack_id) DO UPDATE SET active = ?, "
+        "activated_by = ?, activated_at = ?",
+        (workspace_id, pack_id, int(active), by, _now(), int(active), by, _now()))
 
 
 def pack_overview(conn, workspace_id: str) -> Dict[str, Any]:
@@ -330,7 +346,10 @@ def evaluate(conn, workspace_id: str) -> Dict[str, Any]:
                     definite_tp += 1
         for ref in definite_found - expected:
             definite_fp += 1
-            false_alarms.append({"text": row["text"], "wrong": ref})
+        for f in found:
+            for c in f["citations"]:
+                if c["ref"] not in expected:
+                    false_alarms.append({"text": row["text"], "wrong": c["ref"], "tier": f["tier"]})
     precision = definite_tp / (definite_tp + definite_fp) if (definite_tp + definite_fp) else 1.0
     recall = caught / expected_total if expected_total else 1.0
     return {

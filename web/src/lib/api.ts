@@ -208,6 +208,9 @@ export const ENGINE_UNREACHABLE =
 export function engineErrorMessage(status: number, data: unknown): string {
   const d = (data ?? {}) as { detail?: unknown; message?: unknown; __text?: unknown };
   if (typeof d.detail === "string" && d.__text === undefined) return d.detail;
+  // structured errors (the public API) carry { detail: { code, message } }
+  const nested = d.detail && typeof d.detail === "object" ? (d.detail as { message?: unknown }).message : undefined;
+  if (typeof nested === "string") return nested;
   if (typeof d.message === "string") return d.message;
   if (status >= 500 || status === 0) return ENGINE_UNREACHABLE;
   if (status === 404) return "That item was not found. It may have been removed, or the link is wrong.";

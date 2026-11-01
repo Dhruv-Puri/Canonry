@@ -61,7 +61,8 @@ def validate_url(url: str) -> str:
         infos = socket.getaddrinfo(host, parsed.port or 443, proto=socket.IPPROTO_TCP)
         for info in infos:
             address = ipaddress.ip_address(info[4][0])
-            if address.is_private or address.is_loopback or address.is_link_local or address.is_reserved:
+            # not is_global also covers shared (100.64/10) and documentation ranges
+            if not address.is_global or address.is_multicast:
                 raise ValueError("Webhook URLs cannot point at a private or reserved address.")
     except socket.gaierror:
         raise ValueError("That webhook host could not be resolved.")
@@ -94,7 +95,7 @@ def create_endpoint(conn, workspace_id: str, url: str, events: Sequence[str],
     )
     return {"id": endpoint_id, "url": url, "events": chosen, "description": description,
             "secret": secret, "created_at": _now(),
-            "warning": "Copy the signing secret now. It is stored encrypted-at-rest only as a server secret in this prototype."}
+            "warning": "Copy the signing secret now. It is not shown again."}
 
 
 def ensure_endpoint(conn, workspace_id: str, url: str, secret: str,
@@ -227,6 +228,12 @@ def deliver(conn, delivery_id: str, timeout: float = 4.0) -> Dict[str, Any]:
     }
     attempts = int(row["attempts"] or 0) + 1
     try:
+        # re-checked at every attempt: a host that resolved to a public address
+        # when the endpoint was added may point inside the network now
+        validate_url(row["url"])
+    except ValueError as exc:
+        return _attempt_failed(conn, delivery_id, attempts, None, f"Not sent: {exc}")
+    try:
         with httpx.Client(timeout=timeout, follow_redirects=False) as client:
             resp = client.post(row["url"], content=body, headers=headers)
         if 200 <= resp.status_code < 300:
@@ -236,15 +243,19 @@ def deliver(conn, delivery_id: str, timeout: float = 4.0) -> Dict[str, Any]:
                 (attempts, resp.status_code, _now(), delivery_id))
             conn.commit()
             return {"status": "delivered", "http_status": resp.status_code, "attempts": attempts}
-        error = f"HTTP {resp.status_code}: {resp.text[:240]}"
+        return _attempt_failed(conn, delivery_id, attempts, resp.status_code,
+                               f"HTTP {resp.status_code}: {resp.text[:240]}")
     except Exception as exc:
-        error = f"{type(exc).__name__}: {str(exc)[:240]}"
+        return _attempt_failed(conn, delivery_id, attempts, None, f"{type(exc).__name__}: {str(exc)[:240]}")
+
+
+def _attempt_failed(conn, delivery_id: str, attempts: int, http_status: Optional[int],
+                    error: str) -> Dict[str, Any]:
     next_at = _schedule_retry(attempts)
     conn.execute(
         "UPDATE webhook_deliveries SET status=?, attempts=?, last_status=?, last_error=?, "
         "next_attempt_at=?, locked_at=NULL WHERE id=?",
-        ("pending" if next_at else "failed", attempts,
-         getattr(locals().get("resp"), "status_code", None), error, next_at, delivery_id))
+        ("pending" if next_at else "failed", attempts, http_status, error, next_at, delivery_id))
     conn.commit()
     return {"status": "retry" if next_at else "failed", "error": error, "attempts": attempts}
 

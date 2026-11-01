@@ -58,6 +58,38 @@ try:
     safe = compliance.check(ctx, "Start a free trial with no credit card required.")
     expect(not safe, "compliant free-trial copy produces no finding")
 
+    # ordinary marketing copy must not raise a legal warning at any tier
+    ordinary = [
+        "Our partner network spans 40 cities.",
+        "Become a partner and grow with us.",
+        "We partnered with IIT Delhi on the research.",
+        "Setup takes only 5 minutes.",
+        "Your first 3 reports are on us.",
+        "Faster than ever, simpler than before.",
+        "Better than yesterday, every day.",
+        "Feel free to ask about the subscription that fits your team.",
+        "Call our toll-free number to renew your subscription.",
+        "Our customers win back 6 hours a week.",
+        "Help your sales team win more deals with Pulse.",
+        "The winner of our hackathon will be announced on Friday.",
+        "Our ambassador loves the new dashboards #ad",
+        "Quillmark Pulse 2.0 is an analytics platform trusted by 2,300+ teams. Plans start at ₹1,299/month.",
+    ]
+    for text in ordinary:
+        out = compliance.check(ctx, text)
+        expect(not out, f"no legal warning on ordinary copy: {text!r} "
+                        f"({[(f['citations'][0]['ref'], f['span']['text']) for f in out]})")
+    # ...while the real thing is still caught
+    caught = {
+        "Pulse is faster than Excel for pivot tables.": "Chapter IV, §1",
+        "Only 3 units left at this price!": "Section 3",
+        "Enter our lucky draw to win an iPhone.": "Section 12(f)",
+        "Our brand ambassador loves the app.": "Section 14",
+    }
+    for text, ref in caught.items():
+        refs = [f["citations"][0]["ref"] for f in compliance.check(ctx, text)]
+        expect(ref in refs, f"{ref} still catches {text!r} ({refs})")
+
     # switching the pack off switches its checks off, not just its display
     conn.execute("UPDATE workspace_packs SET active = 0 WHERE workspace_id = ? AND pack_id = 'in_advertising'", (ws,))
     conn.commit()
@@ -72,7 +104,7 @@ try:
     expect(report["precision_definite"] >= 0.95,
            f"Definite precision meets 95% ({report['precision_definite']})")
     expect(report["recall"] >= 0.85, f"recall meets 85% ({report['recall']})")
-    expect(not report["false_alarms"], "no false legal alarms in the eval set")
+    expect(not report["false_alarms"], f"no false legal alarms in the eval set, at any tier ({report['false_alarms']})")
 
     # the public API response carries the same contract-v2 citation
     key = api.create_key(conn, ws, "compliance-test", ["check", "read"], "test")["key"]
@@ -91,6 +123,34 @@ with TestClient(main.app) as client:
            f"API finding carries the clause reference ({hits[:1]})")
     cited = client.get("/api/v1/compliance/packs", headers={"Authorization": f"Bearer {key}"}).json()
     expect(cited["packs"] and cited["packs"][0]["clauses"] >= 13, "pack overview reports installed clauses")
+
+    # the pack switch: an admin turns the pack off and on from the settings page
+    def login(email):
+        c = TestClient(main.app, raise_server_exceptions=False)
+        assert c.post("/login", json={"email": email}).status_code == 200
+        return c
+
+    admin, creator = login("karan@quillmark"), login("arjun@quillmark")
+    r = creator.post("/compliance/packs/in_advertising", json={"active": False})
+    expect(r.status_code == 403, f"only an admin switches a pack ({r.status_code})")
+    r = admin.post("/compliance/packs/no_such_pack", json={"active": False})
+    expect(r.status_code == 404, f"unknown pack: 404 ({r.status_code})")
+    r = admin.post("/compliance/packs/in_advertising", json={"active": False})
+    expect(r.status_code == 200 and not r.json()["packs"][0]["workspace_active"], f"admin switches the pack off ({r.status_code})")
+    seed()  # what every restart runs
+    expect(not admin.get("/compliance/packs").json()["packs"][0]["workspace_active"],
+           "a restart keeps the admin's choice")
+    r = client.post("/api/v1/checks", headers={"Authorization": f"Bearer {key}"},
+                    json={"title": "Off", "channel": "web", "content": "Get a free trial at just ₹999 per month."})
+    expect(not [f for f in r.json()["findings"] if f["checker"] == "compliance"], "with the pack off, no legal findings")
+    r = admin.post("/compliance/packs/in_advertising", json={"active": True})
+    expect(r.status_code == 200 and r.json()["packs"][0]["workspace_active"], "admin switches the pack back on")
+    r = client.post("/api/v1/checks", headers={"Authorization": f"Bearer {key}"},
+                    json={"title": "On", "channel": "web", "content": "Get a free trial at just ₹999 per month."})
+    expect([f for f in r.json()["findings"] if f["checker"] == "compliance"], "with the pack on, the finding is back")
+    with connect() as c:
+        actions = [row["action"] for row in c.execute("SELECT action FROM audit_log").fetchall()]
+    expect("pack_disable" in actions and "pack_enable" in actions, "the switch is in the audit trail")
 
 print()
 if failures:
