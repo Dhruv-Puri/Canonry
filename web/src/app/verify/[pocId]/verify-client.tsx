@@ -3,6 +3,21 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { SealGraphic } from "@/components/brand";
+import { ENGINE_UNREACHABLE, engineErrorMessage, safeJson } from "@/lib/api";
+
+/** Fetch an engine answer as JSON; plain words for every failure (engine asleep, proxy error page). */
+async function engineCall<T>(path: string, init?: RequestInit, on422?: string): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`/engine${path}`, { cache: "no-store", ...init });
+  } catch {
+    throw new Error(ENGINE_UNREACHABLE);
+  }
+  const data = safeJson(await res.text().catch(() => ""));
+  if (!res.ok) throw new Error(res.status === 422 && on422 ? on422 : engineErrorMessage(res.status, data));
+  if ((data as { __text?: boolean } | null)?.__text) throw new Error(ENGINE_UNREACHABLE);
+  return data as T;
+}
 
 type VerifyResult = {
   status: "verified" | "modified" | "unknown" | "signature_invalid";
@@ -50,8 +65,7 @@ export function VerifyClient({ pocId }: { pocId: string }) {
   useEffect(() => {
     void (async () => {
       try {
-        const res = await fetch(`/engine/verify/${pocId}`, { cache: "no-store" });
-        setR((await res.json()) as VerifyResult);
+        setR(await engineCall<VerifyResult>(`/verify/${encodeURIComponent(pocId)}`));
       } catch (e) {
         setErr(e instanceof Error ? e.message : String(e));
       }
@@ -62,13 +76,11 @@ export function VerifyClient({ pocId }: { pocId: string }) {
     setChecking(true);
     setErr(null);
     try {
-      const res = await fetch(`/engine/verify/${pocId}`, {
+      setR(await engineCall<VerifyResult>(`/verify/${encodeURIComponent(pocId)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: text }),
-      });
-      if (!res.ok) throw new Error(res.status === 422 ? "That text is too long to check." : `Check failed (${res.status}).`);
-      setR((await res.json()) as VerifyResult);
+      }, "That text is too long to check (the limit is 200,000 characters)."));
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -81,14 +93,12 @@ export function VerifyClient({ pocId }: { pocId: string }) {
     setFileChecking(true);
     setErr(null);
     try {
-      const res = await fetch(`/engine/verify/${pocId}/file`, {
+      if (file.size === 0) throw new Error("This file is empty (0 bytes). Choose the published file again.");
+      setFileResult(await engineCall<VerifyResult>(`/verify/${encodeURIComponent(pocId)}/file`, {
         method: "POST",
         headers: { "Content-Type": file.type || "application/octet-stream" },
         body: file,
-      });
-      const data = (await res.json()) as VerifyResult & { detail?: string };
-      if (!res.ok) throw new Error(typeof data.detail === "string" ? data.detail : `Check failed (${res.status}).`);
-      setFileResult(data);
+      }));
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -109,7 +119,7 @@ export function VerifyClient({ pocId }: { pocId: string }) {
         </p>
       </div>
 
-      {err && <p className="rounded-md border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger-fg">{err}</p>}
+      {err && <p role="alert" className="rounded-md border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger-fg">{err}</p>}
 
       {!r && !err && <p className="text-sm text-muted-foreground">Checking…</p>}
 
@@ -122,7 +132,14 @@ export function VerifyClient({ pocId }: { pocId: string }) {
             <p className="mt-1.5 font-mono text-xs opacity-80">POC {pocId}</p>
           </div>
 
-          {r.content_kind === "file" ? (
+          {r.status === "unknown" && !r.record ? (
+            <div className="surface space-y-2 p-6 text-sm text-foreground-secondary">
+              <p>
+                Canonry has no approval with this id. Check that the link was copied in full. Demo data, and the
+                signing key, reset when the free server restarts, so an older demo link can stop working.
+              </p>
+            </div>
+          ) : r.content_kind === "file" ? (
             <div className="surface space-y-3 p-6">
               <h2 className="section-title">Check the published file</h2>
               <p className="text-sm text-muted-foreground">

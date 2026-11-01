@@ -396,6 +396,28 @@ def _ws(conn: sqlite3.Connection) -> str:
     return row["id"]
 
 
+def _lock_submission(conn, sid: str) -> None:
+    """Serialise writers on one submission: a double click or a second tab waits
+    for the first request to commit, then reads the status and revision it left.
+    SQLite takes the database write lock now; Postgres locks the row."""
+    if dbmod.dialect() == "sqlite":
+        if not conn.in_transaction:
+            conn.execute("BEGIN IMMEDIATE")
+    else:
+        conn.execute("SELECT id FROM submissions WHERE id = ? FOR UPDATE", (sid,))
+
+
+STALE_REVISION = ("This draft has changed since you opened it (in another tab or by someone else). "
+                  "Reload the page to see the latest version, then try again.")
+
+
+def _require_latest_revision(conn, sid: str, revision_id: str) -> None:
+    latest = conn.execute(
+        "SELECT id FROM revisions WHERE submission_id=? ORDER BY revision_no DESC LIMIT 1", (sid,)).fetchone()
+    if latest and latest["id"] != revision_id:
+        raise HTTPException(409, STALE_REVISION)
+
+
 def _visible_sub(conn: sqlite3.Connection, user, sid: str, action: Optional[str] = None):
     """The submission, if this user may see it and (given an action) its status
     allows that action; otherwise 404 (no hint it exists) or 409 (with why)."""
@@ -1074,6 +1096,8 @@ def get_terms(req: Request):
 
 # where content is published; drives routing and channel rules (e.g. social word limits)
 CHANNELS = ("social", "web", "blog", "email", "sales")
+# a long brochure is ~20,000 characters; far beyond that is a paste accident
+MAX_DRAFT_CHARS = 100_000
 
 
 class SubmitIn(BaseModel):
@@ -1088,8 +1112,13 @@ def submit(req: Request, body: SubmitIn):
     _require_same_origin(req)
     if not body.content.strip():
         raise HTTPException(422, "Write something to check: the draft is empty.")
-    if not body.title.strip():
+    if len(body.content) > MAX_DRAFT_CHARS:
+        raise HTTPException(422, f"This draft is too long to check at once ({len(body.content):,} characters; "
+                                 f"the limit is {MAX_DRAFT_CHARS:,}). Split it into smaller pieces.")
+    title = " ".join(body.title.split())[:240]
+    if not title:
         raise HTTPException(422, "Give the draft a title.")
+    source_type = body.source_type.strip()[:40] or "in-house"
     if body.channel not in CHANNELS:
         raise HTTPException(422, f"Channel must be one of: {', '.join(CHANNELS)}.")
     conn = connect()
@@ -1099,9 +1128,9 @@ def submit(req: Request, body: SubmitIn):
         conn.execute(
             "INSERT INTO submissions (id, workspace_id, title, channel, source_type, created_by, status, created_at) "
             "VALUES (?,?,?,?,?,?,'Draft',?)",
-            (sid, _ws(conn), body.title, body.channel, body.source_type, user["email"], _now()),
+            (sid, _ws(conn), title, body.channel, source_type, user["email"], _now()),
         )
-        audit(conn, user["email"], "submit_content", f"{sid}: {body.title}")
+        audit(conn, user["email"], "submit_content", f"{sid}: {title}")
         result = run_check_for_submission(conn, sid, body.content, user["email"])
         resp = {"submission_id": sid, "revision_id": result["revision_id"], **{
             k: v for k, v in result.items() if k != "revision_id"}}
@@ -1276,7 +1305,7 @@ def get_submission(req: Request, sid: str):
         user = _user(req, conn)
         sub = conn.execute("SELECT * FROM submissions WHERE id = ?", (sid,)).fetchone()
         if not sub or not access.can_see_submission(user, sub):
-            raise HTTPException(404)
+            raise HTTPException(404, "Submission not found")
         revs = [dict(r) for r in conn.execute(
             "SELECT * FROM revisions WHERE submission_id=? ORDER BY revision_no", (sid,)).fetchall()]
         latest = revs[-1] if revs else None
@@ -1364,11 +1393,16 @@ def resolve_finding(req: Request, sid: str, body: ResolveIn):
             raise HTTPException(422, "Action must be accept, edit or dispute.")
         if body.action == "edit" and not (body.replacement or "").strip():
             raise HTTPException(422, "An edit needs the replacement text; use accept to take the suggested fix.")
+        _lock_submission(conn, sid)  # a double click or a second tab waits, then sees the new revision
         _visible_sub(conn, user, sid, "edit")
+        rev = conn.execute("SELECT * FROM revisions WHERE id=? AND submission_id=?", (body.revision_id, sid)).fetchone()
         f = conn.execute("SELECT * FROM findings WHERE id=? AND revision_id=?", (body.finding_id, body.revision_id)).fetchone()
-        if not f:
-            raise HTTPException(404, "Finding not found")
-        rev = conn.execute("SELECT * FROM revisions WHERE id=?", (body.revision_id,)).fetchone()
+        if not f or not rev:
+            raise HTTPException(404, "That finding is not on this submission. Reload the page and try again.")
+        # fixes apply to the latest revision only: an old tab must not undo newer fixes
+        _require_latest_revision(conn, sid, body.revision_id)
+        if f["status"] != "open":
+            raise HTTPException(409, f"That finding is already {f['status']}. Reload the page to see the latest version.")
         content = rev["content"]
         source_kind = (rev["source_kind"] if "source_kind" in rev.keys() else None) or "text"
         asset_id = rev["asset_id"] if "asset_id" in rev.keys() else None
@@ -1490,6 +1524,7 @@ def recheck(req: Request, sid: str):
     conn = connect()
     try:
         user = _user(req, conn)
+        _lock_submission(conn, sid)
         _visible_sub(conn, user, sid, "edit")
         rev = conn.execute(
             "SELECT * FROM revisions WHERE submission_id=? ORDER BY revision_no DESC LIMIT 1", (sid,)).fetchone()
@@ -1542,6 +1577,7 @@ def submit_review(req: Request, sid: str):
     conn = connect()
     try:
         user = _user(req, conn)
+        _lock_submission(conn, sid)  # a double click submits once
         _visible_sub(conn, user, sid, "submit")
         result = _send_to_review(conn, sid, user["email"])
         conn.commit()
@@ -1571,9 +1607,10 @@ def review(req: Request, sid: str, body: ReviewIn):
     conn = connect()
     try:
         user = _user(req, conn)
-        sub = _visible_sub(conn, user, sid)
         if user["role"] not in ("reviewer", "admin"):
             raise HTTPException(403, "Only reviewers/approvers decide")
+        _lock_submission(conn, sid)  # a double click or a second tab decides once
+        sub = _visible_sub(conn, user, sid)
         rev = conn.execute(
             "SELECT * FROM revisions WHERE submission_id=? ORDER BY revision_no DESC LIMIT 1", (sid,)).fetchone()
         open_high = conn.execute(

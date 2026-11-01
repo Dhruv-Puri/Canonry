@@ -347,6 +347,9 @@ def _log(conn: sqlite3.Connection, task: str, provider: Provider, model: str, pr
         "VALUES (?,?,?,?,?,?,?,0)",
         (_now(), task, provider.name, model, prompt_version, int((time.perf_counter() - started) * 1000), int(ok)),
     )
+    # commit at once: holding SQLite's single write lock across the next (slow) AI
+    # call would make every other person's write wait and fail
+    conn.commit()
 
 
 def gateway_call(task: str, messages: List[Dict[str, str]], conn: Optional[sqlite3.Connection] = None,

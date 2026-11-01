@@ -2,8 +2,8 @@
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import { ArrowRight, Check } from "lucide-react";
-import { api, ApiError, SIGNED_OUT_EVENT, type AuthMode, type User } from "@/lib/api";
+import { ArrowRight, Check, ChevronRight } from "lucide-react";
+import { api, ApiError, ENGINE_UNREACHABLE, SIGNED_OUT_EVENT, type AuthMode, type User } from "@/lib/api";
 import { ROLES, type Role } from "@/lib/roles";
 import { BrandMark } from "@/components/brand";
 
@@ -37,7 +37,7 @@ export function IdentityGate({ children }: { children: React.ReactNode }) {
   const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
   const [me, setMe] = useState<User | null>(null);
   const [demoMode, setDemoMode] = useState(false);
-  const [state, setState] = useState<"loading" | "in" | "out">("loading");
+  const [state, setState] = useState<"loading" | "in" | "out" | "down">("loading");
 
   const refresh = useCallback(async () => {
     try {
@@ -48,7 +48,9 @@ export function IdentityGate({ children }: { children: React.ReactNode }) {
         setMe(null);
         setState("out");
       } else {
-        setState("in"); // engine hiccup: let pages show their own errors
+        // the engine is asleep or unreachable: say so once, instead of every page
+        // rendering for nobody (empty lists, "this page is for admins")
+        setState("down");
       }
     }
   }, []);
@@ -75,6 +77,7 @@ export function IdentityGate({ children }: { children: React.ReactNode }) {
   }, []);
 
   if (state === "loading") return <div className="min-h-dvh" aria-busy="true" />;
+  if (state === "down" && !isPublic) return <EngineDown onRetry={() => { setState("loading"); void refresh(); }} />;
   if (state === "out" && !isPublic) return <Welcome onJoined={(u) => { setMe(u); setState("in"); }} />;
   // remount everything when the person or their role changes, so every view
   // reloads with what the new role may see
@@ -84,6 +87,22 @@ export function IdentityGate({ children }: { children: React.ReactNode }) {
         {children}
       </div>
     </IdentityContext.Provider>
+  );
+}
+
+/** Shown when the engine does not answer at all; one button tries again. */
+function EngineDown({ onRetry }: { onRetry: () => void }) {
+  return (
+    <main className="grid min-h-dvh place-items-center px-5">
+      <div role="alert" className="surface max-w-md p-8 text-center">
+        <BrandMark className="mx-auto size-9" />
+        <h1 className="mt-4 text-xl font-bold tracking-tight text-foreground">Canonry is not answering</h1>
+        <p className="mt-2 text-sm leading-relaxed text-foreground-secondary">{ENGINE_UNREACHABLE}</p>
+        <button type="button" onClick={onRetry} className="btn btn-primary mt-6">
+          Try again
+        </button>
+      </div>
+    </main>
   );
 }
 
@@ -100,7 +119,7 @@ function Welcome({ onJoined }: { onJoined: (u: User) => void }) {
     return (
       <main className="grid min-h-dvh place-items-center px-5" aria-busy={!error}>
         <p className={error ? "text-sm text-danger-fg" : "text-sm text-muted-foreground"} role={error ? "alert" : undefined}>
-          {error ? `Canonry can't be reached right now. ${error}` : "Opening Canonry…"}
+          {error ?? "Opening Canonry…"}
         </p>
       </main>
     );
@@ -165,17 +184,35 @@ function GuestWelcome({ onJoined }: { onJoined: (u: User) => void }) {
             if (!busy) void start();
           }}
         >
-          <h2 className="text-2xl font-bold tracking-tight text-foreground">Continue as a guest</h2>
-          <p className="mt-1.5 text-foreground-secondary">Pick a role to start. No account needed.</p>
+          <h2 className="text-2xl font-bold tracking-tight text-foreground">Try Canonry</h2>
+          <p className="mt-1.5 text-foreground-secondary">
+            No account needed. You start as a <strong className="text-foreground">{ROLES.find((r) => r.id === role)?.label ?? "Creator"}</strong>
+            {role === "creator" ? " (someone who writes marketing content)" : ""}, and a short checklist walks you
+            through the rest.
+          </p>
 
-          <fieldset className="mt-6 space-y-2.5">
+          <button type="submit" disabled={busy} className="btn btn-primary btn-lg mt-6 w-full">
+            {busy ? "Opening Canonry…" : (
+              <>
+                {role === "creator" ? "Start the demo" : `Continue as ${ROLES.find((r) => r.id === role)?.label}`}
+                <ArrowRight className="btn-arrow size-4" aria-hidden />
+              </>
+            )}
+          </button>
+
+          <details className="group/roles mt-5">
+            <summary className="flex w-fit cursor-pointer list-none items-center gap-1 text-sm font-medium text-brand hover:underline [&::-webkit-details-marker]:hidden">
+              <ChevronRight className="size-4 transition-transform group-open/roles:rotate-90" aria-hidden />
+              Or choose a different role
+            </summary>
+          <fieldset className="mt-3 space-y-2.5">
             <legend className="sr-only">Role</legend>
             {ROLES.map(({ id, label, short, icon: Icon }) => {
               const on = role === id;
               return (
                 <label
                   key={id}
-                  className={`flex cursor-pointer items-center gap-3 rounded-2xl border p-3.5 transition-all ${
+                  className={`flex cursor-pointer items-center gap-3 rounded-2xl border p-3.5 transition-all has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-brand ${
                     on ? "border-brand bg-muted ring-2 ring-[var(--ring-glow)]" : "border-border hover:border-border-strong hover:bg-muted/50"
                   }`}
                 >
@@ -192,17 +229,16 @@ function GuestWelcome({ onJoined }: { onJoined: (u: User) => void }) {
               );
             })}
           </fieldset>
+          </details>
 
           {error && (
             <p role="alert" className="mt-4 rounded-xl border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger-fg">
               {error}
             </p>
           )}
-          <button type="submit" disabled={busy} className="btn btn-primary btn-lg mt-6 w-full">
-            {busy ? "Opening Canonry…" : <>Continue as guest <ArrowRight className="btn-arrow size-4" aria-hidden /></>}
-          </button>
-          <p className="mt-4 text-center text-xs leading-relaxed text-muted-foreground">
-            Switch roles anytime from the top bar. This is a shared demo workspace, so please don&apos;t enter real brand material.
+          <p className="mt-5 text-xs leading-relaxed text-muted-foreground">
+            Switch roles any time from the menu at the top right. This is a shared demo workspace, so please don&apos;t
+            enter real brand material.
           </p>
         </form>
       </div>

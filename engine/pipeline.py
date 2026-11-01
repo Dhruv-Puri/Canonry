@@ -309,6 +309,10 @@ def run_check(conn: sqlite3.Connection, revision_id: str, actor: Optional[str] =
                         })
 
     if use_ai:
+        # Free models can take up to a minute. SQLite has one write lock for the whole
+        # database, so release it while the AI thinks: the revision and the "running"
+        # check row are saved now, and nobody else's write waits on this check.
+        conn.commit()
         try:
             ai_checks()
         except Exception:  # noqa: BLE001 - a surprising AI answer must never cost the rule findings
