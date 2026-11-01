@@ -2,10 +2,11 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
-import { ArrowRight, Check, ChevronRight, LoaderCircle } from "lucide-react";
-import { api, ApiError, ENGINE_UNREACHABLE, SIGNED_OUT_EVENT, type AuthMode, type User } from "@/lib/api";
+import { ArrowRight, Check, ChevronRight } from "lucide-react";
+import { api, ApiError, SIGNED_OUT_EVENT, type AuthMode, type User } from "@/lib/api";
 import { ROLES, type Role } from "@/lib/roles";
 import { BrandMark } from "@/components/brand";
+import { EngineDown, EngineLoading, GIVE_UP_MS, isWaking, RETRY_MS } from "@/components/engine-status";
 
 type Identity = {
   me: User | null;
@@ -32,18 +33,6 @@ const PUBLIC_PATHS = ["/verify/"];
  * account and password. Until signed in, the welcome screen replaces the app,
  * except on public routes, which render for signed-out visitors too.
  */
-/** After this long without an answer, say the engine is waking up instead of showing a blank page. */
-const WAKE_NOTICE_MS = 3_000;
-/** After this long, stop waiting and offer "Try again". */
-const GIVE_UP_MS = 45_000;
-/** Pause between attempts while the engine starts (the proxy answers 5xx until it is up). */
-const RETRY_MS = 2_500;
-
-/** The engine is not up yet (connection refused, proxy 5xx): worth asking again. */
-function isWaking(e: unknown): boolean {
-  return e instanceof ApiError && (e.status === 0 || e.status >= 500);
-}
-
 export function IdentityGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
@@ -144,13 +133,9 @@ export function IdentityGate({ children }: { children: React.ReactNode }) {
     setState("out");
   }, []);
 
-  if (state === "loading") {
-    return elapsed < WAKE_NOTICE_MS
-      ? <div className="min-h-dvh" aria-busy="true" />
-      : <EngineWaking seconds={Math.floor(elapsed / 1000)} />;
-  }
+  if (state === "loading") return <EngineLoading elapsedMs={elapsed} />;
   if (state === "down" && !isPublic) return <EngineDown onRetry={() => void boot()} />;
-  if (state === "out" && !isPublic) return <Welcome initial={auth} onJoined={(u) => { setMe(u); setState("in"); }} />;
+  if (state === "out" && !isPublic) return <Welcome onJoined={(u) => { setMe(u); setState("in"); }} />;
   // remount everything when the person or their role changes, so every view
   // reloads with what the new role may see
   return (
@@ -162,58 +147,14 @@ export function IdentityGate({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Shown after 3 s without an answer: the engine sleeps after a quiet spell and takes a moment to wake. */
-function EngineWaking({ seconds }: { seconds: number }) {
-  // fills over the usual 30 s, then waits near the end instead of pretending to finish
-  const pct = Math.min(92, Math.round((seconds / 30) * 100));
-  return (
-    <main className="grid min-h-dvh place-items-center px-5" aria-busy="true">
-      <div className="surface w-full max-w-md p-8 text-center">
-        <BrandMark className="mx-auto size-9" />
-        <h1 className="mt-4 text-xl font-bold tracking-tight text-foreground">Waking up the checking engine…</h1>
-        <p className="mt-2 text-sm leading-relaxed text-foreground-secondary">
-          This happens after a quiet spell and usually takes 20–30 seconds. Canonry opens by itself when it&apos;s ready.
-        </p>
-        <div className="mt-6 flex items-center gap-3">
-          <LoaderCircle className="size-4 shrink-0 animate-spin text-brand motion-reduce:animate-none" aria-hidden />
-          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted" aria-hidden>
-            <div className="h-full rounded-full bg-brand transition-[width] duration-1000 ease-linear" style={{ width: `${pct}%` }} />
-          </div>
-          <span className="w-10 text-right text-sm tabular-nums text-muted-foreground">
-            <span className="sr-only">Waiting for </span>{seconds}s
-          </span>
-        </div>
-        <p className="sr-only" role="status">Waking up the checking engine. This usually takes 20 to 30 seconds.</p>
-      </div>
-    </main>
-  );
-}
-
-/** Shown when the engine does not answer at all; one button tries again. */
-function EngineDown({ onRetry }: { onRetry: () => void }) {
-  return (
-    <main className="grid min-h-dvh place-items-center px-5">
-      <div role="alert" className="surface max-w-md p-8 text-center">
-        <BrandMark className="mx-auto size-9" />
-        <h1 className="mt-4 text-xl font-bold tracking-tight text-foreground">Canonry is not answering</h1>
-        <p className="mt-2 text-sm leading-relaxed text-foreground-secondary">{ENGINE_UNREACHABLE}</p>
-        <button type="button" onClick={onRetry} className="btn btn-primary mt-6">
-          Try again
-        </button>
-      </div>
-    </main>
-  );
-}
-
 /** Demo workspaces get the guest entry; production workspaces sign in with an account. */
-function Welcome({ initial, onJoined }: { initial: AuthMode | null; onJoined: (u: User) => void }) {
-  const [auth, setAuth] = useState<AuthMode | null>(initial);
+function Welcome({ onJoined }: { onJoined: (u: User) => void }) {
+  const [auth, setAuth] = useState<AuthMode | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (initial) return;
     void api<AuthMode>("/auth-mode").then(setAuth).catch((e) => setError(e instanceof Error ? e.message : String(e)));
-  }, [initial]);
+  }, []);
 
   if (!auth) {
     return (
