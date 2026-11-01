@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ArrowRight, BookMarked, LineChart, ShieldCheck, Sparkles, TriangleAlert, Users } from "lucide-react";
-import { api, type Submission } from "@/lib/api";
+import { api, type Fact, type Submission } from "@/lib/api";
 import { RiskBadge, StatusBadge } from "@/components/fx";
 import { useIdentity } from "@/components/identity";
 import { Reveal } from "@/components/motion";
@@ -39,6 +39,8 @@ export default function AdminOverviewPage() {
   const [insights, setInsights] = useState<Insights | null>(null);
   const [ai, setAi] = useState<AiStatus | null>(null);
   const [expiry, setExpiry] = useState<Expiry | null>(null);
+  // "active facts": in date and not superseded, the same count as Brand rules and the creator home
+  const [activeFacts, setActiveFacts] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -50,14 +52,16 @@ export default function AdminOverviewPage() {
       api<Insights>("/insights"),
       api<AiStatus>("/ai-status"),
       api<Expiry>("/alerts/expiry"),
+      api<{ facts: Fact[] }>("/facts"),
     ])
-      .then(([w, s, i, a, e]) => {
+      .then(([w, s, i, a, e, f]) => {
         if (!active) return;
         setWorkspace(w);
         setSubs(s.submissions);
         setInsights(i);
         setAi(a);
         setExpiry(e);
+        setActiveFacts(f.facts.filter((x) => x.active).length);
       })
       .catch((e) => {
         if (active) setError(e instanceof Error ? e.message : String(e));
@@ -100,7 +104,7 @@ export default function AdminOverviewPage() {
           <p className="eyebrow">Brand admin</p>
           <h1 className="page-title mt-1.5">Workspace overview</h1>
           <p className="page-lede max-w-2xl">
-            The brand’s rules, its review load, and the health of the knowledge behind every check.
+            The brand’s rules, its review load, and the health of the rules and facts behind every check.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -108,7 +112,7 @@ export default function AdminOverviewPage() {
             Review queue <ArrowRight className="size-4" aria-hidden />
           </Link>
           <Link href="/kb" className="btn btn-secondary">
-            <BookMarked className="size-4" aria-hidden /> Knowledge base
+            <BookMarked className="size-4" aria-hidden /> Brand rules
           </Link>
           <Link href="/admin/api" className="btn btn-secondary">
             <ShieldCheck className="size-4" aria-hidden /> API &amp; webhooks
@@ -126,7 +130,7 @@ export default function AdminOverviewPage() {
         <Stat label="Awaiting review" value={queue.length} />
         <Stat label="High risk" value={high} tone={high > 0 ? "danger" : "normal"} />
         <Stat label="Approved rules" value={workspace?.rules ?? 0} />
-        <Stat label="Facts on file" value={workspace?.facts ?? 0} />
+        <Stat label="Active facts" value={activeFacts} />
       </div>
 
       <div className="grid gap-5 lg:grid-cols-[1.35fr_1fr]">
@@ -198,21 +202,21 @@ export default function AdminOverviewPage() {
               label="Disputes & overrides"
               value={insights?.dispute_overrides.length ?? 0}
               href="/insights"
-              hint="contested findings to learn from"
+              hint="issues people disagreed with"
             />
             <Signal
-              label="Terms and facts"
-              value={(workspace?.terms ?? 0) + (workspace?.facts ?? 0)}
+              label="Active facts and terms"
+              value={(workspace?.terms ?? 0) + activeFacts}
               href="/kb"
-              hint="in the approved knowledge base"
+              hint="what every check is matched against"
             />
           </ul>
           <div className="mt-5 flex flex-wrap gap-2">
             <Link href="/kb" className="btn btn-secondary btn-sm">
-              Manage knowledge
+              Manage brand rules
             </Link>
             <Link href="/insights" className="btn btn-ghost btn-sm">
-              Full insights <ArrowRight className="size-3.5" aria-hidden />
+              All reports <ArrowRight className="size-3.5" aria-hidden />
             </Link>
           </div>
         </Reveal>
