@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from fastapi import HTTPException, Request
 
-from db import _now
+from db import INTEGRITY_ERRORS, _now
 
 KEY_PREFIX_LENGTH = 16
 SCOPES = ("check", "read", "admin")
@@ -147,18 +147,53 @@ def lookup_idempotent(conn, workspace_id: str, key: Optional[str], endpoint: str
     if row["request_hash"] != payload_hash:
         raise HTTPException(409, {"code": "idempotency_conflict",
                                   "message": "This Idempotency-Key was already used with a different request."})
+    if not row["status"]:
+        raise HTTPException(409, {"code": "idempotency_in_progress",
+                                  "message": "A request with this Idempotency-Key is still running. "
+                                             "Retry in a few seconds to get its answer."})
     return {"status": row["status"], "body": json.loads(row["response_json"] or "{}")}
+
+
+def claim_idempotent(conn, workspace_id: str, key: Optional[str], endpoint: str,
+                     payload_hash: str) -> Optional[Dict[str, Any]]:
+    """Return the stored answer for a repeated key, or claim the key for this
+    request (committed at once, status 0 = running), so two simultaneous
+    retries can never both do the work."""
+    if not key:
+        return None
+    cached = lookup_idempotent(conn, workspace_id, key, endpoint, payload_hash)
+    if cached:
+        return cached
+    expires = (datetime.now(timezone.utc) + timedelta(hours=IDEMPOTENCY_TTL_HOURS)).isoformat()
+    try:
+        conn.execute(
+            "INSERT INTO idempotency (workspace_id, key, endpoint, request_hash, response_json, status, "
+            "created_at, expires_at) VALUES (?,?,?,?,NULL,0,?,?)",
+            (workspace_id, key, endpoint, payload_hash, _now(), expires))
+        conn.commit()
+    except INTEGRITY_ERRORS:
+        conn.rollback()
+        return lookup_idempotent(conn, workspace_id, key, endpoint, payload_hash)
+    return None
+
+
+def release_idempotent(conn, workspace_id: str, key: Optional[str], endpoint: str) -> None:
+    """The claimed request failed: free the key so a retry can run."""
+    if not key:
+        return
+    conn.rollback()
+    conn.execute("DELETE FROM idempotency WHERE workspace_id = ? AND key = ? AND endpoint = ? AND status = 0",
+                 (workspace_id, key, endpoint))
+    conn.commit()
 
 
 def store_idempotent(conn, workspace_id: str, key: Optional[str], endpoint: str,
                      payload_hash: str, status: int, body: Dict[str, Any]) -> None:
     if not key:
         return
-    expires = (datetime.now(timezone.utc) + timedelta(hours=IDEMPOTENCY_TTL_HOURS)).isoformat()
     conn.execute(
-        "INSERT INTO idempotency (workspace_id, key, endpoint, request_hash, response_json, status, "
-        "created_at, expires_at) VALUES (?,?,?,?,?,?,?,?)",
-        (workspace_id, key, endpoint, payload_hash, json.dumps(body), status, _now(), expires))
+        "UPDATE idempotency SET response_json = ?, status = ? WHERE workspace_id = ? AND key = ? AND endpoint = ?",
+        (json.dumps(body), status, workspace_id, key, endpoint))
 
 
 def cleanup_idempotency(conn) -> None:

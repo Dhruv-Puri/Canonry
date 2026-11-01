@@ -6,6 +6,7 @@ is small documents, so checks run inline but through the same job-table seam
 """
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
 import json
@@ -14,6 +15,7 @@ import re
 import hashlib
 import secrets
 import sqlite3
+import traceback
 import zipfile
 from datetime import date, datetime, timedelta, timezone
 from xml.etree import ElementTree
@@ -71,6 +73,25 @@ app = FastAPI(title="Canonry engine", version="0.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=sorted(APP_ORIGINS), allow_credentials=True,
                    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
                    allow_headers=["Content-Type", "Authorization", "X-Canon-Session"])
+
+
+JSON_BODY_LIMIT = 2 * 1024 * 1024  # 200,000 characters of content, even fully \u-escaped, fit
+
+
+@app.middleware("http")
+async def refuse_oversized_json(request: Request, call_next):
+    # a JSON body is parsed whole into memory; refuse a huge one before reading it
+    # (files have their own limits on the upload routes)
+    if (request.headers.get("content-type") or "").lower().startswith("application/json"):
+        try:
+            length = int(request.headers.get("content-length") or 0)
+        except ValueError:
+            length = 0
+        if length > JSON_BODY_LIMIT:
+            return JSONResponse({"detail": {"code": "too_large",
+                                            "message": "This request is larger than the 2 MB limit for JSON."}},
+                                status_code=413)
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -133,6 +154,39 @@ def _flush_outbox_on_boot() -> None:
         webhooks.flush(conn, limit=10, timeout=2.0)
     finally:
         conn.close()
+
+
+def webhook_tick() -> Dict[str, Any]:
+    """One pass over the outbox: every delivery whose retry time has come."""
+    conn = connect(service=True)
+    try:
+        return webhooks.flush(conn, limit=20, timeout=3.0)
+    finally:
+        conn.close()
+
+
+async def _webhook_retry_loop(every: float) -> None:
+    # retries follow their schedule even when no new product event happens
+    while True:
+        await asyncio.sleep(every)
+        try:
+            await run_in_threadpool(webhook_tick)
+        except Exception:  # noqa: BLE001 - a bad receiver must never stop the loop
+            traceback.print_exc()
+
+
+@app.on_event("startup")
+async def _start_webhook_retries() -> None:
+    every = float(os.environ.get("CANONRY_WEBHOOK_RETRY_SECONDS") or 15)
+    if every > 0:
+        app.state.webhook_retries = asyncio.create_task(_webhook_retry_loop(every))
+
+
+@app.on_event("shutdown")
+async def _stop_webhook_retries() -> None:
+    task = getattr(app.state, "webhook_retries", None)
+    if task:
+        task.cancel()
 
 
 def _ensure_production_workspace() -> None:
@@ -1699,28 +1753,32 @@ def api_check(req: Request, body: ApiCheckIn):
         endpoint = "POST /api/v1/checks"
         payload_hash = api.request_hash(body.model_dump())
         key_header = api.idempotency_key(req)
-        cached = api.lookup_idempotent(conn, ws, key_header, endpoint, payload_hash)
+        cached = api.claim_idempotent(conn, ws, key_header, endpoint, payload_hash)
         if cached:
             return JSONResponse(cached["body"], status_code=cached["status"], headers=_api_headers())
-        sid = gen_id("sub")
-        conn.execute(
-            "INSERT INTO submissions (id, workspace_id, title, channel, source_type, created_by, status, created_at) "
-            "VALUES (?,?,?,?,?,?,'Draft',?)",
-            (sid, ws, body.title, body.channel, body.source_type[:40] or "in-house",
-             "api:" + key["name"], _now()),
-        )
-        audit(conn, "api:" + key["name"], "api_check", f"{sid}: {body.title}")
-        result = run_check_for_submission(conn, sid, body.content, None)
-        response = {
-            "submission_id": sid, "revision_id": result["revision_id"], "status": "Checked",
-            "contract_version": contract.CONTRACT_VERSION,
-            "findings": result.get("findings", []), "discarded": result.get("discarded", 0),
-            "ai_pending": result.get("ai_pending", False), "ai_reason": result.get("ai_reason"),
-            "links": {"self": f"/api/v1/submissions/{sid}"},
-        }
-        conn.commit()
-        api.store_idempotent(conn, ws, key_header, endpoint, payload_hash, 200, response)
-        conn.commit()
+        try:
+            sid = gen_id("sub")
+            conn.execute(
+                "INSERT INTO submissions (id, workspace_id, title, channel, source_type, created_by, status, created_at) "
+                "VALUES (?,?,?,?,?,?,'Draft',?)",
+                (sid, ws, body.title, body.channel, body.source_type[:40] or "in-house",
+                 "api:" + key["name"], _now()),
+            )
+            audit(conn, "api:" + key["name"], "api_check", f"{sid}: {body.title}")
+            result = run_check_for_submission(conn, sid, body.content, None)
+            response = {
+                "submission_id": sid, "revision_id": result["revision_id"], "status": "Checked",
+                "contract_version": contract.CONTRACT_VERSION,
+                "findings": result.get("findings", []), "discarded": result.get("discarded", 0),
+                "ai_pending": result.get("ai_pending", False), "ai_reason": result.get("ai_reason"),
+                "links": {"self": f"/api/v1/submissions/{sid}"},
+            }
+            # the answer is stored in the same transaction as the submission
+            api.store_idempotent(conn, ws, key_header, endpoint, payload_hash, 200, response)
+            conn.commit()
+        except BaseException:
+            api.release_idempotent(conn, ws, key_header, endpoint)
+            raise
         return JSONResponse(response, headers=_api_headers())
     finally:
         conn.close()
@@ -1744,32 +1802,35 @@ async def api_upload(req: Request, title: str, channel: str, filename: str,
                                              "source_type": source_type, "alt_text": alt_text,
                                              "sha256": hashlib.sha256(data).hexdigest()})
             key_header = api.idempotency_key(req)
-            cached = api.lookup_idempotent(conn, ws, key_header, endpoint, payload_hash)
+            cached = api.claim_idempotent(conn, ws, key_header, endpoint, payload_hash)
             if cached:
                 return JSONResponse(cached["body"], status_code=cached["status"], headers=_api_headers())
-            sid = gen_id("sub")
-            conn.execute(
-                "INSERT INTO submissions (id, workspace_id, title, channel, source_type, created_by, status, created_at) "
-                "VALUES (?,?,?,?,?,?,'Draft',?)",
-                (sid, ws, " ".join(title.split())[:240], channel, source_type[:40] or "in-house",
-                 "api:" + key["name"], _now()),
-            )
             try:
-                asset = assets.create_asset(conn, ws, sid, filename, data, alt_text, "api:" + key["name"])
-            except (assets.UploadError, documents.DocumentError, images.ImageError) as exc:
-                raise HTTPException(getattr(exc, "status", 422), {"code": "bad_upload", "message": str(exc)}) from exc
-            audit(conn, "api:" + key["name"], "api_upload", f"{sid}: {asset['filename']}")
-            result = run_check_for_submission(conn, sid, asset["extracted_text"], None, asset=asset)
-            response = {
-                "submission_id": sid, "revision_id": result["revision_id"], "status": "Checked",
-                "contract_version": contract.CONTRACT_VERSION,
-                "asset": {k: asset[k] for k in ("id", "kind", "filename", "size_bytes", "width", "height", "page_count")},
-                "findings": result.get("findings", []), "ai_pending": result.get("ai_pending", False),
-                "links": {"self": f"/api/v1/submissions/{sid}", "file": f"/api/v1/assets/{asset['id']}"},
-            }
-            conn.commit()
-            api.store_idempotent(conn, ws, key_header, endpoint, payload_hash, 200, response)
-            conn.commit()
+                sid = gen_id("sub")
+                conn.execute(
+                    "INSERT INTO submissions (id, workspace_id, title, channel, source_type, created_by, status, created_at) "
+                    "VALUES (?,?,?,?,?,?,'Draft',?)",
+                    (sid, ws, " ".join(title.split())[:240], channel, source_type[:40] or "in-house",
+                     "api:" + key["name"], _now()),
+                )
+                try:
+                    asset = assets.create_asset(conn, ws, sid, filename, data, alt_text, "api:" + key["name"])
+                except (assets.UploadError, documents.DocumentError, images.ImageError) as exc:
+                    raise HTTPException(getattr(exc, "status", 422), {"code": "bad_upload", "message": str(exc)}) from exc
+                audit(conn, "api:" + key["name"], "api_upload", f"{sid}: {asset['filename']}")
+                result = run_check_for_submission(conn, sid, asset["extracted_text"], None, asset=asset)
+                response = {
+                    "submission_id": sid, "revision_id": result["revision_id"], "status": "Checked",
+                    "contract_version": contract.CONTRACT_VERSION,
+                    "asset": {k: asset[k] for k in ("id", "kind", "filename", "size_bytes", "width", "height", "page_count")},
+                    "findings": result.get("findings", []), "ai_pending": result.get("ai_pending", False),
+                    "links": {"self": f"/api/v1/submissions/{sid}", "file": f"/api/v1/assets/{asset['id']}"},
+                }
+                api.store_idempotent(conn, ws, key_header, endpoint, payload_hash, 200, response)
+                conn.commit()
+            except BaseException:
+                api.release_idempotent(conn, ws, key_header, endpoint)
+                raise
             return JSONResponse(response, headers=_api_headers())
         finally:
             conn.close()
@@ -1816,6 +1877,25 @@ def api_proof(req: Request, poc_id: str):
         if not row:
             raise HTTPException(404, {"code": "not_found", "message": "Proof not found in this workspace."})
         return JSONResponse(signing.verify(conn, poc_id), headers=_api_headers())
+    finally:
+        conn.close()
+
+
+@app.get("/api/v1/assets/{asset_id}")
+def api_asset(req: Request, asset_id: str):
+    """The uploaded file behind a submission (the `links.file` of an upload)."""
+    conn = connect()
+    try:
+        key = api.authenticate(req, conn, "read")
+        row = assets.get_asset(conn, asset_id)
+        sub = conn.execute("SELECT id FROM submissions WHERE id = ? AND workspace_id = ?",
+                           (row["submission_id"], key["workspace_id"])).fetchone() if row else None
+        raw = assets.asset_bytes(conn, asset_id) if sub else None
+        if raw is None:
+            raise HTTPException(404, {"code": "not_found", "message": "File not found in this workspace."})
+        return Response(content=raw, media_type=row["mime"],
+                        headers={**_api_headers(), "Content-Disposition": _disposition("attachment", row["filename"]),
+                                 "Cache-Control": "private, no-store"})
     finally:
         conn.close()
 
@@ -1939,6 +2019,7 @@ def webhook_endpoints_rotate(req: Request, endpoint_id: str):
             rotated = webhooks.rotate_secret(conn, _ws(conn), endpoint_id)
         except ValueError as exc:
             raise HTTPException(404, str(exc)) from exc
+        audit(conn, user["email"], "webhook_rotate", endpoint_id)
         conn.commit()
         return rotated
     finally:
@@ -1956,6 +2037,7 @@ def webhook_endpoints_disable(req: Request, endpoint_id: str):
             webhooks.disable_endpoint(conn, _ws(conn), endpoint_id)
         except ValueError as exc:
             raise HTTPException(404, str(exc)) from exc
+        audit(conn, user["email"], "webhook_disable", endpoint_id)
         conn.commit()
         return {"ok": True}
     finally:
