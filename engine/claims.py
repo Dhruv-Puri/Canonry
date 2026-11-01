@@ -82,6 +82,8 @@ def _widen_to_claim(text: str, trigger_span: Tuple[int, int], left_max: int = 3)
         prev = words[lo - 1][2]
         if any(ch in prev for ch in ",.;:!?()-—–") or prev.lower() in _CONJUNCTIONS:
             break
+        if "\n" in text[words[lo - 1][1]:words[lo][0]]:  # a line break ends a claim (image lines, headings)
+            break
         lo -= 1
         count += 1
     start = words[lo][0]

@@ -183,6 +183,55 @@ def inspect(data: bytes) -> ImageInfo:
                      graphic=color_count <= 256 or top_coverage >= 0.90, dhash=dhash(img))
 
 
+ALT_REGION = "alt text"
+IMAGE_TEXT_REGION = "text in image"
+
+
+def image_text(alt_text: Optional[str], ocr_result: Optional[Dict[str, Any]]) -> Tuple[str, List[Dict[str, Any]]]:
+    """The text an image's checks read: its alt text, then each line read from the
+    pixels; and a locator map so a finding can point at the alt text or at the
+    box of the line on the image."""
+    alt = (alt_text or "").strip()
+    parts: List[str] = []
+    blocks: List[Dict[str, Any]] = []
+    at = 0
+    if alt:
+        parts.append(alt)
+        blocks.append({"start": 0, "end": len(alt), "region": ALT_REGION})
+        at = len(alt)
+    lines = [ln for ln in (ocr_result or {}).get("lines") or [] if (ln.get("text") or "").strip()]
+    for i, line in enumerate(lines):
+        sep = ("\n\n" if i == 0 else "\n") if parts else ""
+        at += len(sep)
+        parts.append(sep + line["text"])
+        blocks.append({"start": at, "end": at + len(line["text"]), "region": IMAGE_TEXT_REGION,
+                       "line": i + 1, "bbox": list(line["bbox"])})
+        at += len(line["text"])
+    return "".join(parts), blocks
+
+
+def locate(locator_map: List[Dict[str, Any]], start: int, end: int,
+           asset_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    for block in locator_map or []:
+        if block["start"] <= start <= block["end"]:
+            loc: Dict[str, Any] = {"kind": "image", "asset_id": asset_id, "region": block["region"],
+                                   "char_start": start - block["start"],
+                                   "char_end": max(start - block["start"], end - block["start"])}
+            if block.get("bbox"):
+                loc["bbox"] = list(block["bbox"])
+                loc["line"] = block["line"]
+            return loc
+    return None
+
+
+def in_image_text(locator_map: List[Dict[str, Any]], start: Optional[int]) -> bool:
+    """True when a character offset falls in words read from the pixels."""
+    if start is None:
+        return False
+    loc = locate(locator_map, start, start)
+    return bool(loc and loc["region"] == IMAGE_TEXT_REGION)
+
+
 def _finding(ctx, checker: str, category: str, rule: str, tier: str, severity: str,
              explanation: str, title: str, locator: Dict[str, Any], bbox=None,
              suggestion: Optional[Dict[str, Any]] = None, span_text: str = "") -> Dict[str, Any]:
@@ -323,7 +372,7 @@ def _alt_findings(ctx, alt: Optional[str], rule: str, asset_id: str) -> List[Dic
 
 
 def check_image(ctx, data: bytes, alt_text: Optional[str], asset_id: str,
-                filename: str = "") -> List[Dict[str, Any]]:
+                filename: str = "", ocr_result: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     """Return image/accessibility findings. Any rule that is unbound switches its check off."""
     img = _open(data)
     flat = _flatten(img)
@@ -407,7 +456,25 @@ def check_image(ctx, data: bytes, alt_text: Optional[str], asset_id: str,
                             "operation": "rewrite"},
             ))
 
-    if contrast_rule and info.graphic:
+    lines = [ln for ln in (ocr_result or {}).get("lines") or [] if ln.get("ratio") is not None]
+    if contrast_rule and lines:
+        # measured on the words actually read: each line's ink against its background
+        for line in lines:
+            if line["ratio"] >= line["needs"]:
+                continue
+            kind = "large text" if line["needs"] == 3.0 else "normal text"
+            out.append(_finding(
+                ctx, "accessibility", "low_text_contrast", contrast_rule, "likely", "medium",
+                f"“{line['text']}” has a contrast ratio of about {line['ratio']:.1f}:1 against its "
+                f"background; WCAG AA asks for {line['needs']:.1f}:1 for {kind}.",
+                "Text is hard to read", {"kind": "image", "asset_id": asset_id, "region": IMAGE_TEXT_REGION,
+                                         "line": lines.index(line) + 1},
+                bbox=line["bbox"],
+                suggestion={"replace": "Darken the text or lighten the background; aim for "
+                                       f"{line['needs']:.1f}:1 or more.", "operation": "rewrite"},
+            ))
+    elif contrast_rule and info.graphic and not (ocr_result or {}).get("lines"):
+        # no words could be read: only a rough colour-pair estimate, never more than "consider"
         entries = [(_rgb(h), share) for h, share in info.palette if share >= 0.02]
         if len(entries) >= 2:
             darkest = min(entries, key=lambda item: _luminance(item[0]))[0]
@@ -415,12 +482,14 @@ def check_image(ctx, data: bytes, alt_text: Optional[str], asset_id: str,
             ratio = contrast_ratio(darkest, lightest)
             if ratio < 3.0:
                 out.append(_finding(
-                    ctx, "accessibility", "low_text_contrast", contrast_rule, "likely", "medium",
-                    f"The strongest colour pair in this graphic is {ratio:.1f}:1 ({_hex(darkest)} on {_hex(lightest)}). "
-                    "WCAG asks for at least 4.5:1 for normal text and 3:1 for large text.",
-                    "Low text contrast", {"kind": "image", "asset_id": asset_id, "region": "text"},
+                    ctx, "accessibility", "low_text_contrast", contrast_rule, "consider", "low",
+                    f"No text could be read in this image, so this is an estimate: its most distant colours are "
+                    f"only {ratio:.1f}:1 apart ({_hex(darkest)} and {_hex(lightest)}). If it carries text, "
+                    "check it meets 4.5:1 (3:1 for large text).",
+                    "Check text contrast", {"kind": "image", "asset_id": asset_id, "region": "text"},
                     bbox=(0, 0, flat.width, flat.height),
-                    suggestion={"replace": f"Darken the text or lighten the background; aim for 4.5:1.", "operation": "rewrite"},
+                    suggestion={"replace": "Darken the text or lighten the background; aim for 4.5:1.",
+                                "operation": "rewrite"},
                 ))
 
     if alt_rule:

@@ -975,6 +975,19 @@ def submit(req: Request, body: SubmitIn):
         conn.close()
 
 
+def _revision_asset(rev: sqlite3.Row) -> Optional[Dict[str, Any]]:
+    """The uploaded file behind a revision, so a re-check keeps it (and its
+    page/line or image locations) instead of turning it into plain text."""
+    keys = rev.keys()
+    if "asset_id" not in keys or not rev["asset_id"]:
+        return None
+    try:
+        locator_map = json.loads(rev["locator_map_json"] or "[]")
+    except (TypeError, ValueError):
+        locator_map = []
+    return {"id": rev["asset_id"], "source_kind": rev["source_kind"] or "text", "locator_map": locator_map}
+
+
 def run_check_for_submission(conn: sqlite3.Connection, sid: str, content: str,
                              actor: Optional[str] = None, reuse_ai_from: Optional[str] = None,
                              asset: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -1181,6 +1194,10 @@ def resolve_finding(req: Request, sid: str, body: ResolveIn):
         if source_kind in ("pdf", "docx") and body.action in ("accept", "edit"):
             raise HTTPException(409, "This is an uploaded document. Fix it in the source file and upload a corrected copy; accepting a text edit would not change the published file.")
         suggestion = json.loads(f["suggestion_json"]) if f["suggestion_json"] not in (None, "", "null") else {}
+        rev_map = json.loads(rev["locator_map_json"] or "[]") if "locator_map_json" in rev.keys() else []
+        if source_kind == "image" and images.in_image_text(rev_map, f["span_start"]) and body.action != "dispute":
+            raise HTTPException(409, "This text is part of the image. Change it in the design file and upload a "
+                                     "corrected image, or dispute the finding.")
         if source_kind == "image" and body.action == "edit":
             alt = (body.replacement or "").strip()
             if not alt:
@@ -1192,9 +1209,8 @@ def resolve_finding(req: Request, sid: str, body: ResolveIn):
                 (gen_id("dec"), body.revision_id, body.finding_id, "edit", alt, body.reason, user["email"], _now()),
             )
             conn.execute("UPDATE findings SET status='edited' WHERE id=?", (body.finding_id,))
-            asset_row = assets.get_asset(conn, asset_id) or {}
-            asset_row.update({"source_kind": "image", "locator_map": []})
-            result = run_check_for_submission(conn, sid, alt, user["email"], asset=asset_row)
+            image_content, asset_row = assets.image_revision(assets.get_asset(conn, asset_id) or {"id": asset_id}, alt)
+            result = run_check_for_submission(conn, sid, image_content, user["email"], asset=asset_row)
             audit(conn, user["email"], "finding_edit_alt", f"{body.finding_id}")
             conn.commit()
             return {"ok": True, "revision_id": result["revision_id"], "ai_pending": result["ai_pending"],
@@ -1260,7 +1276,7 @@ def recheck(req: Request, sid: str):
         _visible_sub(conn, user, sid, "edit")
         rev = conn.execute(
             "SELECT * FROM revisions WHERE submission_id=? ORDER BY revision_no DESC LIMIT 1", (sid,)).fetchone()
-        result = run_check_for_submission(conn, sid, rev["content"], user["email"])
+        result = run_check_for_submission(conn, sid, rev["content"], user["email"], asset=_revision_asset(rev))
         conn.commit()
         return result
     finally:

@@ -11,3 +11,6 @@ PyNaCl==1.6.2
 pypdf==6.21.4
 Pillow==13.0.0
 psycopg[binary]==3.3.6
+# text in images (Tesseract CLI, installed in the Docker image) and logo matching
+numpy==2.4.6
+opencv-python-headless==5.0.0.93

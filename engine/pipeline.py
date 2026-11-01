@@ -133,8 +133,9 @@ def run_check(conn: sqlite3.Connection, revision_id: str, actor: Optional[str] =
         asset_row = assets.get_asset(conn, asset_id) or {}
         if raw:
             try:
-                findings += images.check_image(ctx, raw, asset_row.get("alt_text") or text,
-                                               asset_id, asset_row.get("filename") or "")
+                findings += images.check_image(ctx, raw, asset_row.get("alt_text"),
+                                               asset_id, asset_row.get("filename") or "",
+                                               ocr_result=assets.image_ocr(asset_row))
             except images.ImageError as exc:
                 if os.environ.get("CANON_DEBUG"):
                     print("[image skip]", exc)
@@ -358,7 +359,9 @@ def run_check(conn: sqlite3.Connection, revision_id: str, actor: Optional[str] =
         # Every finding gets a stable location identity before dedupe; image
         # findings have no text span, so an empty span can never merge them.
         if not f.get("locator"):
-            if source_kind in ("pdf", "docx") and locator_map:
+            if source_kind == "image" and locator_map:
+                f["locator"] = images.locate(locator_map, f["span"]["start"], f["span"]["end"], asset_id)
+            elif source_kind in ("pdf", "docx") and locator_map:
                 f["locator"] = documents.locate(locator_map, f["span"]["start"], f["span"]["end"],
                                                 source_kind, asset_id)
             elif span_text:

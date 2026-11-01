@@ -13,6 +13,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# Tesseract reads the words inside uploaded images (English model only)
+RUN apt-get update \n    && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng \n    && rm -rf /var/lib/apt/lists/*
+
 COPY engine/requirements.txt /app/engine/requirements.txt
 RUN pip install --no-cache-dir -r /app/engine/requirements.txt
 
