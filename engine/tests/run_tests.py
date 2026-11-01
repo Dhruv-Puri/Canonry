@@ -13,7 +13,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 EVALUATE = os.path.join(HERE, "..", "evaluation", "evaluate.py")
 SUITES = ["test_engine", "test_identity", "test_knowledge", "test_regressions", "test_seed_data",
           "test_edge_cases", "test_policy", "test_access", "test_workflow", "test_gateway", "test_quota",
-          "test_documents", "test_compliance", "test_ai_shapes", "test_image_text", "test_logos", "test_docx_fix", "test_review_r3"]
+          "test_documents", "test_compliance", "test_ai_shapes", "test_image_text", "test_logos", "test_docx_fix", "test_review_r3", "test_api", "test_publisher"]
 
 
 def main() -> int:
@@ -30,6 +30,7 @@ def main() -> int:
         env = {k: v for k, v in os.environ.items()
                if k not in ("GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY", "OLLAMA_URL")}
         env["CANONRY_ENV_FILE"] = ""
+        env["PYTHONIOENCODING"] = "utf-8"  # suites print ₹, ΔE and quotes; a Windows console must not fail them
         r = subprocess.run(cmd, cwd=HERE, capture_output=True, text=True, encoding="utf-8", errors="replace", env=env)
         ok = r.returncode == 0
         print(f"{'PASS' if ok else 'FAIL'}  {name}  ({time.perf_counter() - t:.1f}s)")
