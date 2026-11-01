@@ -403,6 +403,8 @@ def _lock_submission(conn, sid: str) -> None:
     if dbmod.dialect() == "sqlite":
         if not conn.in_transaction:
             conn.execute("BEGIN IMMEDIATE")
+        else:
+            conn.execute("UPDATE submissions SET id = id WHERE id = ?", (sid,))
     else:
         conn.execute("SELECT id FROM submissions WHERE id = ? FOR UPDATE", (sid,))
 
