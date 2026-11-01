@@ -1191,8 +1191,9 @@ def resolve_finding(req: Request, sid: str, body: ResolveIn):
         # Uploaded documents are snapshots: the source file is fixed, so a text
         # edit would silently diverge from what would be published. Make the
         # creator upload a corrected file instead.
-        if source_kind in ("pdf", "docx") and body.action in ("accept", "edit"):
-            raise HTTPException(409, "This is an uploaded document. Fix it in the source file and upload a corrected copy; accepting a text edit would not change the published file.")
+        if source_kind == "pdf" and body.action in ("accept", "edit"):
+            raise HTTPException(409, "Canonry cannot edit a PDF. Fix this in the source document, export the PDF "
+                                     "again and upload it, or dispute the finding.")
         suggestion = json.loads(f["suggestion_json"]) if f["suggestion_json"] not in (None, "", "null") else {}
         rev_map = json.loads(rev["locator_map_json"] or "[]") if "locator_map_json" in rev.keys() else []
         if source_kind == "image" and images.in_image_text(rev_map, f["span_start"]) and body.action != "dispute":
@@ -1239,14 +1240,37 @@ def resolve_finding(req: Request, sid: str, body: ResolveIn):
             (gen_id("dec"), body.revision_id, body.finding_id, body.action, body.replacement, body.reason, user["email"], _now()),
         )
         conn.execute("UPDATE findings SET status=? WHERE id=?", (RESOLVE_ACTIONS[body.action], body.finding_id))
+        revision_asset = _revision_asset(rev)  # a dispute keeps the uploaded file
+        if source_kind == "docx" and body.action in ("accept", "edit"):
+            revision_asset = _fixed_docx(conn, sid, asset_id, content, user["email"])
         # rules re-run now; the AI's findings carry over (Re-check runs the AI again)
-        result = run_check_for_submission(conn, sid, content, user["email"], reuse_ai_from=body.revision_id)
+        result = run_check_for_submission(conn, sid, content, user["email"], reuse_ai_from=body.revision_id,
+                                          asset=revision_asset)
         audit(conn, user["email"], f"finding_{body.action}", f"{body.finding_id} reason={body.reason or ''}")
         conn.commit()
         return {"ok": True, "revision_id": result["revision_id"], "ai_pending": result["ai_pending"],
                 "ai_reason": result["ai_reason"]}
     finally:
         conn.close()
+
+
+def _fixed_docx(conn: sqlite3.Connection, sid: str, asset_id: Optional[str], content: str,
+                actor: str) -> Dict[str, Any]:
+    """Make the fix inside the Word file: a new version of the file whose own text
+    is the fixed revision, so what is approved, stamped and downloaded is fixed too."""
+    row = assets.get_asset(conn, asset_id) if asset_id else None
+    raw = assets.asset_bytes(conn, asset_id) if asset_id else None
+    if not row or raw is None:
+        raise HTTPException(409, "The Word file behind this revision is missing; upload it again.")
+    try:
+        fixed = documents.docx_with_text(raw, content)
+        asset = assets.create_asset(conn, row["workspace_id"], sid, row["filename"], fixed, None, actor)
+    except (documents.DocumentError, assets.UploadError) as exc:
+        raise HTTPException(getattr(exc, "status", 409), str(exc)) from exc
+    if asset["extracted_text"] != content:
+        raise HTTPException(409, "This fix could not be made inside the Word file. Edit the document and upload "
+                                 "it again, or dispute the finding.")
+    return asset
 
 
 def apply_fix(content: str, start: Optional[int], span: Optional[str], replacement: str) -> str:

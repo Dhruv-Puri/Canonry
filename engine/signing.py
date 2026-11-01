@@ -225,9 +225,10 @@ def verify_file(conn, poc_id: str, data: bytes) -> Dict[str, Any]:
         else:
             status, reason = "signature_invalid", "The embedded proof could not be verified."
     elif embedded and embedded_ok and embedded.get("content_sha256") == record.get("content_sha256"):
-        # A different stamping (for example the engine re-stamped after a redeploy)
-        # still attests the same approved original.
-        status, reason = "verified", "The file carries a valid seal for the same approved original."
+        # A real seal copied onto other bytes proves nothing about those bytes:
+        # the file was changed after it was stamped (or the seal was moved).
+        status, reason = "modified", ("This file carries the seal of this approval, but its content was changed "
+                                      "after it was stamped.")
     elif not sig_ok:
         status, reason = "signature_invalid", "The stored seal signature does not verify."
     out = {

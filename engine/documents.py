@@ -211,3 +211,98 @@ def describe(locator: Optional[Dict[str, Any]]) -> str:
             bits.append(f"page {locator['page']}")
         return " · ".join(bits)
     return ""
+
+
+# ---- fixing a Word file in place ---------------------------------------------------
+
+_W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+_XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
+
+
+def _paragraph_runs(body) -> List[Tuple[List[Any], bool]]:
+    """The w:t nodes behind each extracted paragraph, in exactly the order
+    _docx_paragraphs reads them, and whether that paragraph can be edited
+    (a paragraph holding a text box repeats the box's words, so it cannot)."""
+    out: List[Tuple[List[Any], bool]] = []
+    for node in body:
+        tag = node.tag.rsplit("}", 1)[-1]
+        if tag == "p":
+            nested = node.findall(f".//{_W}p")
+            nodes: List[Any] = list(node.iter(f"{_W}t"))
+            for p in nested:
+                nodes += list(p.iter(f"{_W}t"))
+            if "".join(t.text or "" for t in nodes).strip():
+                out.append((nodes, not nested))
+        elif tag == "tbl":
+            for p in node.iter(f"{_W}p"):
+                nodes = list(p.iter(f"{_W}t"))
+                if "".join(t.text or "" for t in nodes).strip():
+                    out.append((nodes, not p.findall(f".//{_W}p")))
+    return out
+
+
+def _replace_in_runs(nodes: List[Any], new_text: str) -> None:
+    """Change the paragraph's words to new_text by editing only the characters
+    that differ, inside the runs that hold them: formatting around a fix stays."""
+    full = "".join(t.text or "" for t in nodes)
+    lead = len(full) - len(full.lstrip())
+    old = full.strip()
+    p = 0
+    while p < min(len(old), len(new_text)) and old[p] == new_text[p]:
+        p += 1
+    s = 0
+    while s < min(len(old), len(new_text)) - p and old[len(old) - 1 - s] == new_text[len(new_text) - 1 - s]:
+        s += 1
+    start, end = lead + p, lead + len(old) - s
+    insert = new_text[p:len(new_text) - s]
+    at = 0
+    placed = False
+    for t in nodes:
+        text = t.text or ""
+        lo, hi = at, at + len(text)
+        at = hi
+        if hi < start or lo > end or (hi == start and start != end) or (lo == end and start != end and placed):
+            continue
+        a, b = max(start, lo) - lo, min(end, hi) - lo
+        if not placed:
+            t.text = text[:a] + insert + text[b:]
+            placed = True
+        else:
+            t.text = text[:a] + text[b:]
+        t.set(_XML_SPACE, "preserve")
+    if not placed and nodes:
+        nodes[-1].text = (nodes[-1].text or "") + insert
+        nodes[-1].set(_XML_SPACE, "preserve")
+
+
+def docx_with_text(data: bytes, content: str) -> bytes:
+    """The original .docx with its paragraphs changed to read `content` (the
+    fixed revision). Paragraph count must not change; text boxes are not edited."""
+    from lxml import etree
+
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        xml = archive.read("word/document.xml")
+        parser = etree.XMLParser(resolve_entities=False, no_network=True, huge_tree=False)
+        root = etree.fromstring(xml, parser)
+        body = root.find(f"{_W}body")
+        if body is None:
+            raise DocumentError("This DOCX has no document body.")
+        paragraphs = _paragraph_runs(body)
+        new = content.split("\n\n")
+        if len(new) != len(paragraphs):
+            raise DocumentError("This change adds or removes a paragraph, which cannot be made inside the Word "
+                                "file. Edit the document and upload it again.", 409)
+        for (nodes, editable), wanted in zip(paragraphs, new):
+            current = "".join(t.text or "" for t in nodes).strip()
+            if current == wanted.strip():
+                continue
+            if not editable:
+                raise DocumentError("This text is in a text box, which Canonry cannot edit. Fix it in Word and "
+                                    "upload the document again.", 409)
+            _replace_in_runs(nodes, wanted.strip())
+        fixed = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+        out = io.BytesIO()
+        with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as dst:
+            for info in archive.infolist():
+                dst.writestr(info, fixed if info.filename == "word/document.xml" else archive.read(info))
+    return out.getvalue()
