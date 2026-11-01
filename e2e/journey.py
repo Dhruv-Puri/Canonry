@@ -583,8 +583,12 @@ def phase_layout(browser: Browser) -> None:
     shot(page, "l-welcome-390")
     info = page.evaluate(LAYOUT_JS)
     check(info["overflow"] <= 0, f"welcome@390: no sideways overflow ({info['overflow']}px)")
-    page.keyboard.press("Tab")
-    focused = page.evaluate("document.activeElement && document.activeElement.tagName")
+    focused = None
+    for _ in range(4):  # in `next dev` the dev-tools button takes the first Tab
+        page.keyboard.press("Tab")
+        focused = page.evaluate("document.activeElement && document.activeElement.tagName")
+        if focused != "NEXTJS-PORTAL":
+            break
     check(focused in ("INPUT", "BUTTON", "A"), f"welcome: keyboard Tab reaches a control ({focused})")
     ctx.close()
 
