@@ -198,7 +198,7 @@ Main technical decisions (full list with reasons in the [decision log](docs/deci
 ## 7. Tests and reliability
 
 ```bash
-.venv/Scripts/python engine/tests/run_tests.py     # 17 suites (fresh DB each) + evaluation gate
+.venv/Scripts/python engine/tests/run_tests.py     # 19 suites (fresh DB each) + evaluation gate
 ```
 
 | Suite (`engine/tests/`) | Proves |
@@ -220,6 +220,7 @@ Main technical decisions (full list with reasons in the [decision log](docs/deci
 | `test_image_text` | words read from an image are checked like copy and boxed on the image; contrast per line; re-check, alt-text edit and a new version keep the file |
 | `test_logos` | logo found at any size; stretched, tilted, recoloured, busy background, clear space, too small and retired logos flagged; no false logo in a same-typeface headline, noise or a flat banner |
 | `test_docx_fix` | fixes land inside the Word file with its formatting; the approved, stamped Word file verifies; a copied seal on changed or different bytes does not |
+| `test_reliability` | two tabs and double clicks: an old tab cannot undo newer fixes, one click = one revision, one approval = one seal; very long drafts and titles; emoji, Hindi, RTL and HTML text kept exactly |
 | evaluation gate | precision / recall per checker and tier on the frozen split; fails on regression |
 
 Image checks use Tesseract for the words in an image. The suites fake it, so they run anywhere; the
@@ -228,6 +229,22 @@ are skipped otherwise.
 
 The suites never call a real AI provider, even when your `.env` holds keys: they read no
 `.env` and fake the providers where AI behaviour is tested.
+
+**Browser walk-through (local, not in CI).** [`e2e/journey.py`](e2e/journey.py) drives Microsoft Edge
+through Playwright the way a judge does: every role's journey (write, check, accept / edit / dispute,
+submit, request changes, override, approve, public verify of pasted text and of a stamped Word file,
+agency isolation, an admin's knowledge-base change and its effect on a re-check, insights), hostile input
+(blank, 120,000 characters, emoji / Hindi / RTL / HTML text, wrong, renamed, cut-off and 0-byte files),
+double clicks, refresh and back, two tabs on one draft, an expired session, unknown ids, and every screen
+at 1280 px and 390 px. A separate `offline` phase runs with the engine stopped and expects a plain
+message on every page. Screenshots go to `e2e/.tmp/shots`. Needs `pip install playwright` and Microsoft Edge.
+
+```bash
+sh e2e/start_engine.sh fresh                                    # engine on :8202, temp DB, no AI keys
+cd web && CANONRY_ENGINE_URL=http://127.0.0.1:8202 npx next dev -p 3202
+.venv/Scripts/python e2e/journey.py                             # journey, reliability, layout
+.venv/Scripts/python e2e/journey.py offline                     # after stopping the engine
+```
 
 CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs all of it on every push, plus
 a web type-check, a production build, `pip-audit` and `npm audit`.
@@ -239,6 +256,13 @@ A moderated usability test with 5 participants and the SUS questionnaire is
 prepared in [docs/usability-test-kit.md](docs/usability-test-kit.md) (tasks,
 script, results sheet). **Results will be recorded there and summarised here
 once the sessions are run**; no results are claimed yet.
+
+Separately, and **not** a substitute for user testing: on 1 Nov 2026 the team ran an internal
+heuristic review of every screen for each role at 1280 px and 390 px with `e2e/journey.py`
+(plain-language errors, empty and loading states, labels, focus, overflow on phones). It found and
+fixed, among others: a second tab could undo fixes made in the first; a double click on Approve could
+sign twice; pages rendered for nobody when the engine was asleep; and long titles ran off phone
+screens. Each fix is held by a check in `engine/tests/test_reliability.py` or `e2e/journey.py`.
 
 ## 9. Team and contributions
 
@@ -263,6 +287,7 @@ What a judge may run into on the live demo:
 - **After accepting a fix the AI is not re-run** on the new revision (its earlier findings carry over); press **Re-check** to run it.
 - **AI findings are judgement calls** (tiers *Likely* and *Consider*) and can be wrong; a person decides and can dispute or override them.
 - **Self-approval in the demo**: one guest can switch from Creator to Reviewer and approve their own draft. It is labelled *self-approved*; production mode blocks it.
+- **One draft at a time per item**: if the same draft is open in two tabs, the tab that acts second is told the draft changed and shows the latest version; nothing is merged. Drafts pasted as text are limited to 100,000 characters.
 - **English only**: checks, and the reading of words in images, are English.
 - **Files**: PDF, Word (.docx), PNG and JPEG, up to 4 MB through the web app (Vercel's proxy limit; 10 MB through the API). Scanned PDFs without a text layer are refused rather than guessed at. Canonry edits Word files in place, but not PDFs or the pixels of an image: those are fixed in their source and uploaded as a new version. A Word edit that adds a paragraph, or text inside a Word text box, must also be made in Word.
 - **Logo checks** recognise the logos in the brand kit (Quillmark: the current and the retired logo); a logo that is not in the kit cannot be judged. They target flat, designed graphics, not photographs.
