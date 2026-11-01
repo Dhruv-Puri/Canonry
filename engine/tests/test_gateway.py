@@ -255,6 +255,34 @@ expect(disp.status_code == 200 and requests == [], "a dispute sends no AI reques
 expect(any(f["span_text"] == claim["span_text"] and f["status"] == "disputed" for f in final["findings"]),
        "the disputed AI finding stays decided")
 
+print("== a hung model does not eat the time budget")
+# live, 1 Nov: one Gemini call hung for 60 s and used the whole AI time budget,
+# so the check waited a minute and ran no AI at all
+hung = {"timeouts": [], "hung_calls": 0}
+
+
+def hang_handler(request: httpx.Request) -> httpx.Response:
+    if request.url.host == "generativelanguage.googleapis.com":
+        hung["timeouts"].append((request.extensions.get("timeout") or {}).get("read"))
+        if "gemini-3.1-flash-lite" in request.url.path:
+            hung["hung_calls"] += 1
+            raise httpx.ReadTimeout("model stalled", request=request)
+        return _gemini_reply(json.loads(request.content or b"{}"))
+    return _openai_reply(json.loads(request.content or b"{}"))
+
+
+gateway.reset_limits()
+gemini_mode["reply"] = "ok"
+gateway.configure(env={"GEMINI_API_KEY": "test", "GROQ_API_KEY": "test"}, transport=httpx.MockTransport(hang_handler))
+os.environ["CANONRY_AI_DEADLINE_SECONDS"] = "60"
+r, d = check("hung model")
+expect(hung["timeouts"] and max(t for t in hung["timeouts"] if t) <= gateway.CALL_TIMEOUT_SECONDS,
+       f"no single call may wait longer than {gateway.CALL_TIMEOUT_SECONDS:.0f} s ({hung['timeouts'][:3]})")
+expect(r["ai_pending"] is False and d["check"]["status"] == "done",
+       f"another model answers, so the AI part still runs ({d['check']['status']}, {d['check']['ai_reason']})")
+expect(hung["hung_calls"] == 1, f"a model that timed out is set aside for the rest of the check ({hung['hung_calls']} calls)")
+del os.environ["CANONRY_AI_DEADLINE_SECONDS"]
+
 print("== env file")
 import tempfile  # noqa: E402
 env_file = os.path.join(tempfile.mkdtemp(), "keys.env")

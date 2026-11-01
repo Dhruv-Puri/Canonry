@@ -30,6 +30,10 @@ from db import _now, connect
 
 PROMPT_VERSION = "claims@4"
 TIMEOUT = httpx.Timeout(90.0, connect=10.0)
+# One call may wait at most this long, so a stalled free model cannot use up a
+# whole check's AI time: the next model or provider gets its turn (slow but good
+# answers measured live took up to ~45 s; a hung call was still silent at 60 s).
+CALL_TIMEOUT_SECONDS = 25.0
 AI_DEADLINE_SECONDS = 120.0
 RETRYABLE = {408, 429, 500, 502, 503, 504}
 
@@ -367,8 +371,8 @@ def gateway_call(task: str, messages: List[Dict[str, str]], conn: Optional[sqlit
                         remaining = deadline - time.monotonic()
                         if remaining <= 3:
                             return None
-                        timeout = httpx.Timeout(min(TIMEOUT.read, remaining),
-                                                connect=min(TIMEOUT.connect, remaining))
+                        wait = min(CALL_TIMEOUT_SECONDS, remaining)
+                        timeout = httpx.Timeout(wait, connect=min(TIMEOUT.connect, wait))
                     else:
                         timeout = TIMEOUT
                     key = f"{provider.name}:{model}"
@@ -383,8 +387,8 @@ def gateway_call(task: str, messages: List[Dict[str, str]], conn: Optional[sqlit
                         retryable = isinstance(e, httpx.TransportError) or getattr(e, "retryable", False)
                         if retryable:
                             retryable_seen = True
-                        if getattr(e, "status", None) in (429, 503):
-                            _cool_model(key)
+                        if getattr(e, "status", None) in (429, 503) or isinstance(e, httpx.TimeoutException):
+                            _cool_model(key)  # busy or stalled: let the next model answer
                         continue
                     _log(conn, task, provider, out["model"], prompt_version, started, ok=True)
                     return {"text": out["text"], "model": out["model"], "provider": provider.name}
