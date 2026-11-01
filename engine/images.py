@@ -252,9 +252,33 @@ def _finding(ctx, checker: str, category: str, rule: str, tier: str, severity: s
 
 
 def _logo_templates(ctx) -> List["logos.Template"]:
-    rows = ctx.conn.execute(
+    return logo_templates(ctx.conn, ctx.ws)
+
+
+def without_logo_text(img: Image.Image, read: Optional[Dict[str, Any]], templates) -> Optional[Dict[str, Any]]:
+    """Drop OCR lines that are the logo's own lettering (its wordmark is checked as
+    a logo, not as copy) and one-character noise."""
+    if not read:
+        return read
+    match = logos.find(img, templates) if templates else None
+    keep = []
+    for line in read.get("lines") or []:
+        if sum(ch.isalnum() for ch in line["text"]) < 2:
+            continue
+        if match:
+            x, y, w, h = line["bbox"]
+            cx, cy = x + w / 2, y + h / 2
+            lx, ly, lw, lh = match.bbox
+            if lx <= cx <= lx + lw and ly <= cy <= ly + lh:
+                continue
+        keep.append(line)
+    return dict(read, lines=keep)
+
+
+def logo_templates(conn, workspace_id: str) -> List["logos.Template"]:
+    rows = conn.execute(
         "SELECT l.*, d.bytes FROM brand_logos l LEFT JOIN asset_data d ON d.asset_id = l.asset_id "
-        "WHERE l.workspace_id = ? AND l.active = 1", (ctx.ws,)).fetchall()
+        "WHERE l.workspace_id = ? AND l.active = 1", (workspace_id,)).fetchall()
     out = []
     for row in rows:
         if not row["bytes"]:

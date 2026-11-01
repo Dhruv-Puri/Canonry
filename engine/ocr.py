@@ -94,15 +94,24 @@ def _word_contrast(img: Image.Image, box: Tuple[int, int, int, int]) -> Optional
     if width < 3 or height < 3:
         return None
     pad = max(2, height // 4)
+    import numpy as np
+
     crop = img.convert("RGB").crop((max(0, left - pad), max(0, top - pad),
                                     min(img.width, left + width + pad), min(img.height, top + height + pad)))
-    q = crop.quantize(colors=2, method=Image.Quantize.MEDIANCUT)
-    colours = q.getcolors() or []
-    pal = q.getpalette() or []
+    colours = crop.getcolors(crop.width * crop.height) or []
     if len(colours) < 2:
         return None
-    a, b = (tuple(pal[i * 3: i * 3 + 3]) for _, i in colours[:2])
-    return contrast_ratio(a, b)
+    background = max(colours)[1]  # the most common colour around the word
+    px = np.asarray(crop, dtype=np.float64).reshape(-1, 3) / 255.0
+    lin = np.where(px <= 0.04045, px / 12.92, ((px + 0.055) / 1.055) ** 2.4)
+    lum = lin @ np.array([0.2126, 0.7152, 0.0722])
+    bg = _luminance(background)
+    ratio = (np.maximum(lum, bg) + 0.05) / (np.minimum(lum, bg) + 0.05)
+    ink = ratio[ratio > 1.1]
+    if ink.size < 6:
+        return None
+    # the solid strokes, not the anti-aliased edges that blend into the background
+    return float(np.percentile(ink, 90))
 
 
 def _luminance(rgb) -> float:

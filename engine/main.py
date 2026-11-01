@@ -1067,6 +1067,36 @@ async def upload_submission(req: Request, title: str, channel: str, source_type:
         conn.close()
 
 
+@app.post("/submissions/{sid}/upload")
+async def upload_new_version(req: Request, sid: str, filename: str, alt_text: Optional[str] = None):
+    """A corrected file becomes the next revision of the same submission, so its
+    history, decisions and review stay together. An image keeps its alt text
+    unless a new one is given."""
+    _require_same_origin(req)
+    data = await _read_limited_body(req, assets.MAX_PDF, "10 MB")
+    conn = connect()
+    try:
+        user = _user(req, conn)
+        sub = _visible_sub(conn, user, sid, "edit")
+        latest = conn.execute(
+            "SELECT * FROM revisions WHERE submission_id=? ORDER BY revision_no DESC LIMIT 1", (sid,)).fetchone()
+        previous = assets.get_asset(conn, latest["asset_id"]) if latest and "asset_id" in latest.keys() \
+            and latest["asset_id"] else None
+        alt = alt_text if alt_text is not None else (previous or {}).get("alt_text")
+        try:
+            asset = assets.create_asset(conn, sub["workspace_id"], sid, filename, data, alt, user["email"])
+        except (assets.UploadError, documents.DocumentError, images.ImageError) as exc:
+            raise HTTPException(exc.status, str(exc)) from exc
+        audit(conn, user["email"], "upload_new_version", f"{sid}: {asset['filename']} ({asset['kind']})")
+        result = run_check_for_submission(conn, sid, asset["extracted_text"], user["email"], asset=asset)
+        conn.commit()
+        return {"submission_id": sid, "revision_id": result["revision_id"], "asset": {
+            k: asset[k] for k in ("id", "kind", "filename", "size_bytes", "width", "height", "page_count")},
+            **{k: v for k, v in result.items() if k != "revision_id"}}
+    finally:
+        conn.close()
+
+
 @app.get("/submissions")
 def list_submissions(req: Request):
     conn = connect()

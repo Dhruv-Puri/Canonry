@@ -156,6 +156,25 @@ expect("logo_too_small" in got, f"a logo below the minimum size is flagged ({lis
 got = logo_findings(demo)
 expect("logo_outdated" in got, "the demo graphic's retired logo is flagged")
 
+# ---- the logo's own words are not "text in the image" --------------------------
+ocr.words = lambda img, timeout=40.0: [
+    {"text": "PULSE", "key": (1, 1, 1), "box": (180, 120, 60, 14)},      # the logo's subtitle
+    {"text": "r", "key": (2, 1, 1), "box": (100, 80, 8, 10)},           # noise inside the icon
+    {"text": "Analytics", "key": (3, 1, 1), "box": (80, 300, 200, 40)},  # real copy
+    {"text": "you", "key": (3, 1, 1), "box": (290, 300, 80, 40)},
+    {"text": "trust", "key": (3, 1, 1), "box": (380, 300, 110, 40)}]
+img = scene()
+ImageDraw.Draw(img).text((80, 300), "Analytics you trust", fill="#111827")
+buf = io.BytesIO()
+img.save(buf, format="PNG")
+r = client.post("/submissions/upload?title=Logo&channel=social&source_type=in-house&filename=l.png"
+                "&alt_text=Quillmark%20Pulse%20banner", content=buf.getvalue(),
+                headers={"content-type": "application/octet-stream"})
+content = client.get(f"/submissions/{r.json()['submission_id']}").json()["latest_revision"]["content"]
+expect("PULSE" not in content and "\nr" not in content and "Analytics you trust" in content,
+       f"words inside the logo, and one-letter noise, are left out of the image text ({content!r})")
+ocr.words = lambda img, timeout=40.0: []
+
 client.__exit__(None, None, None)
 print()
 if failures:

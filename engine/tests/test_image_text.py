@@ -155,6 +155,35 @@ expect(d["latest_revision"].get("asset_id") and d["latest_revision"].get("source
 expect(any(f["category"] == "low_text_contrast" for f in d["findings"]),
        "and the image checks still run after a re-check")
 
+# ---- a corrected file is a new version of the same submission --------------------
+def plain_png() -> bytes:
+    img = Image.new("RGB", (1200, 630), "#312e81")
+    ImageDraw.Draw(img).text((70, 110), "Analytics your team can trust", font=_font(64), fill="#ffffff")
+    out = io.BytesIO()
+    img.save(out, format="PNG")
+    return out.getvalue()
+
+
+ocr.words = lambda img, timeout=40.0: [
+    {"text": t, "key": (1, 1, 1), "box": (70 + i * 170, 110, 160, 60)}
+    for i, t in enumerate(["Analytics", "your", "team", "can", "trust"])]
+before = detail(sid)
+r = client.post(f"/submissions/{sid}/upload?filename=social-v2.png", content=plain_png(),
+                headers={"content-type": "application/octet-stream"})
+expect(r.status_code == 200, f"a corrected image uploads as a new version ({r.status_code} {r.text[:100]})")
+d = detail(sid)
+expect(d["latest_revision"]["revision_no"] == before["latest_revision"]["revision_no"] + 1
+       and d["latest_revision"]["asset_id"] != before["latest_revision"]["asset_id"],
+       "it is the next revision of the same submission, with the new file")
+expect(d["latest_revision"]["content"].startswith("Launch banner for Pulse 2.0\n\n"),
+       "the alt text carries over when none is given")
+expect(not any(f["category"] == "low_text_contrast" for f in d["findings"]),
+       "and the new version is checked afresh (the faint line is gone)")
+r = client.post(f"/submissions/{sid}/upload?filename=notes.txt", content=b"hello",
+                headers={"content-type": "application/octet-stream"})
+expect(r.status_code in (415, 422), f"an unsupported file is refused with a reason ({r.status_code})")
+ocr.words = lambda img, timeout=40.0: [dict(w) for w in MOCK_WORDS]
+
 # ---- without OCR the upload still works ---------------------------------------
 ocr.words = lambda img, timeout=40.0: None
 r = upload(social_png(), alt="Pulse 2.0 launch banner")
