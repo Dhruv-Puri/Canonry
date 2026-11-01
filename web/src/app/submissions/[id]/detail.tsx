@@ -19,11 +19,14 @@ import {
 import { diffSummary, diffWords, type DiffToken } from "@/lib/diff";
 import { CategoryBadge, LevelBadge, RiskBadge, StatusBadge } from "@/components/fx";
 import { AiLoadingScreen } from "@/components/ai-loading";
-import { ROLE_LABEL } from "@/lib/roles";
+import { ROLE_LABEL, roleHome } from "@/lib/roles";
+import { useIdentity } from "@/components/identity";
 
 export function SubmissionDetailClient({ sid }: { sid: string }) {
   const [d, setD] = useState<SubmissionDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [missing, setMissing] = useState(false);
+  const { me } = useIdentity();
   const [busy, setBusy] = useState(false);
   const [checking, setChecking] = useState(false);
   const [revIdx, setRevIdx] = useState(-1); // -1 => latest
@@ -33,7 +36,9 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
   const load = useCallback(async () => {
     try {
       setD(await api<SubmissionDetail>(`/submissions/${sid}`));
+      setMissing(false);
     } catch (e) {
+      if (e instanceof ApiError && e.status === 404) setMissing(true);
       setError(e instanceof ApiError ? e.message : String(e));
     }
   }, [sid]);
@@ -63,6 +68,8 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
       await load();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
+      // someone (or another tab) changed it first: show what is true now, keep the message
+      if (e instanceof ApiError && e.status === 409) await load();
     } finally {
       setBusy(false);
     }
@@ -98,15 +105,38 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
       await load();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
+      if (e instanceof ApiError && e.status === 409) await load();
     } finally {
       setBusy(false);
     }
   }
 
-  if (error && !d) {
-    return <p className="rounded-md border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger-fg">{error}</p>;
+  if (missing && !d) {
+    return (
+      <section className="surface mx-auto max-w-xl p-8 text-center">
+        <p className="eyebrow">Not found</p>
+        <h1 className="mt-1 text-2xl font-bold tracking-tight">This submission isn&apos;t available</h1>
+        <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-foreground-secondary">
+          The link may be wrong, the demo data may have been reset, or your role can&apos;t see it (agency partners
+          see only their own work).
+        </p>
+        <Link href={roleHome(me?.role)} className="btn btn-primary mt-6">
+          Go to your work <span aria-hidden className="btn-arrow">→</span>
+        </Link>
+      </section>
+    );
   }
-  if (!d) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  if (error && !d) {
+    return (
+      <div role="alert" className="mx-auto max-w-xl space-y-3 rounded-xl border border-danger-border bg-danger-bg px-4 py-3 text-sm text-danger-fg">
+        <p>{error}</p>
+        <button type="button" className="btn btn-sm btn-secondary" onClick={() => { setError(null); void load(); }}>
+          Try again
+        </button>
+      </div>
+    );
+  }
+  if (!d) return <p className="text-sm text-muted-foreground" aria-busy="true">Loading the submission…</p>;
 
   const s = d.submission;
   const canReview = ["reviewer", "admin"].includes(d.me.role);
@@ -149,7 +179,7 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
       )}
 
       {error && (
-        <p className="rounded-md border border-warning-border bg-warning-bg px-3 py-2 text-sm text-warning-fg">
+        <p role="alert" className="rounded-md border border-warning-border bg-warning-bg px-3 py-2 text-sm text-warning-fg">
           {error}
         </p>
       )}
@@ -873,6 +903,7 @@ function FindingCard({
               className="field h-[30px] w-auto grow px-2 text-xs"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
+              aria-label="Dispute reason"
               placeholder="Dispute reason: rule doesn't apply / unclear rule / fact outdated / misread"
             />
             <button
@@ -931,6 +962,7 @@ function FindingCard({
               className="field h-[30px] w-auto grow px-2 text-xs"
               value={editText}
               onChange={(e) => setEditText(e.target.value)}
+              aria-label="Your replacement for the flagged phrase"
               placeholder="Replace the flagged phrase in your own words (optional)"
             />
             <button
@@ -944,6 +976,7 @@ function FindingCard({
               className="field h-[30px] w-auto grow px-2 text-xs"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
+              aria-label="Dispute reason"
               placeholder="Dispute reason: rule doesn't apply / unclear rule / fact outdated / AI misread"
             />
             <button
