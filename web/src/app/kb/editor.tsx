@@ -292,8 +292,8 @@ function FieldInput({ field, value, onChange }: { field: Field; value: string | 
   );
   if (field.type === "checkbox") {
     return (
-      <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" checked={Boolean(value)} onChange={(e) => onChange(e.target.checked)} className="size-4 accent-[var(--brand)]" />
+      <label className="flex min-h-11 cursor-pointer items-center gap-2 text-sm">
+        <input type="checkbox" checked={Boolean(value)} onChange={(e) => onChange(e.target.checked)} className="size-5 shrink-0 accent-[var(--brand)]" />
         {field.label}
       </label>
     );
