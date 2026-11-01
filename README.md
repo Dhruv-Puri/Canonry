@@ -198,7 +198,7 @@ Main technical decisions (full list with reasons in the [decision log](docs/deci
 ## 7. Tests and reliability
 
 ```bash
-.venv/Scripts/python engine/tests/run_tests.py     # 11 suites (fresh DB each) + evaluation gate
+.venv/Scripts/python engine/tests/run_tests.py     # 17 suites (fresh DB each) + evaluation gate
 ```
 
 | Suite (`engine/tests/`) | Proves |
@@ -214,7 +214,17 @@ Main technical decisions (full list with reasons in the [decision log](docs/deci
 | `test_workflow` | content locked in review and after signing; public verification of pasted text |
 | `test_gateway` | AI fallback chain, honest call ledger, no confidential data sent (faked providers, no network) |
 | `test_quota` | daily AI allowance: 5 per person, 50 per workspace, clear reasons when out of tries, failed provider calls never charged |
+| `test_documents` | PDF and Word text extraction with page/line and paragraph locators; stamping PDF, PNG and JPEG |
+| `test_compliance` | India pack: clause retrieval, deterministic verdicts, exact clause citations, its own evaluation gate |
+| `test_ai_shapes` | 18 malformed AI answers (lists of strings, nulls, numbers) never turn a check into a server error |
+| `test_image_text` | words read from an image are checked like copy and boxed on the image; contrast per line; re-check, alt-text edit and a new version keep the file |
+| `test_logos` | logo found at any size; stretched, tilted, recoloured, busy background, clear space, too small and retired logos flagged; no false logo in a same-typeface headline, noise or a flat banner |
+| `test_docx_fix` | fixes land inside the Word file with its formatting; the approved, stamped Word file verifies; a copied seal on changed or different bytes does not |
 | evaluation gate | precision / recall per checker and tier on the frozen split; fails on regression |
+
+Image checks use Tesseract for the words in an image. The suites fake it, so they run anywhere; the
+real-OCR checks in `test_image_text` run when Tesseract is installed (it is, in the Docker image) and
+are skipped otherwise.
 
 The suites never call a real AI provider, even when your `.env` holds keys: they read no
 `.env` and fake the providers where AI behaviour is tested.
@@ -253,7 +263,9 @@ What a judge may run into on the live demo:
 - **After accepting a fix the AI is not re-run** on the new revision (its earlier findings carry over); press **Re-check** to run it.
 - **AI findings are judgement calls** (tiers *Likely* and *Consider*) and can be wrong; a person decides and can dispute or override them.
 - **Self-approval in the demo**: one guest can switch from Creator to Reviewer and approve their own draft. It is labelled *self-approved*; production mode blocks it.
-- **Text only, English only**: content is pasted as text. DOCX/PDF content upload and image checks are Round 3. Rules import from CSV, Markdown and Word.
+- **English only**: checks, and the reading of words in images, are English.
+- **Files**: PDF, Word (.docx), PNG and JPEG, up to 4 MB through the web app (Vercel's proxy limit; 10 MB through the API). Scanned PDFs without a text layer are refused rather than guessed at. Canonry edits Word files in place, but not PDFs or the pixels of an image: those are fixed in their source and uploaded as a new version. A Word edit that adds a paragraph, or text inside a Word text box, must also be made in Word.
+- **Logo checks** recognise the logos in the brand kit (Quillmark: the current and the retired logo); a logo that is not in the kit cannot be judged. They target flat, designed graphics, not photographs.
 - **Not reachable from the web link**: the Canon Connector (MCP) runs locally; there are no email or Slack notifications, region routing or SLA reminders.
 - **Evidence still to collect**: the five moderated usability sessions (SUS) have not been run; the evaluation set is small (20 samples, 6 frozen) and labelled by the team. CI tests the AI path with faked providers only.
 
@@ -303,6 +315,26 @@ Each adds a capability Canonry does not have today, comes from the Round 1 roadm
 | **1. Documents and images** | Upload DOCX and PDF content (findings point to the page and line); image checkers for logo use, brand colours, text contrast (WCAG) and alt text; the Proof of Compliance stamped into the approved file's metadata | Teams review the files they actually publish, catch visual and accessibility mistakes, and a downloaded asset carries its own proof of approval | a PDF one-pager and a social image complete the full journey to a sealed, verifiable file; planted visual issues are caught |
 | **2. Publishing gate: REST API + webhooks** | Versioned API with per-workspace keys; webhooks on *checked*, *approved* and *signed*; a demo CMS integration that holds a post until approval (stretch: Google Docs add-on) | Review stops being optional: content passes Canonry on its way to publication, and every published item links to a signed approval | an external client publishes only after a webhook reports a signed approval, and the page verifies against that seal |
 | **3. India advertising compliance pack, with RAG** | Rules from the CCPA Guidelines for Prevention of Misleading Advertisements (2022) and the ASCI Code; the regulation text is embedded in **managed Postgres with pgvector**, the most relevant clauses are retrieved for each sentence (RAG), and every finding cites the exact clause; numbers stay exactly matched | Marketers see legal risk before publishing, reviewers see the legal basis of each warning, and new markets are a pack, not a retraining | violations from published ASCI complaint decisions are caught with the right clause cited, at the "Definite" bar (≥ 95% precision) |
+
+### Improvement 1 — delivered: documents and images
+
+Try it: **Write → PDF, Word or image**, then upload `data/demo/social_launch.png` (alt text "Image of a
+banner"), `data/demo/quillmark_pulse_onepager.pdf` or `data/demo/quillmark_brochure.docx`.
+
+| Promised | Delivered |
+|---|---|
+| DOCX and PDF upload, findings point to the page and line | PDF findings show **page and line**; Word findings show **section and paragraph** (Word has no fixed pages). Every text check (terms, claims, tone, India pack) runs on the file's text. |
+| Fixes | **Word: Accept / Edit change the .docx itself**, only the changed characters inside their runs, so bold words and headings keep their formatting; the fixed file is a new version of the file and is what gets approved. PDF and image findings: fix the source, then **Upload new version** on the same submission (history and decisions stay together). |
+| Logo use | Logos are found with feature matching (ORB + homography) at any size, even stretched or tilted, and checked against the brand kit: **retired logo**, **stretched / squashed / tilted** (with the measured amount), **recoloured**, **on a busy background**, **content inside the clear space**, **too small**. Quillmark's distortion findings cite its own rule BRD-02. |
+| Brand colours | Dominant colours compared with the approved palette by ΔE 2000; photographs are recognised and left alone. |
+| Text contrast (WCAG) | Tesseract reads the words in the image (from a copy where each pixel's distance from its background is drawn in black, so faint text is read too); contrast is measured **per line** on the original pixels against 4.5:1, or 3:1 for large text, and the line is **boxed on the preview**. The words in an image are also checked like any copy, so a claim printed in a graphic is caught. |
+| Alt text | Missing, too short, too long, "image of…", file names, keyword stuffing; edited in Canonry. |
+| Proof of Compliance in the file | The approved PDF, Word, PNG or JPEG carries its signed proof in its own metadata (Word: a custom document property). The public verify page checks an uploaded file: the approved original or its stamped copy verifies; **a changed file, or a real seal copied onto other bytes, does not**. |
+
+Bugs found while finishing it, each fixed with a test that failed first: an intermittent "Internal Server
+Error" when a free AI model answered in an unexpected JSON shape; Word uploads could not be approved
+(no Word stamp); a seal copied onto any other file verified; re-check or a dispute on an uploaded file
+turned it into plain text; the logo's own lettering was checked as copy.
 
 **Platform upgrade underneath all three:** storage moves from SQLite to free-tier managed Postgres (the schema already uses Postgres names), with role rules as row-level security. Data and seals then survive restarts, and the API and uploads get durable multi-user storage. Round 3 also takes the Round 1 improvements to their targets (≥ 85% claim recall and ≥ 80% precision on a larger, independently labelled set; a clarity dashboard with missing-fact suggestions; calibrated tiers) and runs the usability tests.
 

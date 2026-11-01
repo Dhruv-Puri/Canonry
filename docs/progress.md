@@ -6,7 +6,37 @@
 
 ---
 
-## 1. Status snapshot
+## 0. Round 3 status (1–3 Nov 2026)
+
+| Improvement | Status | Evidence |
+|---|---|---|
+| 1. Documents and images | ✅ built and tested locally; deploy pending | README §12 "Improvement 1 — delivered"; suites `test_documents`, `test_image_text`, `test_logos`, `test_docx_fix`; local browser walk-through 14/14 |
+| 2. Publishing gate: REST API + webhooks | 🔧 built (commit `6bf69fc`); live check pending | `engine/api.py`, `engine/webhooks.py`, `cms/`, `web/src/app/admin/api/page.tsx` |
+| 3. India compliance pack with retrieval | 🔧 built (commit `6bf69fc`); live check pending | `engine/compliance.py`, `data/compliance/`, `test_compliance` (precision 1.0, recall 1.0 on 32 labelled samples) |
+
+**Live deployment, 1 Nov:** the web app on Vercel runs the Round 3 code, but the engine on Render
+still ran the Round 2 build (33 endpoints, no upload route), so uploads on the live site answered
+"Method Not Allowed". Render must deploy `main`; the check is `GET /openapi.json` listing
+`/submissions/upload`.
+
+### Bugs found by testing in Round 3 (each fixed with a test that failed first)
+
+| Bug | Effect | Fix | Test |
+|---|---|---|---|
+| Free AI models sometimes answer in another JSON shape | "Internal Server Error" on submit (seen live) | answers validated; any AI surprise keeps the rule findings and marks AI as skipped | `test_ai_shapes` (12 of 20 checks failed before) |
+| No Word stamp | approving a Word upload failed | proof stored as a Word custom document property | `test_docx_fix` |
+| Copied seal accepted | any file carrying a copied seal showed "verified" | a sealed file that is neither the original nor its stamped copy is "modified" | `test_docx_fix` (forgery checks failed before) |
+| Re-check / dispute dropped the file | the next revision became plain text: no image checks, no page/line | the revision keeps its file | `test_image_text` |
+| Contrast guessed from two colours | flagged background colours, missed the unreadable line | OCR reads the words; contrast per line from the solid strokes | `test_image_text` (real Tesseract) |
+| Stretched or tilted logo never found | BRD-02 unchecked | ORB + homography with pre-stretched templates | `test_logos` |
+| Logo lettering read as copy | "PULSE has low contrast" | text inside a found logo is left out | `test_logos` |
+| Uploads over ~4.5 MB | Vercel's error page surfaced as a JSON parse error | size checked before sending; readable messages | browser walk-through |
+| PDF and Word findings could not be disputed | no way to resolve them | per-file-type actions on each finding | browser walk-through |
+| Two new suites not in the runner; one crashed | CI would not catch regressions | added to `run_tests.py`; demo mode and the right key scope | `run_tests.py`: 18/18 |
+
+---
+
+## 1. Status snapshot (Round 2)
 
 | Area | Status | Evidence |
 |------|--------|----------|
@@ -20,10 +50,10 @@
 | Guest access — no sign-in needed | ✅ done | persona switcher performs real engine login; judge clicks and works |
 | AI gateway (3 providers, key-less honest mode) | ✅ done | runs key-less (marks AI checks pending) — see §4 for the one key that lights it up |
 | Documentation | ✅ done | README + docs/architecture, design, approach, progress, getting-started, tutorial, changelog, disclosure-log, deployment, usability kit |
-| Test suites (`engine/tests/`, 11 suites + evaluation gate) | ✅ done | checks over validation, insights shape, number formats, counts, rule preview |
+| Test suites (`engine/tests/`, 17 suites + evaluation gate in Round 3) | ✅ done | checks over validation, insights shape, number formats, counts, rule preview |
 | Evaluation baseline (Appendix B) | ✅ done | `engine/evaluation/evaluate.py` + `eval_set.jsonl` (20 samples, ~30% frozen) + `eval_baseline.json`; every run stored in `eval_runs` |
 | CI gates (Section 11.5) | ✅ done | `.github/workflows/ci.yml`: six suites, evaluation gate, type-check, production build, `pip-audit`, `npm audit` |
-| Deployment to a public URL | ⏳ pending (accounts needed) | artifacts ready: `engine/Dockerfile`, `render.yaml`, `docs/deployment.md` with verify steps; only the host accounts are missing |
+| Deployment to a public URL | ✅ done (Round 2) | web: https://canonry-sigma.vercel.app, engine: https://canonry-engine.onrender.com (`render.yaml`, `docs/deployment.md`) |
 
 ## 2. Demo journey — verified end to end (both via HTTP and in the browser)
 
