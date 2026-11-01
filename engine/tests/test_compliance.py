@@ -21,6 +21,9 @@ from db import connect  # noqa: E402
 from seed import seed  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
+main.DEMO_MODE = True  # the demo workspace; production mode would demand a bootstrap admin
+main.COOKIE_SECURE = False
+
 failures = []
 
 
@@ -72,7 +75,7 @@ try:
     expect(not report["false_alarms"], "no false legal alarms in the eval set")
 
     # the public API response carries the same contract-v2 citation
-    key = api.create_key(conn, ws, "compliance-test", ["check"], "test")["key"]
+    key = api.create_key(conn, ws, "compliance-test", ["check", "read"], "test")["key"]
     conn.commit()
 finally:
     conn.close()

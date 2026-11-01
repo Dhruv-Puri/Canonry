@@ -346,12 +346,14 @@ def ai_implicit_claims(text: str, budget_ok: bool, conn: sqlite3.Connection,
     )
     if out is None:
         return None
-    data = gateway.parse_json_out(out["text"])
-    if not data or not isinstance(data.get("claims"), list):
+    items = gateway.json_list(gateway.parse_json_out(out["text"]), "claims")
+    if items is None:
         return None
     valid: List[Dict[str, str]] = []
-    for c in data["claims"][:8]:
-        claim = str(c.get("claim", "")).strip()
+    for c in items[:8]:
+        # free models sometimes answer a list of strings instead of {"claim": ...}
+        claim = c.get("claim") if isinstance(c, dict) else c
+        claim = claim.strip() if isinstance(claim, str) else ""
         if claim and claim in text:  # position validated against original text
             valid.append({"claim": claim, "start": text.find(claim)})
     return valid
@@ -373,21 +375,30 @@ def ai_verify_claims(text: str, pending: List[Dict[str, Any]], facts: List[sqlit
     )
     if out is None:
         return []
-    data = gateway.parse_json_out(out["text"])
     results = []
-    if data and isinstance(data.get("claims"), list):
-        known_ids = {f["id"] for f in facts}
-        for c in data["claims"]:
-            snippet = c.get("claim")
-            if not snippet or snippet not in text:
-                continue  # invalid span -> discarded
-            fact_ids = [i for i in (c.get("fact_ids") or []) if i in known_ids]
-            results.append({
-                "snippet": snippet, "verdict": str(c.get("verdict", "unsupported")),
-                "fact_ids": fact_ids, "explanation": c.get("explanation", ""),
-                "suggestion": c.get("fix"), "model": out["model"],
-            })
+    known_ids = {f["id"] for f in facts}
+    # the model's answer is data of unknown shape: anything malformed is dropped, never trusted
+    for c in gateway.json_list(gateway.parse_json_out(out["text"]), "claims") or []:
+        if not isinstance(c, dict):
+            continue
+        snippet = c.get("claim")
+        if not isinstance(snippet, str) or not snippet or snippet not in text:
+            continue  # invalid span -> discarded
+        verdict = str(c.get("verdict", "unsupported")).strip().lower()
+        if verdict not in AI_VERDICTS:
+            continue  # a verdict we did not ask for is not a finding
+        raw_ids = c.get("fact_ids") if isinstance(c.get("fact_ids"), list) else []
+        explanation, fix = c.get("explanation"), c.get("fix")
+        results.append({
+            "snippet": snippet, "verdict": verdict,
+            "fact_ids": [i for i in raw_ids if isinstance(i, str) and i in known_ids],
+            "explanation": explanation if isinstance(explanation, str) else "",
+            "suggestion": fix if isinstance(fix, str) and fix.strip() else None, "model": out["model"],
+        })
     return results
+
+
+AI_VERDICTS = ("supported", "contradicted", "outdated", "unsupported")
 
 
 # ---- citation check & tiers (doc 9.2 steps 5-7; Improvement 3) ----------------

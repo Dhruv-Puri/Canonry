@@ -12,6 +12,7 @@ import json
 import os
 import sqlite3
 import time
+import traceback
 from typing import Any, Dict, List, Optional
 
 import assets
@@ -233,71 +234,85 @@ def run_check(conn: sqlite3.Connection, revision_id: str, actor: Optional[str] =
             else:
                 ai_reason = "provider_unavailable"
 
-    implicit = claims.ai_implicit_claims(text, budget_left(), conn, deadline=ai_deadline) if use_ai else None
-    if use_ai and implicit is None:
-        missed()
-    if implicit:
-        verified = claims.ai_verify_claims(
-            text, [{"snippet": i["claim"]} for i in implicit], facts, budget_left(), conn,
-            deadline=ai_deadline)
-        for v in verified:
-            if v["verdict"] == "supported":
-                continue
-            pos = text.find(v["snippet"])
-            cits = [{"type": "fact", "id": fid} for fid in v["fact_ids"]]
-            if not cits and stat_rule:
-                cits = [{"type": "rule", "id": stat_rule}]
-            if not cits:
-                continue  # the statistic rule is retired: nothing to cite, no finding
-            findings.append({
-                "id": gen_id("fnd"), "revision_id": revision_id, "checker": "claims",
-                "category": v["verdict"] + "_claim",
-                "span": {"start": pos, "end": pos + len(v["snippet"]), "text": v["snippet"]},
-                "tier": claims.tier_for("claims", v["verdict"]),
-                "severity": "high" if v["verdict"] in ("contradicted", "outdated") else "medium",
-                "citations": cits, "explanation": v["explanation"],
-                "suggestion": {"replace": v["suggestion"], "operation": "replace"} if v.get("suggestion") else None,
-                "title": CLAIM_TITLES.get(v["verdict"], "Claim issue"),
-                "provenance": {"model": v["model"], "prompt_version": PROMPT_VERSION,
-                               "knowledge_version": kv_bumped},
-            })
-
-    tone_rule = ctx.rule("voice.tone")
-    if use_ai and tone_rule:
-        tone_out = gateway.gateway_call(
-            "tone_check",
-            [{"role": "system", "content": TONE_SYSTEM},
-             {"role": "user", "content":
-              "VOICE RULES:\n" + "\n".join(
-                  f'{r["id"]}: {r["statement"]} [do: {r["do_example"] or "-"} | don\'t: {r["dont_example"] or "-"}]'
-                  for r in conn.execute(
-                      "SELECT id, statement, do_example, dont_example FROM rules "
-                      "WHERE workspace_id = ? AND category = 'Voice' AND status='approved'",
-                      (ws,)).fetchall())
-              + "\n\nCONTENT:\n" + text}],
-            conn=conn, budget_ok=budget_left(), prompt_version=TONE_PROMPT_VERSION,
-            deadline=ai_deadline,
-        )
-        if not tone_out:
+    def ai_checks() -> None:
+        implicit = claims.ai_implicit_claims(text, budget_left(), conn, deadline=ai_deadline) if use_ai else None
+        if use_ai and implicit is None:
             missed()
-        else:
-            data = gateway.parse_json_out(tone_out["text"])
-            for t in (data or {}).get("tone_findings", [])[:2]:
-                span_text = t.get("span", "")
-                if span_text and span_text in text:
-                    pos = text.find(span_text)
-                    findings.append({
-                        "id": gen_id("fnd"), "revision_id": revision_id, "checker": "tone",
-                        "category": "tone",
-                        "span": {"start": pos, "end": pos + len(span_text), "text": span_text},
-                        "tier": "consider", "severity": "medium",
-                        "citations": [{"type": "rule", "id": tone_rule}],
-                        "explanation": t.get("explanation", "Tone conflicts with the brand voice rules."),
-                        "suggestion": {"replace": t.get("fix"), "operation": "replace"} if t.get("fix") else None,
-                        "title": "Tone: judgement call",
-                        "provenance": {"model": tone_out["model"], "prompt_version": TONE_PROMPT_VERSION,
-                                       "knowledge_version": kv_bumped},
-                    })
+        if implicit:
+            verified = claims.ai_verify_claims(
+                text, [{"snippet": i["claim"]} for i in implicit], facts, budget_left(), conn,
+                deadline=ai_deadline)
+            for v in verified:
+                if v["verdict"] == "supported":
+                    continue
+                pos = text.find(v["snippet"])
+                cits = [{"type": "fact", "id": fid} for fid in v["fact_ids"]]
+                if not cits and stat_rule:
+                    cits = [{"type": "rule", "id": stat_rule}]
+                if not cits:
+                    continue  # the statistic rule is retired: nothing to cite, no finding
+                findings.append({
+                    "id": gen_id("fnd"), "revision_id": revision_id, "checker": "claims",
+                    "category": v["verdict"] + "_claim",
+                    "span": {"start": pos, "end": pos + len(v["snippet"]), "text": v["snippet"]},
+                    "tier": claims.tier_for("claims", v["verdict"]),
+                    "severity": "high" if v["verdict"] in ("contradicted", "outdated") else "medium",
+                    "citations": cits, "explanation": v["explanation"],
+                    "suggestion": {"replace": v["suggestion"], "operation": "replace"} if v.get("suggestion") else None,
+                    "title": CLAIM_TITLES.get(v["verdict"], "Claim issue"),
+                    "provenance": {"model": v["model"], "prompt_version": PROMPT_VERSION,
+                                   "knowledge_version": kv_bumped},
+                })
+
+        tone_rule = ctx.rule("voice.tone")
+        if use_ai and tone_rule:
+            tone_out = gateway.gateway_call(
+                "tone_check",
+                [{"role": "system", "content": TONE_SYSTEM},
+                 {"role": "user", "content":
+                  "VOICE RULES:\n" + "\n".join(
+                      f'{r["id"]}: {r["statement"]} [do: {r["do_example"] or "-"} | don\'t: {r["dont_example"] or "-"}]'
+                      for r in conn.execute(
+                          "SELECT id, statement, do_example, dont_example FROM rules "
+                          "WHERE workspace_id = ? AND category = 'Voice' AND status='approved'",
+                          (ws,)).fetchall())
+                  + "\n\nCONTENT:\n" + text}],
+                conn=conn, budget_ok=budget_left(), prompt_version=TONE_PROMPT_VERSION,
+                deadline=ai_deadline,
+            )
+            if not tone_out:
+                missed()
+            else:
+                items = gateway.json_list(gateway.parse_json_out(tone_out["text"]), "tone_findings") or []
+                for t in items[:2]:
+                    if not isinstance(t, dict):
+                        continue  # the answer's shape is not trusted: malformed items are dropped
+                    span_text = t.get("span")
+                    if isinstance(span_text, str) and span_text and span_text in text:
+                        explanation, fix = t.get("explanation"), t.get("fix")
+                        t = {"explanation": explanation if isinstance(explanation, str) and explanation.strip() else
+                             "Tone conflicts with the brand voice rules.",
+                             "fix": fix if isinstance(fix, str) and fix.strip() else None}
+                        pos = text.find(span_text)
+                        findings.append({
+                            "id": gen_id("fnd"), "revision_id": revision_id, "checker": "tone",
+                            "category": "tone",
+                            "span": {"start": pos, "end": pos + len(span_text), "text": span_text},
+                            "tier": "consider", "severity": "medium",
+                            "citations": [{"type": "rule", "id": tone_rule}],
+                            "explanation": t.get("explanation", "Tone conflicts with the brand voice rules."),
+                            "suggestion": {"replace": t.get("fix"), "operation": "replace"} if t.get("fix") else None,
+                            "title": "Tone: judgement call",
+                            "provenance": {"model": tone_out["model"], "prompt_version": TONE_PROMPT_VERSION,
+                                           "knowledge_version": kv_bumped},
+                        })
+
+    if use_ai:
+        try:
+            ai_checks()
+        except Exception:  # noqa: BLE001 - a surprising AI answer must never cost the rule findings
+            traceback.print_exc()
+            missed()
 
     # India pack: deterministic triggers over the retrieved clause candidates. It
     # runs after claims so a legal risk cites its own clause even where a brand

@@ -399,6 +399,16 @@ def gateway_call(task: str, messages: List[Dict[str, str]], conn: Optional[sqlit
             conn.close()
 
 
+def json_list(data: Any, key: str) -> Optional[List[Any]]:
+    """The list under `key` in a model's JSON answer, or None when the answer has
+    another shape. A bare top-level list is accepted as that list."""
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict) and isinstance(data.get(key), list):
+        return data[key]
+    return None
+
+
 def parse_json_out(text: str) -> Any:
     """Force AI output into a fixed format; content is data, never instructions."""
     try:

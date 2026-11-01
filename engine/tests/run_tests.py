@@ -12,7 +12,8 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 EVALUATE = os.path.join(HERE, "..", "evaluation", "evaluate.py")
 SUITES = ["test_engine", "test_identity", "test_knowledge", "test_regressions", "test_seed_data",
-          "test_edge_cases", "test_policy", "test_access", "test_workflow", "test_gateway", "test_quota"]
+          "test_edge_cases", "test_policy", "test_access", "test_workflow", "test_gateway", "test_quota",
+          "test_documents", "test_compliance", "test_ai_shapes"]
 
 
 def main() -> int:
