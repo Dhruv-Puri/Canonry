@@ -199,38 +199,57 @@ export async function api<T>(path: string, init?: RequestInit & { json?: unknown
   }
 }
 
+/** Shown whenever the engine does not answer, or answers with a page that is not its own JSON. */
+export const ENGINE_UNREACHABLE =
+  "Canonry's checking engine can't be reached right now. It may be starting up (this can take up to a minute " +
+  "on the free server). Wait a moment, then reload the page.";
+
+/** Plain words for a failed engine response; never a raw status code or proxy text. */
+export function engineErrorMessage(status: number, data: unknown): string {
+  const d = (data ?? {}) as { detail?: unknown; message?: unknown; __text?: unknown };
+  if (typeof d.detail === "string" && d.__text === undefined) return d.detail;
+  // structured errors (the public API) carry { detail: { code, message } }
+  const nested = d.detail && typeof d.detail === "object" ? (d.detail as { message?: unknown }).message : undefined;
+  if (typeof nested === "string") return nested;
+  if (typeof d.message === "string") return d.message;
+  if (status >= 500 || status === 0) return ENGINE_UNREACHABLE;
+  if (status === 404) return "That item was not found. It may have been removed, or the link is wrong.";
+  if (status === 401) return "Your session has ended. Choose a role to continue.";
+  if (status === 403) return "Your role can't do that. Switch role from your name in the top bar.";
+  if (status === 413) return "That is too large to send. Keep files under 4 MB.";
+  if (status === 422 && Array.isArray(d.detail)) return "Some of the details sent were not valid. Check the form and try again.";
+  return `Something went wrong (${status}). Try again in a moment.`;
+}
+
 async function request<T>(path: string, init?: RequestInit & { json?: unknown }): Promise<T> {
   const { json, ...rest } = init ?? {};
-  const res = await fetch(`${BASE}${path}`, {
-    ...rest,
-    credentials: "same-origin",
-    headers: {
-      ...(json !== undefined ? { "Content-Type": "application/json" } : {}),
-      ...(rest.headers ?? {}),
-    },
-    body: json !== undefined ? JSON.stringify(json) : rest.body,
-    cache: "no-store",
-  });
-  const text = await res.text();
-  const data = text ? safeJson(text) : null;
-  if (!res.ok) {
-    const d = (data ?? {}) as { detail?: unknown; message?: unknown };
-    const nested = d.detail && typeof d.detail === "object" ? (d.detail as { message?: unknown }).message : undefined;
-    const msg =
-      typeof d.detail === "string" ? d.detail :
-      typeof nested === "string" ? nested :
-      typeof d.message === "string" ? d.message :
-      `Engine error ${res.status}`;
-    throw new ApiError(res.status, msg);
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      ...rest,
+      credentials: "same-origin",
+      headers: {
+        ...(json !== undefined ? { "Content-Type": "application/json" } : {}),
+        ...(rest.headers ?? {}),
+      },
+      body: json !== undefined ? JSON.stringify(json) : rest.body,
+      cache: "no-store",
+    });
+  } catch {
+    throw new ApiError(0, ENGINE_UNREACHABLE); // offline, or the proxy dropped the connection
   }
+  const text = await res.text().catch(() => "");
+  const data = text ? safeJson(text) : null;
+  if (!res.ok) throw new ApiError(res.status, engineErrorMessage(res.status, data));
   return data as T;
 }
 
-function safeJson(text: string): unknown {
+/** JSON, or a marker that the body was not JSON (a proxy error page, "Internal Server Error"). */
+export function safeJson(text: string): unknown {
   try {
     return JSON.parse(text);
   } catch {
-    return { detail: text };
+    return { detail: text, __text: true };
   }
 }
 
@@ -281,21 +300,27 @@ export async function uploadFile<T>(path: string, file: File): Promise<T> {
   if (file.size > MAX_UPLOAD_BYTES) {
     throw new ApiError(413, `This file is ${(file.size / 1024 / 1024).toFixed(1)} MB; uploads can be up to 4 MB. Compress it or export a smaller copy.`);
   }
-  const res = await fetch(`${BASE}${path}`, {
-    method: "POST",
-    body: file,
-    credentials: "same-origin",
-    headers: { "Content-Type": file.type || "application/octet-stream" },
-    cache: "no-store",
-  });
-  const text = await res.text();
-  const data = (text ? safeJson(text) : null) as { detail?: unknown } | null;
+  if (file.size === 0) {
+    throw new ApiError(422, "This file is empty (0 bytes). Choose the file again, or export it again from its source.");
+  }
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      method: "POST",
+      body: file,
+      credentials: "same-origin",
+      headers: { "Content-Type": file.type || "application/octet-stream" },
+      cache: "no-store",
+    });
+  } catch {
+    throw new ApiError(0, ENGINE_UNREACHABLE);
+  }
+  const text = await res.text().catch(() => "");
+  const data = text ? safeJson(text) : null;
   if (!res.ok) {
     if (res.status === 401 && typeof window !== "undefined") window.dispatchEvent(new Event(SIGNED_OUT_EVENT));
     const msg =
-      typeof data?.detail === "string" ? data.detail :
-      res.status === 413 ? "This file is too large to upload. Keep it under 4 MB." :
-      `Upload failed (${res.status}). Try again in a moment.`;
+      res.status === 413 ? "This file is too large to upload. Keep it under 4 MB." : engineErrorMessage(res.status, data);
     throw new ApiError(res.status, msg);
   }
   return data as T;

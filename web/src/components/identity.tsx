@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { ArrowRight, Check } from "lucide-react";
-import { api, ApiError, SIGNED_OUT_EVENT, type AuthMode, type User } from "@/lib/api";
+import { api, ApiError, ENGINE_UNREACHABLE, SIGNED_OUT_EVENT, type AuthMode, type User } from "@/lib/api";
 import { ROLES, type Role } from "@/lib/roles";
 import { BrandMark } from "@/components/brand";
 
@@ -37,7 +37,7 @@ export function IdentityGate({ children }: { children: React.ReactNode }) {
   const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
   const [me, setMe] = useState<User | null>(null);
   const [demoMode, setDemoMode] = useState(false);
-  const [state, setState] = useState<"loading" | "in" | "out">("loading");
+  const [state, setState] = useState<"loading" | "in" | "out" | "down">("loading");
 
   const refresh = useCallback(async () => {
     try {
@@ -48,7 +48,9 @@ export function IdentityGate({ children }: { children: React.ReactNode }) {
         setMe(null);
         setState("out");
       } else {
-        setState("in"); // engine hiccup: let pages show their own errors
+        // the engine is asleep or unreachable: say so once, instead of every page
+        // rendering for nobody (empty lists, "this page is for admins")
+        setState("down");
       }
     }
   }, []);
@@ -75,6 +77,7 @@ export function IdentityGate({ children }: { children: React.ReactNode }) {
   }, []);
 
   if (state === "loading") return <div className="min-h-dvh" aria-busy="true" />;
+  if (state === "down" && !isPublic) return <EngineDown onRetry={() => { setState("loading"); void refresh(); }} />;
   if (state === "out" && !isPublic) return <Welcome onJoined={(u) => { setMe(u); setState("in"); }} />;
   // remount everything when the person or their role changes, so every view
   // reloads with what the new role may see
@@ -84,6 +87,22 @@ export function IdentityGate({ children }: { children: React.ReactNode }) {
         {children}
       </div>
     </IdentityContext.Provider>
+  );
+}
+
+/** Shown when the engine does not answer at all; one button tries again. */
+function EngineDown({ onRetry }: { onRetry: () => void }) {
+  return (
+    <main className="grid min-h-dvh place-items-center px-5">
+      <div role="alert" className="surface max-w-md p-8 text-center">
+        <BrandMark className="mx-auto size-9" />
+        <h1 className="mt-4 text-xl font-bold tracking-tight text-foreground">Canonry is not answering</h1>
+        <p className="mt-2 text-sm leading-relaxed text-foreground-secondary">{ENGINE_UNREACHABLE}</p>
+        <button type="button" onClick={onRetry} className="btn btn-primary mt-6">
+          Try again
+        </button>
+      </div>
+    </main>
   );
 }
 
@@ -100,7 +119,7 @@ function Welcome({ onJoined }: { onJoined: (u: User) => void }) {
     return (
       <main className="grid min-h-dvh place-items-center px-5" aria-busy={!error}>
         <p className={error ? "text-sm text-danger-fg" : "text-sm text-muted-foreground"} role={error ? "alert" : undefined}>
-          {error ? `Canonry can't be reached right now. ${error}` : "Opening Canonry…"}
+          {error ?? "Opening Canonry…"}
         </p>
       </main>
     );
@@ -175,7 +194,7 @@ function GuestWelcome({ onJoined }: { onJoined: (u: User) => void }) {
               return (
                 <label
                   key={id}
-                  className={`flex cursor-pointer items-center gap-3 rounded-2xl border p-3.5 transition-all ${
+                  className={`flex cursor-pointer items-center gap-3 rounded-2xl border p-3.5 transition-all has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-brand ${
                     on ? "border-brand bg-muted ring-2 ring-[var(--ring-glow)]" : "border-border hover:border-border-strong hover:bg-muted/50"
                   }`}
                 >
