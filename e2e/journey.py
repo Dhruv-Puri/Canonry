@@ -273,7 +273,7 @@ def phase_journey(browser: Browser) -> None:
     pp = pctx.new_page()
     errs += watch(pp, "verify")
     pp.goto(f"/verify/{poc}")
-    pp.get_by_text("Genuine seal").wait_for()
+    pp.get_by_text(re.compile("Genuine (seal|signature)")).wait_for()
     pp.get_by_label("Published text").fill(approved)
     pp.get_by_role("button", name="Check this text").click()
     pp.get_by_text("Verified: this is the approved content").wait_for()

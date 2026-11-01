@@ -9,7 +9,7 @@ async function VerifyInner({ params }: { params: Promise<{ pocId: string }> }) {
 // Next 16 (cacheComponents): stream the dynamic id instead of blocking prerender.
 export default function VerifyPage({ params }: { params: Promise<{ pocId: string }> }) {
   return (
-    <Suspense fallback={<div className="mx-auto max-w-2xl p-10 text-sm text-muted-foreground">Checking seal…</div>}>
+    <Suspense fallback={<div className="mx-auto max-w-2xl p-10 text-sm text-muted-foreground">Checking the signature…</div>}>
       <VerifyInner params={params} />
     </Suspense>
   );

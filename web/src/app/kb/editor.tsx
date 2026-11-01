@@ -162,7 +162,7 @@ export function EntityDialog({
           </DialogTitle>
           <DialogDescription>
             {editing
-              ? `Saving creates version ${entity.version + 1}. Version ${entity.version} stays in the history, and findings that cited it keep showing it.`
+              ? `Saving creates version ${entity.version + 1}. Version ${entity.version} stays in the history, and issues that cited it keep showing it.`
               : "It takes effect on the next check."}
           </DialogDescription>
         </DialogHeader>
@@ -454,7 +454,7 @@ export function HistoryDialog({
             <DialogTitle className="flex items-center gap-2 text-xl font-bold tracking-tight">
               <History className="size-5 text-brand" aria-hidden /> History of {NOUN[kind]} {entity?.id}
             </DialogTitle>
-            <DialogDescription>Every version is kept. Findings and approvals point at the version they used.</DialogDescription>
+            <DialogDescription>Every version is kept. Issues and approvals point at the version they used.</DialogDescription>
           </DialogHeader>
           {error && <p className="text-sm text-danger-fg">{error}</p>}
           {!versions && !error && <p className="text-sm text-muted-foreground">Loading…</p>}

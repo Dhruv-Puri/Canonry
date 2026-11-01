@@ -262,7 +262,7 @@ export default function KBPage() {
           open
           onOpenChange={(o) => !o && setRetiring(null)}
           title={`Retire ${NOUN[retiring.kind]} ${retiring.entity.id}?`}
-          description="It stops being used in checks. Past findings and approvals keep citing it, and you can restore it from History."
+          description="It stops being used in checks. Past issues and approvals keep citing it, and you can restore it from History."
           confirmLabel="Retire"
           onConfirm={async (reason) => {
             const r = await api<KBWriteResult>(`/kb/${retiring.kind}/${retiring.entity.id}/retire`, {
@@ -367,10 +367,10 @@ function RuleBody({ r }: { r: Rule }) {
         <code className="font-mono text-xs font-semibold text-brand">{r.id}</code>
         <span className="text-xs text-muted-foreground">{r.category}</span>
         <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] capitalize text-foreground-secondary">{r.severity}</span>
-        {r.status === "draft" && <span className="rounded-full bg-warning-bg px-1.5 py-0.5 text-[11px] text-warning-fg">draft</span>}
+        {r.status === "draft" && <span className="rounded-full bg-warning-bg px-1.5 py-0.5 text-[11px] text-warning-fg">Draft</span>}
         {r.vague_flag && (
           <span className="rounded-full border border-dashed border-warning-border px-1.5 py-0.5 text-[11px] text-warning-fg">
-            possibly unclear: {r.vague_flag.replace("vague_", "").replace("_", " ")}
+            Needs clearer wording: {r.vague_flag.replace("vague_", "").replace("_", " ")}
           </span>
         )}
       </div>

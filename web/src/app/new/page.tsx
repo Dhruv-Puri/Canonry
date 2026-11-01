@@ -144,12 +144,13 @@ export default function NewSubmissionPage() {
               </p>
             ) : (
               <select
-                className="field h-[38px] px-2 capitalize"
+                className="field h-[38px] px-2"
                 value={source}
                 onChange={(e) => setSource(e.target.value)}
               >
-                {["in-house", "ai-assisted"].map((c) => (
-                  <option key={c} value={c}>{c}</option>
+                {/* sentence case by hand: CSS capitalize would write "In-House", "Ai-Assisted" */}
+                {[["in-house", "In-house"], ["ai-assisted", "AI-assisted"]].map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
                 ))}
               </select>
             )}
@@ -193,7 +194,7 @@ export default function NewSubmissionPage() {
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
               />
             </Field>
-            <Field label="Alt text (for an image; findings check it)">
+            <Field label="Alt text (for an image; Canonry checks it too)">
               <input
                 className="field h-[38px] px-3"
                 value={altText}

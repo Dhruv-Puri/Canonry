@@ -64,12 +64,12 @@ const STEPS: Step[] = [
     eyebrow: "The finish line",
     title: "Approve, sign, verify",
     body:
-      "Resolve the findings, send the draft for review, and approve it. The approval becomes a signed Proof of Compliance anyone can verify.",
+      "Resolve the issues, send the draft for review, and approve it. The approval becomes a signed Proof of Compliance anyone can verify.",
     icon: Stamp,
     points: [
       "A reviewer approves or requests changes.",
       "In production, a different reviewer must approve.",
-      "The seal is public and can be checked later.",
+      "The signature is public and can be checked later.",
     ],
   },
 ];
