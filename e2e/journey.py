@@ -605,11 +605,12 @@ def phase_offline(browser: Browser) -> None:
                  "/verify/poc_x"]:
         page.goto(path)
         settle(page)
-        page.wait_for_timeout(1500)
+        # the identity gate keeps retrying for 45 s and says "Waking up…" after 3 s
+        page.wait_for_timeout(4500)
         t = body_text(page).strip()
         name = "o-" + (re.sub(r"[^a-z0-9]+", "_", path).strip("_") or "home")
         shot(page, name)
-        plain = bool(re.search(r"can.t be reached|can.t reach|unavailable|try again", t, re.I))
+        plain = bool(re.search(r"can.t be reached|can.t reach|unavailable|try again|waking up", t, re.I))
         raw = bool(re.search(r"Unexpected token|Internal Server Error|Engine error|is not valid JSON|Failed to fetch", t))
         check(plain and not raw and not blank_or_crashed(page), f"{path}: plain 'unavailable' message ({t[:80]!r})")
     page_errors = [e for e in errs if "page error" in e]

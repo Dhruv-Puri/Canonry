@@ -1,8 +1,8 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
-import { ArrowRight, Check, ChevronRight } from "lucide-react";
+import { ArrowRight, Check, ChevronRight, LoaderCircle } from "lucide-react";
 import { api, ApiError, ENGINE_UNREACHABLE, SIGNED_OUT_EVENT, type AuthMode, type User } from "@/lib/api";
 import { ROLES, type Role } from "@/lib/roles";
 import { BrandMark } from "@/components/brand";
@@ -32,12 +32,27 @@ const PUBLIC_PATHS = ["/verify/"];
  * account and password. Until signed in, the welcome screen replaces the app,
  * except on public routes, which render for signed-out visitors too.
  */
+/** After this long without an answer, say the engine is waking up instead of showing a blank page. */
+const WAKE_NOTICE_MS = 3_000;
+/** After this long, stop waiting and offer "Try again". */
+const GIVE_UP_MS = 45_000;
+/** Pause between attempts while the engine starts (the proxy answers 5xx until it is up). */
+const RETRY_MS = 2_500;
+
+/** The engine is not up yet (connection refused, proxy 5xx): worth asking again. */
+function isWaking(e: unknown): boolean {
+  return e instanceof ApiError && (e.status === 0 || e.status >= 500);
+}
+
 export function IdentityGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
   const [me, setMe] = useState<User | null>(null);
-  const [demoMode, setDemoMode] = useState(false);
+  const [auth, setAuth] = useState<AuthMode | null>(null);
   const [state, setState] = useState<"loading" | "in" | "out" | "down">("loading");
+  const [elapsed, setElapsed] = useState(0);
+  // each boot gets a number; answers that arrive for an older boot (before "Try again") are ignored
+  const bootRef = useRef(0);
 
   const refresh = useCallback(async () => {
     try {
@@ -55,16 +70,69 @@ export function IdentityGate({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  /**
+   * First load. A free-tier engine can take 20–30 s to wake: keep asking (quietly
+   * for 3 s, then with a "waking up" card) and only give up after 45 s.
+   */
+  const boot = useCallback(async () => {
+    const id = ++bootRef.current;
+    const started = Date.now();
+    const current = () => bootRef.current === id;
+    setState("loading");
+    setElapsed(0);
+    const ask = async <T,>(path: string): Promise<T> => {
+      for (;;) {
+        try {
+          return await api<T>(path);
+        } catch (e) {
+          if (!isWaking(e) || Date.now() - started > GIVE_UP_MS || !current()) throw e;
+          await new Promise((r) => setTimeout(r, RETRY_MS));
+          if (!current()) throw e;
+        }
+      }
+    };
+    let user: User | null = null;
+    try {
+      user = await ask<User>("/me");
+    } catch (e) {
+      if (!current()) return;
+      if (!(e instanceof ApiError && e.status === 401)) {
+        setState("down");
+        return;
+      }
+    }
+    // the engine has answered, so this is quick; the welcome screen needs it
+    const mode = await ask<AuthMode>("/auth-mode").catch(() => null);
+    if (!current()) return;
+    setAuth(mode);
+    setMe(user);
+    setState(user ? "in" : "out");
+  }, []);
+
   useEffect(() => {
-    void api<AuthMode>("/auth-mode").then((mode) => setDemoMode(mode.demo_mode)).catch(() => setDemoMode(false));
-    void refresh();
+    void boot();
     const onOut = () => {
       setMe(null);
       setState("out");
     };
     window.addEventListener(SIGNED_OUT_EVENT, onOut);
-    return () => window.removeEventListener(SIGNED_OUT_EVENT, onOut);
-  }, [refresh]);
+    return () => {
+      bootRef.current++;
+      window.removeEventListener(SIGNED_OUT_EVENT, onOut);
+    };
+  }, [boot]);
+
+  // the counter on the waking card; past 45 s the "not answering" screen takes over
+  useEffect(() => {
+    if (state !== "loading") return;
+    const started = Date.now();
+    const t = window.setInterval(() => {
+      const ms = Date.now() - started;
+      setElapsed(ms);
+      if (ms > GIVE_UP_MS + RETRY_MS) setState((s) => (s === "loading" ? "down" : s));
+    }, 1000);
+    return () => window.clearInterval(t);
+  }, [state]);
 
   const update = useCallback(async (patch: { name?: string; role?: Role }) => {
     setMe(await api<User>("/me", { method: "PATCH", json: patch }));
@@ -76,17 +144,48 @@ export function IdentityGate({ children }: { children: React.ReactNode }) {
     setState("out");
   }, []);
 
-  if (state === "loading") return <div className="min-h-dvh" aria-busy="true" />;
-  if (state === "down" && !isPublic) return <EngineDown onRetry={() => { setState("loading"); void refresh(); }} />;
-  if (state === "out" && !isPublic) return <Welcome onJoined={(u) => { setMe(u); setState("in"); }} />;
+  if (state === "loading") {
+    return elapsed < WAKE_NOTICE_MS
+      ? <div className="min-h-dvh" aria-busy="true" />
+      : <EngineWaking seconds={Math.floor(elapsed / 1000)} />;
+  }
+  if (state === "down" && !isPublic) return <EngineDown onRetry={() => void boot()} />;
+  if (state === "out" && !isPublic) return <Welcome initial={auth} onJoined={(u) => { setMe(u); setState("in"); }} />;
   // remount everything when the person or their role changes, so every view
   // reloads with what the new role may see
   return (
-    <IdentityContext.Provider value={{ me, demoMode, refresh, update, leave }}>
+    <IdentityContext.Provider value={{ me, demoMode: auth?.demo_mode ?? false, refresh, update, leave }}>
       <div key={`${me?.id}:${me?.role}`} className="contents">
         {children}
       </div>
     </IdentityContext.Provider>
+  );
+}
+
+/** Shown after 3 s without an answer: the engine sleeps after a quiet spell and takes a moment to wake. */
+function EngineWaking({ seconds }: { seconds: number }) {
+  // fills over the usual 30 s, then waits near the end instead of pretending to finish
+  const pct = Math.min(92, Math.round((seconds / 30) * 100));
+  return (
+    <main className="grid min-h-dvh place-items-center px-5" aria-busy="true">
+      <div className="surface w-full max-w-md p-8 text-center">
+        <BrandMark className="mx-auto size-9" />
+        <h1 className="mt-4 text-xl font-bold tracking-tight text-foreground">Waking up the checking engine…</h1>
+        <p className="mt-2 text-sm leading-relaxed text-foreground-secondary">
+          This happens after a quiet spell and usually takes 20–30 seconds. Canonry opens by itself when it&apos;s ready.
+        </p>
+        <div className="mt-6 flex items-center gap-3">
+          <LoaderCircle className="size-4 shrink-0 animate-spin text-brand motion-reduce:animate-none" aria-hidden />
+          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted" aria-hidden>
+            <div className="h-full rounded-full bg-brand transition-[width] duration-1000 ease-linear" style={{ width: `${pct}%` }} />
+          </div>
+          <span className="w-10 text-right text-sm tabular-nums text-muted-foreground">
+            <span className="sr-only">Waiting for </span>{seconds}s
+          </span>
+        </div>
+        <p className="sr-only" role="status">Waking up the checking engine. This usually takes 20 to 30 seconds.</p>
+      </div>
+    </main>
   );
 }
 
@@ -107,13 +206,14 @@ function EngineDown({ onRetry }: { onRetry: () => void }) {
 }
 
 /** Demo workspaces get the guest entry; production workspaces sign in with an account. */
-function Welcome({ onJoined }: { onJoined: (u: User) => void }) {
-  const [auth, setAuth] = useState<AuthMode | null>(null);
+function Welcome({ initial, onJoined }: { initial: AuthMode | null; onJoined: (u: User) => void }) {
+  const [auth, setAuth] = useState<AuthMode | null>(initial);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (initial) return;
     void api<AuthMode>("/auth-mode").then(setAuth).catch((e) => setError(e instanceof Error ? e.message : String(e)));
-  }, []);
+  }, [initial]);
 
   if (!auth) {
     return (
