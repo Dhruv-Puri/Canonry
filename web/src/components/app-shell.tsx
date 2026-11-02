@@ -135,7 +135,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             );
           })}
         </nav>
-        <div className="mt-auto space-y-3 px-2">
+        <div className={`mt-auto space-y-3 px-2 ${guideOn ? "invisible" : ""}`}>
           <p className="text-xs leading-relaxed text-muted-foreground">
             A shared demo workspace. Please don&apos;t enter real brand material.
           </p>
@@ -155,7 +155,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        <main className={`mx-auto w-full max-w-6xl flex-1 px-4 pt-6 sm:px-8 md:pt-8 ${guideOn ? "pb-80 md:pb-56" : "pb-28 md:pb-16"}`}>
+        <main className={`mx-auto w-full max-w-6xl flex-1 px-4 pt-6 sm:px-8 md:pt-8 ${guideOn ? "pb-80 md:pb-16" : "pb-28 md:pb-16"}`}>
           {children}
         </main>
 

@@ -36,6 +36,12 @@ function write(key: string, value: string) {
   }
 }
 
+const SENT_KEY = "canonry.guide.sent";
+/** The draft this visitor sent for review, so the guide can point the reviewer at it. */
+export function rememberSent(sid: string) {
+  write(SENT_KEY, sid);
+}
+
 /** Called by the welcome screen with the visitor's answer. */
 export function rememberFirstTime(first: boolean) {
   write(FIRST_KEY, first ? "yes" : "no");
@@ -67,6 +73,7 @@ const DONE = ["Signed", "Approved", "Exempt-approved"];
 
 /** Work out the one next step from where the person is and what they have done. */
 function nextStep(path: string, role: string, mine: Submission[], detail: SubmissionDetail | null): Step {
+  const sentId = typeof window === "undefined" ? null : read(SENT_KEY);
   const draft = mine.find((s) => !DONE.includes(s.status) && s.status !== "In review");
   const inReview = mine.find((s) => s.status === "In review");
   const signed = mine.find((s) => DONE.includes(s.status));
@@ -174,15 +181,15 @@ function nextStep(path: string, role: string, mine: Submission[], detail: Submis
       return {
         n: 5,
         title: "The review queue",
-        body: <>Everything waiting for a decision is here. Open the draft you sent.</>,
-        target: 'main a[href^="/submissions/"]',
+        body: <>Everything waiting for a decision is here. Open the draft you sent; it&apos;s highlighted.</>,
+        target: sentId ? `main a[href="/submissions/${sentId}"]` : 'main a[href^="/submissions/"]',
       };
     }
     return {
       n: 5,
       title: "Open the review queue",
       body: <>Your draft is waiting there.</>,
-      link: { href: "/review", label: "Go to the review queue" },
+      link: sentId ? { href: `/submissions/${sentId}`, label: "Open my draft" } : { href: "/review", label: "Go to the review queue" },
     };
   }
 
@@ -316,10 +323,10 @@ export function GuidePanel() {
     <aside
       aria-label="Guide"
       aria-live="polite"
-      className="guide-panel fixed inset-x-3 bottom-[76px] z-50 rounded-2xl border border-brand/30 bg-card p-4 shadow-float md:inset-x-auto md:bottom-6 md:right-6 md:w-[340px]"
+      className="guide-panel fixed inset-x-3 bottom-[76px] z-50 rounded-2xl border border-brand/30 bg-card p-4 shadow-float md:inset-x-auto md:bottom-4 md:left-3 md:w-[208px] md:p-3 md:shadow-card"
     >
       <div className="flex items-start gap-3">
-        <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-brand/10 text-brand">
+        <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-brand/10 text-brand md:hidden">
           {finished ? <PartyPopper className="size-5" aria-hidden /> : <Compass className="size-5" aria-hidden />}
         </span>
         <div className="min-w-0 flex-1">

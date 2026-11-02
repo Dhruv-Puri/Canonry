@@ -20,6 +20,7 @@ import { diffSummary, diffWords, type DiffToken } from "@/lib/diff";
 import { LevelBadge, RiskBadge, StatusBadge } from "@/components/fx";
 import { AiLoadingScreen } from "@/components/ai-loading";
 import { JourneySteps, NextStep, VerifyLink } from "@/components/journey";
+import { rememberSent } from "@/components/guide";
 import { markIssueHandled } from "@/components/start-here";
 import { ROLE_LABEL, roleHome } from "@/lib/roles";
 import { useIdentity } from "@/components/identity";
@@ -120,7 +121,10 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
   }
 
   async function submitForReview() {
-    await act(() => api(`/submissions/${sid}/submit-review`, { method: "POST" }));
+    await act(async () => {
+      await api(`/submissions/${sid}/submit-review`, { method: "POST" });
+      rememberSent(sid); // the guide points the reviewer at this draft
+    });
   }
 
   async function recheck() {
@@ -178,6 +182,8 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
   if (!d) return <p className="text-sm text-muted-foreground" aria-busy="true">Loading the submission…</p>;
 
   const s = d.submission;
+  // the reviewer's latest "request changes", so the writer sees what to change
+  const sentBack = [...d.approvals].reverse().find((a) => a.action === "request_changes") ?? null;
   // what the engine understood about this content before checking it (shown when the engine sends it)
   const profile = d.check?.profile ?? null;
   const canReview = ["reviewer", "admin"].includes(d.me.role);
@@ -210,6 +216,18 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
         <p role="alert" className="rounded-xl border border-warning-border bg-warning-bg px-4 py-3 text-sm text-warning-fg">
           {error}
         </p>
+      )}
+
+      {s.status === "Changes requested" && sentBack && (
+        <section role="note" className="rounded-2xl border border-warning-border bg-warning-bg p-4 sm:p-5">
+          <p className="eyebrow text-warning-fg">Sent back by the reviewer</p>
+          <p className="mt-1 text-base font-semibold text-foreground">
+            {sentBack.reason ? `“${sentBack.reason}”` : "The reviewer asked for changes."}
+          </p>
+          <p className="mt-1 text-xs text-foreground-secondary">
+            {sentBack.reviewer_name ?? sentBack.reviewer}. Make the changes, then send it for review again.
+          </p>
+        </section>
       )}
 
       {d.poc || pocId ? (

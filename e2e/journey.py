@@ -75,10 +75,11 @@ def guest(ctx: BrowserContext, role: str) -> Page:
     """Pick a role on the welcome screen and Continue as guest (sign-in is async)."""
     page = ctx.new_page()
     page.goto("/")
-    page.get_by_role("button", name=re.compile("Continue as guest|Start the demo|Continue as ")).wait_for()
+    # the welcome asks "first time?"; this walk is an experienced visitor who picks a role (no guide)
+    page.get_by_role("button", name=re.compile("know my way around")).click()
     label = {"creator": "Creator", "reviewer": "Reviewer", "agency": "Agency partner", "admin": "Brand admin"}[role]
     page.locator("label", has_text=label).first.click()
-    page.get_by_role("button", name=re.compile("Continue as guest|Start the demo|Continue as ")).click()
+    page.get_by_role("button", name=re.compile("Continue as ")).click()
     # the button turns into "Opening Canonry…" first; signed in once the app's main nav exists
     page.locator("nav[aria-label=Main]").first.wait_for(state="attached", timeout=60_000)
     page.wait_for_load_state("networkidle")
@@ -125,12 +126,12 @@ def submit_text(page: Page, title: str, content: str, double: bool = False) -> s
     btn.dblclick() if double else btn.click()
     page.wait_for_url(re.compile(r"/submissions/sub_"), timeout=120_000)
     settle(page)
-    page.get_by_role("heading", name=re.compile("Findings")).wait_for()
+    page.get_by_role("heading", name=re.compile("Issues|Findings")).wait_for()
     return page.url.rsplit("/", 1)[-1]
 
 
 def open_findings(page: Page) -> int:
-    m = re.search(r"Findings \((\d+) open\)", body_text(page))
+    m = re.search(r"(?:Issues|Findings) \((\d+) open\)", body_text(page))
     return int(m.group(1)) if m else -1
 
 
@@ -205,7 +206,9 @@ def phase_journey(browser: Browser) -> None:
     cp = guest(cctx, "creator")
     errs = watch(cp, "creator")
     shot(cp, "j01-creator-home")
-    check("Launch post" in body_text(cp) or "submission" in body_text(cp).lower(), "creator home lists work")
+    # a new guest's home shows only their own work: empty, with "Check the sample"
+    check("My work" in body_text(cp) and ("Nothing checked yet" in body_text(cp) or "To fix" in body_text(cp)),
+          "creator home shows their own work (or how to start)")
     sid = submit_text(cp, f"E2E launch post {RUN}", LAUNCH, double=True)
     shot(cp, "j02-findings")
     n0 = open_findings(cp)
@@ -230,7 +233,7 @@ def phase_journey(browser: Browser) -> None:
     check(cp.get_by_text(re.compile(r"Changes from rev \d+ to rev \d+")).count() > 0, "compare shows a word diff")
     shot(cp, "j04-compare")
     cp.get_by_role("button", name=re.compile("Viewing changes")).click()
-    cp.get_by_role("button", name=re.compile("Submit for review")).dblclick()
+    cp.get_by_role("button", name=re.compile("Send for review|Submit for review")).dblclick()
     settle(cp)
     check("In review" in body_text(cp), "submitted for review")
     check(not cp.get_by_text("can't be changed").count(), "double-clicking Submit for review shows no error")
@@ -253,14 +256,14 @@ def phase_journey(browser: Browser) -> None:
     settle(cp)
     check("Changes requested" in body_text(cp) and "Please add the trial link" in body_text(cp),
           "the creator sees the request and the comment")
-    cp.get_by_role("button", name=re.compile("Submit for review")).click()
+    cp.get_by_role("button", name=re.compile("Send for review|Submit for review")).click()
     settle(cp)
     rp.reload()
     settle(rp)
     shot(rp, "j07-reviewer-decision")
     rp.get_by_role("button", name=re.compile("Approve")).dblclick()
     settle(rp)
-    rp.get_by_text("Proof of Compliance signed").wait_for(timeout=30_000)
+    rp.get_by_text(re.compile("Approved and signed|Proof of Compliance signed")).first.wait_for(timeout=30_000)
     _, d = engine_json(rp, f"/submissions/{sid}")
     check(len([a for a in d["approvals"] if a["action"] == "approve"]) == 1,
           "double-clicking Approve signed once")
@@ -290,7 +293,7 @@ def phase_journey(browser: Browser) -> None:
 
     print("\n== journey: override on another item, file upload and file verify")
     sid2 = submit_text(cp, "E2E override", "Quillmark Pulse is India's #1 analytics platform.")
-    cp.get_by_role("button", name=re.compile("Submit for review")).click()
+    cp.get_by_role("button", name=re.compile("Send for review|Submit for review")).click()
     settle(cp)
     rp.goto(f"/submissions/{sid2}")
     settle(rp)
@@ -325,7 +328,7 @@ def phase_journey(browser: Browser) -> None:
     shot(cp, "j14-docx-findings")
     sid3 = cp.url.rsplit("/", 1)[-1]
     resolve_all(cp, sid3)  # everything settled, so it can be approved and stamped
-    cp.get_by_role("button", name=re.compile("Submit for review")).click()
+    cp.get_by_role("button", name=re.compile("Send for review|Submit for review")).click()
     settle(cp)
     rp.goto(f"/submissions/{sid3}")
     settle(rp)
@@ -335,7 +338,7 @@ def phase_journey(browser: Browser) -> None:
     ok = check(bool(d3.get("poc")), "the Word file was approved and stamped")
     if ok:
         with rp.expect_download() as dl:
-            rp.get_by_role("link", name="Download stamped file").click()
+            rp.get_by_role("link", name=re.compile("Download the approved file|Download stamped file")).click()
         stamped = OUT / "stamped.docx"
         dl.value.save_as(str(stamped))
         pp.goto(f"/verify/{d3['poc']['id']}")
@@ -505,7 +508,7 @@ def phase_reliability(browser: Browser) -> None:
     ctx.clear_cookies()
     page.get_by_role("button", name="Re-check").click()
     try:
-        page.get_by_role("button", name=re.compile("Continue as guest|Start the demo|Continue as ")).wait_for(timeout=20_000)
+        page.get_by_role("button", name=re.compile("first time|know my way around")).first.wait_for(timeout=20_000)
         check(True, "an expired session returns to the welcome screen")
     except PWTimeout:
         check(False, "an expired session returns to the welcome screen")
@@ -579,7 +582,7 @@ def phase_layout(browser: Browser) -> None:
     ctx = new_context(browser, 390, 844)
     page = ctx.new_page()
     page.goto("/")
-    page.get_by_role("button", name=re.compile("Continue as guest|Start the demo|Continue as ")).wait_for()
+    page.get_by_role("button", name=re.compile("first time|know my way around")).first.wait_for()
     shot(page, "l-welcome-390")
     info = page.evaluate(LAYOUT_JS)
     check(info["overflow"] <= 0, f"welcome@390: no sideways overflow ({info['overflow']}px)")
