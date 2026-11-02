@@ -186,7 +186,7 @@ export default function ApiSettingsPage() {
       </section>
 
       {publisherUp && <section className="surface flex flex-wrap items-center gap-3 p-5">
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 basis-72">
           <p className="font-medium">Try the publishing gate</p>
           <p className="mt-1 text-sm text-muted-foreground">
             The demo publisher sends a post to Canonry through this API and publishes it only after the signed webhook

@@ -52,7 +52,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 px-5 py-6 text-xs text-muted-foreground sm:px-8">
             <BrandMark className="size-5" />
             <span className="font-semibold text-foreground">Canonry</span>
-            <span>Brand governance for Quillmark Analytics · prototype</span>
+            <span>Brand governance for Quillmark Analytics · demo workspace, shared accounts on purpose</span>
             <span className="ml-auto">Every decision stays with a person.</span>
           </div>
         </footer>

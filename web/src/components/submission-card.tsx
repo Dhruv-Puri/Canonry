@@ -53,12 +53,14 @@ export function SubmissionCard({
       <div className="flex flex-wrap items-center gap-2">
         <StatusBadge status={submission.status} />
         <RiskBadge risk={submission.risk} />
-        <span className="ml-auto text-xs capitalize text-muted-foreground">
-          {submission.channel} · {when(submission.created_at)}
+        <span className="ml-auto text-xs text-muted-foreground">
+          {/* capitalise the channel only: on the whole line it turned "pm" into "Pm" */}
+          <span className="capitalize">{submission.channel}</span> · {when(submission.created_at)}
         </span>
       </div>
       <p className="mt-4 text-lg font-bold tracking-tight text-foreground [overflow-wrap:anywhere]">{submission.title}</p>
-      {submission.router_note && (
+      <Verdict submission={submission} />
+      {submission.router_note && !submission.last_review && (
         <p className="mt-1.5 line-clamp-2 text-sm leading-relaxed text-foreground-secondary">
           {submission.router_note}
         </p>
@@ -78,4 +80,27 @@ export function SubmissionCard({
       </div>
     </Link>
   );
+}
+
+/** What the reviewer decided, in words the writer can act on. Nothing until there is a verdict. */
+function Verdict({ submission }: { submission: Submission }) {
+  const r = submission.last_review;
+  if (!r) return null;
+  const who = (r.by_name ?? "").replace(/\s*\(.*\)$/, "") || "The reviewer";
+  if (r.action === "request_changes" && submission.status === "Changes requested") {
+    return (
+      <p className="mt-2 line-clamp-3 rounded-lg border border-warning-border bg-warning-bg px-3 py-2 text-sm leading-relaxed text-foreground">
+        <span className="font-semibold text-warning-fg">Sent back by {who}:</span>{" "}
+        {r.reason ? `“${r.reason}”` : "changes requested."}
+      </p>
+    );
+  }
+  if (r.action === "approve" || r.action === "exempt_approve") {
+    return (
+      <p className="mt-2 text-sm text-success-fg">
+        {r.action === "exempt_approve" ? "Approved automatically under an exemption policy." : `Approved by ${who}.`}
+      </p>
+    );
+  }
+  return null;
 }

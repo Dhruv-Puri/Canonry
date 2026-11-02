@@ -103,7 +103,7 @@ def _names(conn: sqlite3.Connection, ws: str) -> List[str]:
     names: List[str] = []
     for t in conn.execute("SELECT preferred, banned_or_check FROM terms WHERE workspace_id = ? AND status = 'active'",
                           (ws,)).fetchall():
-        for n in [t["preferred"] or ""] + (t["banned_or_check"] or "").split(","):
+        for n in [t["preferred"] or ""] + checkers.term_variants(t["banned_or_check"]):
             n = n.strip()
             if len(n.split()) >= 2 and all(w[:1].isupper() for w in n.split()):
                 names.append(n)

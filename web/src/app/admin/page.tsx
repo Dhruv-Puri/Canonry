@@ -133,7 +133,7 @@ export default function AdminOverviewPage() {
         <Stat label="Active facts" value={activeFacts} />
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-[1.35fr_1fr]">
+      <div className="grid items-start gap-5 lg:grid-cols-[1.35fr_1fr]">
         <Reveal className="surface p-6">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -306,13 +306,18 @@ function Signal({
   hint: string;
 }) {
   return (
-    <li className="flex items-start justify-between gap-3 border-b border-border pb-3 last:border-0 last:pb-0">
-      <span>
-        <span className="block font-medium text-foreground">{label}</span>
-        <span className="text-xs text-muted-foreground">{hint}</span>
-      </span>
-      <Link href={href} className="shrink-0 text-lg font-bold tabular-nums text-brand" aria-label={`${label}: ${value}`}>
-        {value}
+    <li className="border-b border-border last:border-0">
+      {/* the whole row is the link: the number alone was an 11 px target on a phone */}
+      <Link
+        href={href}
+        aria-label={`${label}: ${value}`}
+        className="-mx-2 flex items-start justify-between gap-3 rounded-lg px-2 py-2.5 transition-colors hover:bg-muted/70"
+      >
+        <span>
+          <span className="block font-medium text-foreground">{label}</span>
+          <span className="text-xs text-muted-foreground">{hint}</span>
+        </span>
+        <span className="shrink-0 text-lg font-bold tabular-nums text-brand">{value}</span>
       </Link>
     </li>
   );

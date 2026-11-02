@@ -45,7 +45,8 @@ export function SiteNav() {
     if (href === "/admin") return pathname === "/admin" || (pathname.startsWith("/admin/") && !pathname.startsWith("/admin/api"));
     if (href === "/admin/api") return pathname.startsWith("/admin/api");
     if (href === "/agency") return pathname.startsWith("/agency") || (me?.role === "agency" && onSubmission);
-    if (href === "/") return pathname === "/" || (me?.role === "creator" && onSubmission);
+    if (href === "/work") return pathname.startsWith("/work") || (me?.role === "creator" && onSubmission);
+    if (href === "/") return pathname === "/";
     return pathname.startsWith(href);
   };
 
