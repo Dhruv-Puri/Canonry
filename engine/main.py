@@ -44,6 +44,7 @@ import policy
 import quota
 import signing
 import stamping
+import vision
 import workflow
 import db as dbmod
 from db import (
@@ -1362,8 +1363,8 @@ def get_submission(req: Request, sid: str):
                            "WHERE submission_id=? ORDER BY created_at DESC LIMIT 1", (sid,)).fetchone()
         # latest check run on the latest revision, so the UI can say when AI checks are still pending
         check = conn.execute(
-            "SELECT status, started_at, finished_at, ai_calls, discarded, knowledge_version, ai_reason, profile_json "
-            "FROM check_runs WHERE revision_id = ? ORDER BY started_at DESC LIMIT 1",
+            "SELECT status, started_at, finished_at, ai_calls, discarded, knowledge_version, ai_reason, profile_json, "
+            "vision_json FROM check_runs WHERE revision_id = ? ORDER BY started_at DESC LIMIT 1",
             (latest["id"] if latest else "",)).fetchone()
         if check:
             check = dict(check)
@@ -1371,6 +1372,10 @@ def get_submission(req: Request, sid: str):
                 check["profile"] = json.loads(check.pop("profile_json") or "null")
             except (TypeError, ValueError):
                 check["profile"] = None
+            try:  # what Canonry sees in an image (vision.py); None when no reading was made
+                check["vision"] = json.loads(check.pop("vision_json") or "null")
+            except (TypeError, ValueError):
+                check["vision"] = None
         return {"submission": dict(sub), "revisions": revs, "latest_revision": latest,
                 "findings": findings, "decisions": decisions, "approvals": approvals,
                 "asset": asset, "poc": dict(poc) if poc else None,
@@ -1425,11 +1430,15 @@ def resolve_finding(req: Request, sid: str, body: ResolveIn):
         rev_map = json.loads(rev["locator_map_json"] or "[]") if "locator_map_json" in rev.keys() else []
         finding_region = (json.loads(f["locator_json"]) or {}).get("region") if f["locator_json"] else None
         in_picture = source_kind == "image" and (
-            finding_region == images.IMAGE_TEXT_REGION if finding_region
+            finding_region in (images.IMAGE_TEXT_REGION, vision.REGION) if finding_region
             else images.in_image_text(rev_map, f["span_start"]))
         if source_kind == "image" and in_picture and body.action != "dispute":
             raise HTTPException(409, "This text is part of the image. Change it in the design file and upload a "
                                      "corrected image, or dispute the finding.")
+        if (source_kind == "image" and body.action == "accept" and finding_region == images.ALT_REGION
+                and (suggestion or {}).get("operation") == "replace" and (suggestion or {}).get("replace")):
+            # the suggested alt text (what Canonry sees in the image) is a one-click fix
+            body.action, body.replacement = "edit", suggestion["replace"]
         if source_kind == "image" and body.action == "edit":
             alt = (body.replacement or "").strip()
             if not alt:
