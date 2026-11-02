@@ -134,9 +134,17 @@ _NUM = re.compile(r"\d+(?:\.\d+)?%?")
 _WORD = re.compile(r"[a-z][a-z0-9-]+")
 
 
+_SENTENCE = re.compile(
+    r"(?:(?<![A-Za-z])(?:Rs|No|Nos)\.\s*(?=\d)"
+    r"|(?<![A-Za-z])(?:Dr|Mr|Mrs|Ms|Prof|St)\.\s+(?=[A-Z])"
+    r"|(?<![A-Za-z])(?:Pvt|Ltd|Inc|Co|vs|approx|incl|e\.g|i\.e)\.\s+(?=[\w(₹])"
+    r"|[^.!?]|[.!?](?=\S))+[.!?]*")
+
+
 def _sentences(text: str):
     # a full stop ends a sentence only before whitespace or the end ("4.2 crore" stays whole)
-    for m in re.finditer(r"(?:[^.!?]|[.!?](?=\S))+[.!?]*", text):
+    # ...and nor does the full stop of "Rs. 999", "No. 1", "Dr. Mehta" or "Pvt. Ltd."
+    for m in _SENTENCE.finditer(text):
         s = m.group(0)
         lead = len(s) - len(s.lstrip())
         body = s.strip()

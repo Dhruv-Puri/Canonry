@@ -106,6 +106,24 @@ try:
     expect(report["recall"] >= 0.85, f"recall meets 85% ({report['recall']})")
     expect(not report["false_alarms"], f"no false legal alarms in the eval set, at any tier ({report['false_alarms']})")
 
+    # real cases: ad lines ASCI upheld complaints against, quoted from published reports
+    # (data/compliance/india_asci_cases.jsonl). Before 2 Nov 2026 the pack caught 2 of 45.
+    rows = [json.loads(line) for line in open(os.path.join(compliance.DATA_DIR, "india_asci_cases.jsonl"), encoding="utf-8")
+            if line.strip() and not line.startswith("#")]
+    upheld = [r for r in rows if r["kind"] == "upheld"]
+    caught, loud = [], []
+    for r in rows:
+        refs = {c["ref"] for f in compliance.check(ctx, r["text"]) for c in f["citations"]}
+        if r["kind"] == "upheld" and refs & set(r["accept"]):
+            caught.append(r["text"])
+        if r["kind"] == "control" and refs:
+            loud.append((r["text"], sorted(refs)))
+    print(f"      ASCI cases: caught {len(caught)}/{len(upheld)}; misses: "
+          f"{[r['text'] for r in upheld if r['text'] not in caught]}")
+    expect(len(upheld) >= 40 and len(caught) / len(upheld) >= 0.9,
+           f"at least 90% of real upheld ASCI ad lines get a cited warning ({len(caught)}/{len(upheld)})")
+    expect(not loud, f"no warning on compliant lines that use the same words ({loud})")
+
     # the public API response carries the same contract-v2 citation
     key = api.create_key(conn, ws, "compliance-test", ["check", "read"], "test")["key"]
     conn.commit()

@@ -63,7 +63,7 @@
       "severity": "high",
       "triggers": [
         {
-          "pattern": "(?<![-\u2011])(?<!feel\\s)\\bfree\\b(?![-\u2011])(?=[^.]{0,120}(?:\\bpay(?:able|\\s+only)?\\b|\\bprice\\b|\\bfee\\b|\\bsubscription\\b|\u20b9|\\brs\\.?\\s*\\d|\\binr\\b))",
+          "pattern": "(?<![-‑])(?<!feel\\s)\\bfree\\b(?![-‑])(?=[^.]{0,120}(?:\\bpay(?:able|\\s+only)?\\b|\\bprice\\b|\\bfee\\b|\\bsubscription\\b|₹|\\brs\\.?\\s*\\d|\\binr\\b))",
           "category": "free_claim",
           "tier": "definite",
           "severity": "high",
@@ -75,12 +75,20 @@
           "tier": "likely",
           "severity": "medium",
           "why": "An absolute free claim must be true for every consumer, with no compulsory purchase."
+        },
+        {
+          "pattern": "\\bfree\\s+(?:installation|activation|setup)(?:\\s+charges?)?\\b",
+          "category": "free_claim",
+          "tier": "consider",
+          "severity": "medium",
+          "why": "A 'free' offer must state any condition attached to it (for example, only on new connections or renewals)."
         }
       ],
       "exempt_if": [
         "\\b(?:delivery|shipping|postage|freight)\\s+(?:charges?|costs?|fees?)\\b",
         "\\bno\\s+(?:credit\\s+card|card|payment)\\s+(?:required|needed)\\b",
-        "\\b(?:free\\s+(?:trial|plan|tier))\\b[^.]{0,80}\\b(?:no\\s+(?:card|payment)|cancel\\s+anytime)\\b"
+        "\\b(?:free\\s+(?:trial|plan|tier))\\b[^.]{0,80}\\b(?:no\\s+(?:card|payment)|cancel\\s+anytime)\\b",
+        "\\bfree\\b[^.]{0,80}\\b(?:then|after\\s+(?:that|which|the\\s+(?:first|trial)))\\b"
       ]
     },
     {
@@ -152,6 +160,62 @@
           "tier": "likely",
           "severity": "high",
           "why": "A research-backed claim must name the source and date of the independent research in the advertisement."
+        },
+        {
+          "pattern": "\\bguarantee(?:d|s)?\\s+(?:of\\s+)?(?:complete\\s+|full\\s+)?(?:weight\\s+loss|cure|recovery|success|selection|admission|placements?|jobs?|job\\s+placements?|pregnancy|protection)\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "high",
+          "why": "An absolute promise of results (a guarantee, a cure, a near-100% figure, results in a fixed short time) must be backed by evidence the advertiser can produce."
+        },
+        {
+          "pattern": "\\b100\\s?%\\s+(?:job\\s+)?placements?\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "high",
+          "why": "An absolute promise of results (a guarantee, a cure, a near-100% figure, results in a fixed short time) must be backed by evidence the advertiser can produce."
+        },
+        {
+          "pattern": "\\bcures?\\b|\\bcure\\s+(?:for|from|of)\\b|\\bwithout\\s+(?:any\\s+)?side[-\\s]effects?\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "high",
+          "why": "An absolute promise of results (a guarantee, a cure, a near-100% figure, results in a fixed short time) must be backed by evidence the advertiser can produce."
+        },
+        {
+          "pattern": "\\b(?:99(?:\\.9+)?|100)\\s?%\\s+(?:of\\s+)?(?:germs?|bacteria|viruses?|protection|pure|genuine|natural|results?|safe|accurate)\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "high",
+          "why": "An absolute promise of results (a guarantee, a cure, a near-100% figure, results in a fixed short time) must be backed by evidence the advertiser can produce."
+        },
+        {
+          "pattern": "\\b\\d+(?:\\s*(?:to|-)\\s*\\d+)?\\s*kgs?\\b[^.]{0,40}\\b(?:los[est]|reduc\\w*|shed|burn)",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "high",
+          "why": "An absolute promise of results (a guarantee, a cure, a near-100% figure, results in a fixed short time) must be backed by evidence the advertiser can produce."
+        },
+        {
+          "pattern": "\\b(?:los[est]|reduce|shed|burn)\\b[^.]{0,30}\\b\\d+\\s*kgs?\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "high",
+          "why": "An absolute promise of results (a guarantee, a cure, a near-100% figure, results in a fixed short time) must be backed by evidence the advertiser can produce."
+        },
+        {
+          "pattern": "\\b(?:crack|clear|pass|approval|approved|cured?|results?)\\b[^.]{0,30}\\bin\\s+(?:just\\s+|only\\s+)?(?:\\d+|one|two|a)\\s+(?:minutes?|hours?|days?|weeks?)\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "high",
+          "why": "An absolute promise of results (a guarantee, a cure, a near-100% figure, results in a fixed short time) must be backed by evidence the advertiser can produce."
+        },
+        {
+          "pattern": "\\bin\\s+(?:just\\s+)?(?:one|a\\s+single)\\s+(?:swipe|wash|use|application|dose)\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "high",
+          "why": "An absolute promise of results (a guarantee, a cure, a near-100% figure, results in a fixed short time) must be backed by evidence the advertiser can produce."
         }
       ],
       "exempt_if": [
@@ -181,6 +245,13 @@
           "tier": "likely",
           "severity": "medium",
           "why": "A from-price must state the range or the fixed price at which the product is actually offered."
+        },
+        {
+          "pattern": "\\bup\\s+to\\s+(?:rs\\.?|₹|inr)\\s?[\\d,]+(?![^.]{0,60}\\b(?:depending|based)\\s+on\\b)",
+          "category": "range_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "An 'up to' amount must say what most customers actually get and the conditions for the maximum."
         }
       ]
     },
@@ -256,11 +327,84 @@
           "tier": "likely",
           "severity": "medium",
           "why": "An objective superiority claim needs a source; otherwise it is a claim the advertiser must be able to substantiate."
+        },
+        {
+          "pattern": "(?<!\\w)(?:no\\.?\\s?1|#\\s?1|number\\s+one)(?![\\d.,]*\\d)(?!\\s*(?:priority|tip|rule|step|reason|question|mistake)\\b)",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "A leadership or superlative claim (No. 1, best, largest, first, most trusted) needs current comparative data and its source, stated with the claim; ASCI upholds complaints against these more than any other kind."
+        },
+        {
+          "pattern": "\\b(?:(?-i:[A-Z])[a-z]+|world|country)'s\\s+(?:(?:most|very)\\s+[a-z]+|best|biggest|largest|leading|fastest(?:[-\\s]selling)?|first|1st|top|cheapest|safest)\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "A leadership or superlative claim (No. 1, best, largest, first, most trusted) needs current comparative data and its source, stated with the claim; ASCI upholds complaints against these more than any other kind."
+        },
+        {
+          "pattern": "\\b(?:the\\s+)?(?:best|biggest|largest|leading|fastest|top|most\\s+(?:trusted|trustworthy|advanced|reliable|recommended|awarded|popular|preferred))\\b[^.]{0,60}\\bin\\s+(?:the\\s+(?:world|country)|(?:north|south|east|west|central)(?:ern)?\\s+india|(?-i:[A-Z])[a-z]{2,})\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "A leadership or superlative claim (No. 1, best, largest, first, most trusted) needs current comparative data and its source, stated with the claim; ASCI upholds complaints against these more than any other kind."
+        },
+        {
+          "pattern": "\\bmost\\s+(?:trusted|trustworthy|recommended|reliable|awarded|advanced)\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "A leadership or superlative claim (No. 1, best, largest, first, most trusted) needs current comparative data and its source, stated with the claim; ASCI upholds complaints against these more than any other kind."
+        },
+        {
+          "pattern": "\\b(?:global|world|market|industry)\\s+leaders?\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "A leadership or superlative claim (No. 1, best, largest, first, most trusted) needs current comparative data and its source, stated with the claim; ASCI upholds complaints against these more than any other kind."
+        },
+        {
+          "pattern": "\\bthe\\s+best\\b(?!\\s+(?:practices?|way|part|time|thing|of\\s+(?:luck|both)|fit|results?\\s+come|use\\s+of))",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "A leadership or superlative claim (No. 1, best, largest, first, most trusted) needs current comparative data and its source, stated with the claim; ASCI upholds complaints against these more than any other kind."
+        },
+        {
+          "pattern": "(?:^|\\bthe\\s+)only\\s+(?:[a-z-]+\\s+){1,4}(?:is\\s+effective|giving|that\\s+(?:gives|works|cures|offers))\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "A leadership or superlative claim (No. 1, best, largest, first, most trusted) needs current comparative data and its source, stated with the claim; ASCI upholds complaints against these more than any other kind."
+        },
+        {
+          "pattern": "\\balways\\s+(?:first|the\\s+best|no\\.?\\s?1|ahead|number\\s+one)\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "A leadership or superlative claim (No. 1, best, largest, first, most trusted) needs current comparative data and its source, stated with the claim; ASCI upholds complaints against these more than any other kind."
+        },
+        {
+          "pattern": "\\b(?:higher|better)\\s+(?:success|recovery|cure|pass|selection)\\s+rates?\\b(?![^.]{0,60}\\bthan\\b)",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "A leadership or superlative claim (No. 1, best, largest, first, most trusted) needs current comparative data and its source, stated with the claim; ASCI upholds complaints against these more than any other kind."
+        },
+        {
+          "pattern": "^\\W*(?:the\\s+)?(?:largest|biggest|best|fastest|safest|cheapest)\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "A leadership or superlative claim (No. 1, best, largest, first, most trusted) needs current comparative data and its source, stated with the claim; ASCI upholds complaints against these more than any other kind."
         }
       ],
       "exempt_if": [
         "\\baccording\\s+to\\b",
-        "\\bwon\\b|\\bawarded\\b|\\bby\\s+the\\b"
+        "\\bwon\\b|\\bawarded\\b|\\bby\\s+the\\b",
+        "\\bas\\s+per\\s+(?-i:[A-Z])",
+        "\\((?=[^)]*\\b(?:19|20)\\d{2}\\b)[^)]*\\)",
+        "\\bsource\\s*:"
       ]
     },
     {

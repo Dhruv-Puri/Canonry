@@ -240,8 +240,10 @@ for i, a in enumerate(fs):
         expect(fa != fb, f"one card per issue on the same words: {a['category']} {a['span_text']!r} / "
                          f"{b['category']} {b['span_text']!r}")
 ranking = [f for f in fs if f["category"] == "unsupported_claim" and "#1" in f["span_text"]]
-expect(len(ranking) == 1 and len(ranking[0]["provenance"].get("found_by", [])) == 2,
-       f"the rule and the AI ranking findings became one card found by 2 checks ({len(ranking)})")
+by = [x["checker"] for x in (ranking[0]["provenance"].get("found_by") or [])] if ranking else []
+# rule + AI, and since the India pack learned leadership claims (ASCI cases), the pack too: still one card
+expect(len(ranking) == 1 and by.count("claims") == 2 and set(by) <= {"claims", "compliance"},
+       f"the rule, the AI and the India pack ranking findings became one card ({by})")
 price_tone = [f for f in fs if f["category"] == "tone" and "999" in f["span_text"]]
 expect(len(price_tone) == 1, f"'just ₹999' and 'Plans start at just ₹999/month!' are one tone card ({len(price_tone)})")
 expect(any(f["category"] == "outdated_term" for f in fs) and any(f["category"] == "contradicted_claim" for f in fs),
