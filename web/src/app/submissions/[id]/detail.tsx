@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronRight, GitCompare, Info, TriangleAlert } from "lucide-react";
+import { ChevronRight, GitCompare, Info, Sparkles, TriangleAlert } from "lucide-react";
 import {
   api,
   ApiError,
@@ -17,7 +17,7 @@ import {
   uploadFile,
 } from "@/lib/api";
 import { diffSummary, diffWords, type DiffToken } from "@/lib/diff";
-import { CategoryBadge, LevelBadge, RiskBadge, StatusBadge } from "@/components/fx";
+import { LevelBadge, RiskBadge, StatusBadge } from "@/components/fx";
 import { AiLoadingScreen } from "@/components/ai-loading";
 import { JourneySteps, NextStep, VerifyLink } from "@/components/journey";
 import { markIssueHandled } from "@/components/start-here";
@@ -33,6 +33,7 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
   const [checking, setChecking] = useState(false);
   const [revIdx, setRevIdx] = useState(-1); // -1 => latest
   const [diffMode, setDiffMode] = useState(false);
+  const [tierFilter, setTierFilter] = useState<"all" | "definite" | "likely" | "consider">("all");
   const [pocId, setPocId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -177,6 +178,8 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
   if (!d) return <p className="text-sm text-muted-foreground" aria-busy="true">Loading the submission…</p>;
 
   const s = d.submission;
+  // what the engine understood about this content before checking it (shown when the engine sends it)
+  const profile = (d.check as unknown as { profile?: ContentProfileView | null } | null)?.profile ?? null;
   const canReview = ["reviewer", "admin"].includes(d.me.role);
   const canResolve = ["creator", "admin", "agency"].includes(d.me.role);
   const backHref = canReview ? "/review" : d.me.role === "agency" ? "/agency" : "/";
@@ -196,7 +199,7 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
       <div className="flex flex-wrap items-center gap-2">
         <h1 className="page-title mr-1">{s.title}</h1>
         <StatusBadge status={s.status} />
-        <RiskBadge risk={s.risk} />
+        {canReview && <RiskBadge risk={s.risk} />}
         <span className="rounded-md bg-muted px-1.5 py-0.5 text-[11px] text-foreground-secondary">
           {sourceLabel(s.channel)} · {sourceLabel(s.source_type)}
         </span>
@@ -249,12 +252,12 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
                   Go to issue 1 <span aria-hidden className="btn-arrow">→</span>
                 </a>
                 {acceptable > 1 && (
-                  <button type="button" disabled={busy} onClick={() => void acceptAll()} className="btn btn-secondary">
+                  <button type="button" data-guide="accept-all" disabled={busy} onClick={() => void acceptAll()} className="btn btn-secondary">
                     Accept all {acceptable} suggested fixes
                   </button>
                 )}
                 {d.allowed.submit && (
-                  <button type="button" disabled={busy} onClick={() => void submitForReview()} className="btn btn-ghost">
+                  <button type="button" data-guide="send-review" disabled={busy} onClick={() => void submitForReview()} className="btn btn-ghost">
                     Send for review anyway
                   </button>
                 )}
@@ -283,7 +286,7 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
             actions={
               <>
                 {d.allowed.submit && (
-                  <button type="button" disabled={busy} onClick={() => void submitForReview()} className="btn btn-primary">
+                  <button type="button" data-guide="send-review" disabled={busy} onClick={() => void submitForReview()} className="btn btn-primary">
                     Send for review <span aria-hidden className="btn-arrow">→</span>
                   </button>
                 )}
@@ -298,6 +301,31 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
           </NextStep>
         )
       ) : null}
+
+      {profile?.summary && (
+        <section aria-label="What Canonry understood" className="surface flex flex-wrap items-start gap-3 p-4">
+          <Sparkles className="mt-0.5 size-4 shrink-0 text-brand" aria-hidden />
+          <div className="min-w-0 flex-1">
+            <p className="eyebrow">What Canonry understood</p>
+            <p className="mt-1 text-sm leading-relaxed text-foreground">{profile.summary}</p>
+            {(profile.kind || profile.intent || profile.format) && (
+              <p className="mt-2 flex flex-wrap gap-1.5">
+                {[profile.format, profile.kind, profile.intent, profile.audience && `for ${profile.audience}`]
+                  .filter(Boolean)
+                  .map((t) => (
+                    <span key={String(t)} className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-foreground-secondary">
+                      {String(t)}
+                    </span>
+                  ))}
+              </p>
+            )}
+            <p className="mt-2 text-xs text-muted-foreground">
+              Canonry reads what the content is and who it is for before applying the brand rules, so only the rules
+              that fit this kind of content are checked.
+            </p>
+          </div>
+        </section>
+      )}
 
       {d.check?.status === "ai_pending" && (
         <p role="status" className="flex gap-2 text-xs leading-relaxed text-muted-foreground">
@@ -384,7 +412,36 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
             No findings on this revision — all checks passed or every issue was resolved.
           </p>
         )}
-        {d.findings.map((f) => (
+        {showActionsForRev && d.findings.length > 0 && (
+          <div role="group" aria-label="Show issues" className="flex flex-wrap gap-1.5">
+            {(["all", "definite", "likely", "consider"] as const).map((t) => {
+              const count = t === "all" ? openFindings.length : openFindings.filter((f) => f.tier === t).length;
+              if (t !== "all" && count === 0) return null;
+              const on = tierFilter === t;
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => setTierFilter(t)}
+                  className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                    on ? "border-foreground bg-foreground text-background" : "border-border text-foreground-secondary hover:border-border-strong"
+                  }`}
+                >
+                  {t === "all" ? "All" : TIER_LABEL[t]} · {count}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {(d.asset?.kind === "pdf" || d.asset?.kind === "png" || d.asset?.kind === "jpeg") && showActionsForRev && editable && (
+          <p className="rounded-xl border border-border bg-muted/60 px-4 py-3 text-sm text-foreground-secondary">
+            {d.asset.kind === "pdf"
+              ? "This is a PDF, which Canonry can't edit. Fix issues in your source document, export it again and use Upload new version above."
+              : "Issues in the picture itself are fixed in your design file: change it and use Upload new version above. Alt text can be fixed here."}
+          </p>
+        )}
+        {d.findings.filter((f) => tierFilter === "all" || f.status !== "open" || f.tier === tierFilter).map((f) => (
           <FindingCard
             key={f.id}
             f={f}
@@ -628,6 +685,7 @@ function ReviewBar({
           <button
             type="button"
             disabled={busy}
+            data-guide="send-back"
             onClick={() => void onReview("request_changes", reason.trim() || "Please fix the issues marked Must fix.")}
             className="btn btn-sm btn-secondary"
           >
@@ -651,6 +709,7 @@ function ReviewBar({
           <button
             disabled={busy || openHigh}
             title={openHigh ? "Resolve or override the Must fix issues first" : ""}
+            data-guide="approve"
             onClick={() => void onReview("approve", reason)}
             className="btn btn-primary"
           >
@@ -773,7 +832,7 @@ function ContentWithSpans({ content, findings, numbers }: {
     <p className="whitespace-pre-wrap font-serif text-[17px] leading-[28px] [overflow-wrap:anywhere]">
       {pieces.map((p, i) =>
         p.covering.length ? (
-          <mark key={i} className={`${p.covering.length > 1 ? "marker-strong" : "marker"} bg-transparent text-foreground`}>
+          <mark key={i} className={`${HIGHLIGHT[topTier(p.covering)]} text-foreground`}>
             <a
               href={`#finding-${p.covering[0].id}`}
               className="rounded-sm no-underline"
@@ -841,6 +900,91 @@ function RevisionDiff({ before, after, fromNo, toNo }: {
   );
 }
 
+type ContentProfileView = { summary?: string; kind?: string; intent?: string; format?: string; audience?: string };
+
+/** A plain headline per issue type: what is wrong, in words a newcomer knows. */
+const HEADLINE: Record<string, string> = {
+  outdated_term: "Old product or term name",
+  banned_term: "A word Quillmark doesn't use",
+  contradicted_claim: "Doesn't match our approved facts",
+  outdated_claim: "Out-of-date claim",
+  unsupported_claim: "Claim with no approved source",
+  missing_cta: "No call to action",
+  missing_disclaimer: "Missing disclaimer",
+  confidential_leak: "Confidential information",
+  tone: "Sounds too pushy",
+  readability: "Hard to read",
+  logo_outdated: "Old logo",
+  logo_distorted: "Logo is stretched or tilted",
+  logo_recoloured: "Logo colours changed",
+  logo_busy_background: "Logo on a busy background",
+  logo_clear_space: "Logo needs more space",
+  logo_too_small: "Logo too small",
+  logo_missing: "No logo found",
+  off_brand_colour: "Colour outside the brand palette",
+  low_text_contrast: "Text is hard to read",
+  missing_alt_text: "Missing image description",
+  alt_text_quality: "Image description needs work",
+  free_claim: "\u201cFree\u201d with a cost attached",
+  bait_advertising: "Offer that may not be available",
+  comparative_advertising: "Comparison with a rival",
+  endorsement_disclosure: "Endorsement without a disclosure",
+};
+
+const TIER_ORDER: Record<string, number> = { definite: 0, likely: 1, consider: 2 };
+function topTier(fs: Finding[]): string {
+  return fs.map((f) => f.tier).sort((a, b) => (TIER_ORDER[a] ?? 3) - (TIER_ORDER[b] ?? 3))[0] ?? "consider";
+}
+/** Severity is shown by colour AND line style, never colour alone. */
+const HIGHLIGHT: Record<string, string> = {
+  definite: "rounded-sm bg-danger-bg/70 underline decoration-danger-fg decoration-2 underline-offset-4",
+  likely: "rounded-sm bg-warning-bg/70 underline decoration-warning-fg decoration-dashed decoration-2 underline-offset-4",
+  consider: "rounded-sm bg-muted underline decoration-muted-foreground decoration-dotted decoration-2 underline-offset-4",
+};
+
+const DISPUTE_REASONS = [
+  "The rule doesn't apply here",
+  "The rule is unclear",
+  "The fact is out of date",
+  "Canonry misread the text",
+];
+
+/** Dispute with a reason chosen from a short list, plus an optional note. */
+function DisputeControl({ disabled, onDispute }: { disabled: boolean; onDispute: (reason: string) => Promise<unknown> }) {
+  const [choice, setChoice] = useState("");
+  const [note, setNote] = useState("");
+  return (
+    <div className="flex w-full flex-wrap items-center gap-2">
+      <select
+        aria-label="Why do you disagree?"
+        className="field h-[30px] w-auto px-2 text-xs"
+        value={choice}
+        onChange={(e) => setChoice(e.target.value)}
+      >
+        <option value="">Why do you disagree?</option>
+        {DISPUTE_REASONS.map((r) => (
+          <option key={r} value={r}>{r}</option>
+        ))}
+      </select>
+      <input
+        className="field h-[30px] w-auto grow px-2 text-xs"
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        aria-label="Note for the reviewer (optional)"
+        placeholder="Note for the reviewer (optional)"
+      />
+      <button
+        type="button"
+        disabled={disabled || !choice}
+        onClick={() => void onDispute(note.trim() ? `${choice}: ${note.trim()}` : choice)}
+        className="btn btn-sm btn-secondary"
+      >
+        Dispute
+      </button>
+    </div>
+  );
+}
+
 const SOURCE_LABEL: Record<string, string> = {
   "ai-assisted": "AI-assisted", "in-house": "In-house", agency: "Agency", social: "Social", blog: "Blog",
   email: "Email", web: "Web", ad: "Ad", print: "Print", press: "Press release",
@@ -883,7 +1027,7 @@ function FindingCard({
   onDispute: (reason: string) => Promise<unknown>;
 }) {
   const [editText, setEditText] = useState(f.suggestion?.replace ?? "");
-  const [reason, setReason] = useState("");
+  const [reason, setReason] = useState(""); // reviewer override reason
   const open = f.status === "open";
   const uploadedImage = assetKind === "png" || assetKind === "jpeg";
   // Where the fix can happen: Word files are edited in place; a PDF, or anything
@@ -913,7 +1057,6 @@ function FindingCard({
             {index}
           </span>
         )}
-        <CategoryBadge category={f.category} />
         <LevelBadge tier={f.tier} severity={f.severity} />
         {!open && (
           <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] capitalize text-muted-foreground">
@@ -921,6 +1064,10 @@ function FindingCard({
           </span>
         )}
       </div>
+
+      <h3 className="mt-2 text-base font-semibold leading-snug text-foreground">
+        {HEADLINE[f.category] ?? f.title ?? CATEGORY_LABEL[f.category] ?? f.category.replace(/_/g, " ")}
+      </h3>
 
       {where && (
         <p className="mt-2 inline-flex items-center rounded-full border border-border bg-muted/50 px-2.5 py-1 text-[11px] font-medium text-foreground-secondary">
@@ -1006,26 +1153,12 @@ function FindingCard({
 
       {active && open && canResolve && fixInSource && (
         <div className="mt-3 space-y-2.5 border-t border-border pt-3">
-          <p className="rounded-lg border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-            {assetKind === "pdf"
-              ? "Canonry can't edit a PDF. Fix this in the source document, export the PDF again and use Upload new version, or dispute the finding."
-              : "This is part of the image. Change it in the design file and use Upload new version, or dispute the finding."}
+          <p className="text-xs text-muted-foreground">
+            Fix this in your source file, then use <strong className="font-medium text-foreground">Upload new version</strong>.
+            Or dispute it:
           </p>
           <div className="flex flex-wrap items-center gap-2">
-            <input
-              className="field h-[30px] w-auto grow px-2 text-xs"
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              aria-label="Dispute reason"
-              placeholder="Dispute reason: rule doesn't apply / unclear rule / fact outdated / misread"
-            />
-            <button
-              disabled={disabled || !reason.trim()}
-              onClick={() => void onDispute(reason)}
-              className="btn btn-sm btn-secondary"
-            >
-              Dispute
-            </button>
+            <DisputeControl disabled={disabled} onDispute={onDispute} />
           </div>
         </div>
       )}
@@ -1043,6 +1176,7 @@ function FindingCard({
               <code className="rounded-md border border-border bg-muted px-1.5 py-0.5 font-mono text-xs">{f.suggestion.replace}</code>
               <button
                 disabled={disabled}
+                data-guide={index === 1 ? "accept" : undefined}
                 onClick={() => void onAccept()}
                 className="btn btn-sm btn-primary"
               >
@@ -1085,20 +1219,7 @@ function FindingCard({
             >
               Apply my edit
             </button>
-            <input
-              className="field h-[30px] w-auto grow px-2 text-xs"
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              aria-label="Dispute reason"
-              placeholder="Dispute reason: rule doesn't apply / unclear rule / fact outdated / AI misread"
-            />
-            <button
-              disabled={disabled || !reason.trim()}
-              onClick={() => void onDispute(reason)}
-              className="btn btn-sm btn-secondary"
-            >
-              Dispute
-            </button>
+            <DisputeControl disabled={disabled} onDispute={onDispute} />
           </div>
           </details>
         </div>

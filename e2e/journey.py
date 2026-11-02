@@ -121,7 +121,7 @@ def submit_text(page: Page, title: str, content: str, double: bool = False) -> s
     page.goto("/new")
     page.get_by_label("Title").fill(title)
     page.get_by_label("Content").fill(content)
-    btn = page.get_by_role("button", name=re.compile("Submit for check"))
+    btn = page.get_by_role("button", name=re.compile("Check it|Submit for check"))
     btn.dblclick() if double else btn.click()
     page.wait_for_url(re.compile(r"/submissions/sub_"), timeout=120_000)
     settle(page)
@@ -417,15 +417,15 @@ def phase_reliability(browser: Browser) -> None:
     errs = watch(page, "reliability")
     page.goto("/new")
     page.get_by_label("Content").fill("   \n  ")
-    check(page.get_by_role("button", name=re.compile("Submit for check")).is_disabled(),
+    check(page.get_by_role("button", name=re.compile("Check it|Submit for check")).is_disabled(),
           "whitespace-only content cannot be submitted")
     page.get_by_label("Content").fill("hello")
     page.get_by_label("Title").fill("   ")
-    check(page.get_by_role("button", name=re.compile("Submit for check")).is_disabled(),
+    check(page.get_by_role("button", name=re.compile("Check it|Submit for check")).is_disabled(),
           "a blank title cannot be submitted")
     page.get_by_label("Title").fill("x")
     page.get_by_label("Content").fill("x" * 120_000)
-    page.get_by_role("button", name=re.compile("Submit for check")).click()
+    page.get_by_role("button", name=re.compile("Check it|Submit for check")).click()
     page.locator("main").get_by_role("alert").wait_for()
     check("too long" in page.locator("main").get_by_role("alert").inner_text(), "a 120,000-character draft is refused in plain words")
     shot(page, "r01-too-long", full=False)
