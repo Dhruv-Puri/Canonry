@@ -100,13 +100,14 @@ export function EntityDialog({
 
   useEffect(() => {
     if (open) {
-      setValues(initialValues(kind, entity));
+      // keep the draft (the claim from Insights) when the dialog opens
+      setValues({ ...initialValues(kind, entity), ...(entity ? {} : draft ?? {}) });
       setReason("");
       setError(null);
       setConflict(false);
       setPreview(null);
     }
-  }, [open, kind, entity]);
+  }, [open, kind, entity, draft]);
 
   const missing = FIELDS[kind].some((f) => f.required && !String(values[f.key] ?? "").trim());
   const needsWord = kind === "terms" && !String(values.preferred).trim() && !String(values.banned_or_check).trim();

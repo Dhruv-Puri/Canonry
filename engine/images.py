@@ -10,13 +10,19 @@ from __future__ import annotations
 import io
 import math
 import re
-from dataclasses import dataclass
+import threading
+from dataclasses import dataclass, replace
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from PIL import Image, ImageChops, ImageOps, ImageStat
 
 import logos
 from db import gen_id
+
+# One upload or check at a time does the heavy pixel work (decode, text reading, logo search):
+# the free server has 512 MB, and two large images at once could exhaust it, and a restart
+# there wipes the demo for everyone. AI calls never run under this lock.
+PIXEL_WORK = threading.Lock()
 
 Image.MAX_IMAGE_PIXELS = 40_000_000
 ANALYSIS_MAX = 512
@@ -53,6 +59,9 @@ def _open(data: bytes) -> Image.Image:
 
 
 def _flatten(img: Image.Image) -> Image.Image:
+    # callers never modify the result, so an RGB image needs no full-size copy
+    if img.mode == "RGB":
+        return img
     if img.mode in ("RGBA", "LA", "P"):
         img = img.convert("RGBA")
         bg = Image.new("RGBA", img.size, (255, 255, 255, 255))
@@ -173,15 +182,17 @@ def palette(img: Image.Image, colors: int = 16) -> List[Tuple[str, float]]:
     return out
 
 
-def inspect(data: bytes) -> ImageInfo:
-    img = _open(data)
+def inspect(data: bytes, img: Optional[Image.Image] = None, flat: Optional[Image.Image] = None) -> ImageInfo:
+    # decode and flatten once (each full-size copy of a 4096 px image is ~50-70 MB)
+    img = img if img is not None else _open(data)
+    flat = flat if flat is not None else _flatten(img)
     fmt = (img.format or "PNG").lower()
-    pal = palette(img)
+    pal = palette(flat)
     # Photographs have many colours; designed graphics have a small palette.
-    color_count = len(_flatten(img).resize((160, 160)).getcolors(maxcolors=4096) or [])
+    color_count = len(flat.resize((160, 160)).getcolors(maxcolors=4096) or [])
     top_coverage = sum(share for _hex_value, share in pal[:8])
     return ImageInfo(width=img.width, height=img.height, fmt=fmt, palette=pal,
-                     graphic=color_count <= 256 or top_coverage >= 0.90, dhash=dhash(img))
+                     graphic=color_count <= 256 or top_coverage >= 0.90, dhash=dhash(flat))
 
 
 ALT_REGION = "alt text"
@@ -260,7 +271,7 @@ def without_logo_text(img: Image.Image, read: Optional[Dict[str, Any]], template
     a logo, not as copy) and one-character noise."""
     if not read:
         return read
-    match = logos.find(img, templates) if templates else None
+    match = _find_logo(img, templates) if templates else None
     keep = []
     for line in read.get("lines") or []:
         if sum(ch.isalnum() for ch in line["text"]) < 2:
@@ -312,12 +323,36 @@ BUSY_BACKGROUND = 0.08    # share of the area behind the logo that is not plain
 CLEAR_SPACE_CLUTTER = 0.03
 
 
+LOGO_WORK_SIDE = 2000  # larger images are searched at this size; the match is scaled back
+
+
+def _find_logo(flat: Image.Image, templates) -> Optional["logos.Match"]:
+    """Logo search on a working copy of at most LOGO_WORK_SIDE px. Every verdict is a ratio
+    (size share, aspect, clutter), so it does not change; positions and pixel counts are scaled
+    back to the uploaded image. A 4096 px upload otherwise needed ~100 MB more for this step on a
+    512 MB server, where running out of memory restarts it and wipes the demo for everyone."""
+    k = max(flat.size) / LOGO_WORK_SIDE
+    if k <= 1:
+        return logos.find(flat, templates)
+    work = flat.resize((max(1, round(flat.width / k)), max(1, round(flat.height / k))), Image.LANCZOS)
+    match = logos.find(work, templates)
+    del work
+    if match is None:
+        return None
+    return replace(match,
+                   quad=[(x * k, y * k) for x, y in match.quad],
+                   bbox=tuple(int(round(v * k)) for v in match.bbox),
+                   width=match.width * k, height=match.height * k,
+                   clear_space_px=int(round(match.clear_space_px * k)),
+                   edge_margin=int(round(match.edge_margin * k)))
+
+
 def _logo_findings(ctx, flat: Image.Image, templates, logo_rule: Optional[str], use_rule: Optional[str],
                    asset_id: str, graphic: bool) -> List[Dict[str, Any]]:
     """Version, size and clear space cite the logo rule; distortion, colour and
     background cite the logo-use rule (Quillmark: BRD-02)."""
     out: List[Dict[str, Any]] = []
-    match = logos.find(flat, templates)
+    match = _find_logo(flat, templates)
     loc = {"kind": "image", "asset_id": asset_id, "region": "logo"}
     if match is None:
         if graphic and logo_rule:
@@ -429,7 +464,7 @@ def check_image(ctx, data: bytes, alt_text: Optional[str], asset_id: str,
     """Return image/accessibility findings. Any rule that is unbound switches its check off."""
     img = _open(data)
     flat = _flatten(img)
-    info = inspect(data)
+    info = inspect(data, img=img, flat=flat)
     out: List[Dict[str, Any]] = []
     logo_rule = ctx.rule("brand.logo")
     logo_use_rule = ctx.rule("brand.logo_use")

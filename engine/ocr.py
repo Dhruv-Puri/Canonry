@@ -41,16 +41,23 @@ def _prepared(img: Image.Image) -> Tuple[bytes, float]:
     import cv2
     import numpy as np
 
-    rgb = img.convert("RGB")
+    rgb = img if img.mode == "RGB" else img.convert("RGB")  # no full-size copy of an RGB image
     scale = min(1.0, OCR_MAX_SIDE / max(rgb.width, rgb.height))
     if scale < 1.0:
         rgb = rgb.resize((max(1, int(rgb.width * scale)), max(1, int(rgb.height * scale))))
     bgr = cv2.cvtColor(np.asarray(rgb), cv2.COLOR_RGB2BGR)
     window = BACKGROUND_WINDOW if min(bgr.shape[:2]) > BACKGROUND_WINDOW * 2 else 5
     background = cv2.medianBlur(bgr, window)
-    lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB).astype(np.float32)
-    lab_bg = cv2.cvtColor(background, cv2.COLOR_BGR2LAB).astype(np.float32)
-    distance = np.linalg.norm(lab - lab_bg, axis=2)
+    # the same distance as np.linalg.norm(lab - lab_bg), computed in strips of rows so a large image
+    # never holds two full-size float colour copies at once (per-pixel, so the result is identical)
+    distance = np.empty(bgr.shape[:2], dtype=np.float32)
+    for top in range(0, bgr.shape[0], 256):
+        rows = slice(top, top + 256)
+        lab = cv2.cvtColor(bgr[rows], cv2.COLOR_BGR2LAB).astype(np.float32)
+        lab -= cv2.cvtColor(background[rows], cv2.COLOR_BGR2LAB).astype(np.float32)
+        np.square(lab, out=lab)
+        distance[rows] = np.sqrt(lab.sum(axis=2))
+    del background
     ink = 255 - np.clip(distance * 255.0 / FULL_INK_DELTA, 0, 255).astype(np.uint8)
     ok, buf = cv2.imencode(".png", ink)
     if not ok:
@@ -96,8 +103,9 @@ def _word_contrast(img: Image.Image, box: Tuple[int, int, int, int]) -> Optional
     pad = max(2, height // 4)
     import numpy as np
 
-    crop = img.convert("RGB").crop((max(0, left - pad), max(0, top - pad),
-                                    min(img.width, left + width + pad), min(img.height, top + height + pad)))
+    # crop first: converting the whole image for every word held a full copy per word in memory
+    crop = img.crop((max(0, left - pad), max(0, top - pad),
+                     min(img.width, left + width + pad), min(img.height, top + height + pad))).convert("RGB")
     colours = crop.getcolors(crop.width * crop.height) or []
     if len(colours) < 2:
         return None

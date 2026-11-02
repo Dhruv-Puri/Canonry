@@ -117,10 +117,13 @@ export default function InsightsPage() {
                   <p className="text-xs text-muted-foreground">
                     {plural(m.occurrences, "submission")} · e.g.{" "}
                     <Link href={`/submissions/${m.sample_id}`} className="link">{m.sample_title}</Link>
-                    {staff && (
+                    {staff && !isRanking(m.span_text) && (
                       <>
                         {" "}· <Link href={`/kb?fact=${encodeURIComponent(m.span_text)}`} className="link">Add as approved fact</Link>
                       </>
+                    )}
+                    {staff && isRanking(m.span_text) && (
+                      <> · a ranking needs its data and source in the copy itself, or it should go</>
                     )}
                   </p>
                 </div>
@@ -302,4 +305,10 @@ function Stat({ label, value, hint }: { label: string; value: string; hint: stri
 
 function Muted({ text }: { text: string }) {
   return <p className="text-sm text-muted-foreground">{text}</p>;
+}
+
+/** Rankings ("#1", "best", "most trusted") are not settled by adding a fact: the engine asks for the
+ * source in the copy or the claim's removal, so Insights says that instead of offering a fact. */
+function isRanking(text: string): boolean {
+  return /(#\s?1\b|\bno\.?\s?1\b|\bnumber one\b|\bbest\b|\btop\b|\bleading\b|\blargest\b|\bbiggest\b|\bfastest\b|\bmost\s+\w+)/i.test(text);
 }
