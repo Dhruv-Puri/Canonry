@@ -77,7 +77,7 @@ engine through a same-origin proxy (`/engine/*`), so cookies stay first-party an
 engine stores everything in SQLite (WAL) with a Postgres-compatible schema; a Postgres connection is
 supported. A check run goes: **understand the content** (profile, which checks apply) → rule checkers →
 claim pipeline (patterns, fact retrieval, Verified Claim Memory) → AI gateway (Gemini → Groq →
-OpenRouter → Ollama, free tiers, 25 s per call, confidential data never sent) → India compliance pack →
+OpenRouter → Ollama, free tiers, 15 s per call and a second model asked after 4 s, confidential data never sent) → India compliance pack →
 merge duplicates, conflict-safe fixes, finding contract and citation check → stored. Uploaded files are
 parsed into text with a locator map (page/line, paragraph, or image box); image checks (palette,
 contrast, logo, alt text) run on the pixels. Approvals are signed with Ed25519 and, for files, stamped
