@@ -289,7 +289,42 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
           </NextStep>
         )
       ) : editable && (canResolve || canReview) && showActionsForRev ? (
-        openFindings.length > 0 ? (
+        s.status === "Changes requested" && !changedSinceSentBack ? (
+          <NextStep
+            title="Make the change the reviewer asked for"
+            actions={
+              <>
+                {canEditText && !editing && (
+                  <button type="button" disabled={busy} onClick={startEditing} className="btn btn-primary">
+                    <PenLine className="size-4" aria-hidden /> Edit the text
+                  </button>
+                )}
+                {openFindings.length > 0 && (
+                  <a href={`#finding-${openFindings[0].id}`} className="btn btn-secondary">
+                    See {openFindings.length === 1 ? "the issue" : `the ${openFindings.length} issues`} Canonry flagged
+                  </a>
+                )}
+                {d.allowed.submit && (
+                  <button type="button" disabled={busy} onClick={() => void submitForReview()} className="btn btn-ghost">
+                    Send it back unchanged
+                  </button>
+                )}
+              </>
+            }
+          >
+            The reviewer&apos;s request is above.{" "}
+            {d.asset
+              ? "Change the file in its source and use Upload new version; Canonry checks it again."
+              : "Edit the text and Canonry checks it again; then send it for review."}
+            {openFindings.length > 0 && (
+              <>
+                {" "}
+                Canonry also flagged {openFindings.length === 1 ? "one issue" : `${openFindings.length} issues`} below;
+                handle {openFindings.length === 1 ? "it" : "them"} while you edit.
+              </>
+            )}
+          </NextStep>
+        ) : openFindings.length > 0 ? (
           <NextStep
             title={`${openFindings.length} issue${openFindings.length === 1 ? "" : "s"} to handle`}
             progress={{ done: d.decisions.length, total: d.decisions.length + openFindings.length }}
@@ -325,29 +360,6 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
                 : a reviewer can&apos;t approve while {mustFix === 1 ? "it is" : "they are"} open.
               </>
             )}
-          </NextStep>
-        ) : s.status === "Changes requested" && !changedSinceSentBack ? (
-          <NextStep
-            title="Make the change the reviewer asked for"
-            actions={
-              <>
-                {canEditText && !editing && (
-                  <button type="button" disabled={busy} onClick={startEditing} className="btn btn-primary">
-                    <PenLine className="size-4" aria-hidden /> Edit the text
-                  </button>
-                )}
-                {d.allowed.submit && (
-                  <button type="button" disabled={busy} onClick={() => void submitForReview()} className="btn btn-secondary">
-                    Send it back unchanged
-                  </button>
-                )}
-              </>
-            }
-          >
-            The reviewer&apos;s request is above.{" "}
-            {d.asset
-              ? "Change the file in its source and use Upload new version; Canonry checks it again."
-              : "Edit the text and Canonry checks it again; then send it for review."}
           </NextStep>
         ) : (
           <NextStep
