@@ -137,7 +137,10 @@ function nextStep(path: string, role: string, mine: Submission[], detail: Submis
         target: '[data-guide="account"]',
       };
     }
-    const blocking = open.filter((f) => f.severity === "high" || f.suggestion?.replace || f.suggestion?.operation === "remove");
+    const blocking = open.filter(
+      (f) => f.severity === "high" ||
+        (f.suggestion?.operation !== "rewrite" && (f.suggestion?.replace || f.suggestion?.operation === "remove")),
+    );
     if (blocking.length > 0) {
       return {
         n: 2,

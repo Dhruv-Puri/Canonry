@@ -58,7 +58,7 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
 
   const openFindings = d?.findings.filter((f) => f.status === "open") ?? [];
   const mustFix = openFindings.filter((f) => f.severity === "high").length;
-  const acceptable = openFindings.filter((f) => f.suggestion?.replace || f.suggestion?.operation === "remove").length;
+  const acceptable = openFindings.filter(oneClickFix).length;
   // the same number on a highlight and on its card
   const issueNumber = new Map(openFindings.map((f, i) => [f.id, i + 1] as const));
   const showActionsForRev = rev?.id === d?.latest_revision?.id;
@@ -101,7 +101,7 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
         const kind = cur.asset?.kind;
         if (kind === "pdf" || kind === "png" || kind === "jpeg") break; // fixed in the source file
         const next = cur.findings.find(
-          (f) => f.status === "open" && (f.suggestion?.replace || f.suggestion?.operation === "remove"),
+          (f) => f.status === "open" && oneClickFix(f),
         );
         if (!next || !cur.latest_revision) break;
         await api(`/submissions/${sid}/resolve`, {
@@ -179,7 +179,7 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
 
   const s = d.submission;
   // what the engine understood about this content before checking it (shown when the engine sends it)
-  const profile = (d.check as unknown as { profile?: ContentProfileView | null } | null)?.profile ?? null;
+  const profile = d.check?.profile ?? null;
   const canReview = ["reviewer", "admin"].includes(d.me.role);
   const canResolve = ["creator", "admin", "agency"].includes(d.me.role);
   const backHref = canReview ? "/review" : d.me.role === "agency" ? "/agency" : "/";
@@ -310,7 +310,7 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
             <p className="mt-1 text-sm leading-relaxed text-foreground">{profile.summary}</p>
             {(profile.kind || profile.intent || profile.format) && (
               <p className="mt-2 flex flex-wrap gap-1.5">
-                {[profile.format, profile.kind, profile.intent, profile.audience && `for ${profile.audience}`]
+                {[profile.format_label, profile.kind_label, profile.intent, profile.audience && `for ${profile.audience}`]
                   .filter(Boolean)
                   .map((t) => (
                     <span key={String(t)} className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-foreground-secondary">
@@ -319,10 +319,27 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
                   ))}
               </p>
             )}
-            <p className="mt-2 text-xs text-muted-foreground">
-              Canonry reads what the content is and who it is for before applying the brand rules, so only the rules
-              that fit this kind of content are checked.
-            </p>
+            {profile.checks?.length ? (
+              <details className="group/checks mt-2">
+                <summary className="flex w-fit cursor-pointer list-none items-center gap-1 text-xs font-medium text-brand hover:underline [&::-webkit-details-marker]:hidden">
+                  <ChevronRight className="size-3.5 transition-transform group-open/checks:rotate-90" aria-hidden />
+                  Which checks ran, and why
+                </summary>
+                <ul className="mt-2 space-y-1 text-xs">
+                  {profile.checks.map((c) => (
+                    <li key={c.check} className={c.applies ? "text-foreground-secondary" : "text-muted-foreground"}>
+                      <span className={`font-medium ${c.applies ? "text-success-fg" : ""}`}>{c.applies ? "Checked" : "Skipped"}:</span>{" "}
+                      {c.why}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            ) : (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Canonry reads what the content is and who it is for before applying the brand rules, so only the rules
+                that fit this kind of content are checked.
+              </p>
+            )}
           </div>
         </section>
       )}
@@ -900,7 +917,11 @@ function RevisionDiff({ before, after, fromNo, toNo }: {
   );
 }
 
-type ContentProfileView = { summary?: string; kind?: string; intent?: string; format?: string; audience?: string };
+/** A fix Canonry applies by itself (a replacement or a removal). Written advice ("rewrite") is not one. */
+function oneClickFix(f: Finding): boolean {
+  if (f.suggestion?.operation === "rewrite") return false;
+  return Boolean(f.suggestion?.replace) || f.suggestion?.operation === "remove";
+}
 
 /** A plain headline per issue type: what is wrong, in words a newcomer knows. */
 const HEADLINE: Record<string, string> = {
@@ -1170,7 +1191,13 @@ function FindingCard({
               Fixes are made inside your Word file, keeping its formatting. Download the fixed file from the file panel.
             </p>
           )}
-          {f.suggestion?.replace && canAccept && (
+          {f.suggestion?.operation === "rewrite" && f.suggestion.replace && (
+            <p className="rounded-lg bg-muted/60 px-3 py-2 text-sm text-foreground-secondary">
+              <span className="font-medium text-foreground">How to fix: </span>
+              {f.suggestion.replace}
+            </p>
+          )}
+          {f.suggestion?.replace && f.suggestion.operation !== "rewrite" && canAccept && (
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground">Suggested fix:</span>
               <code className="rounded-md border border-border bg-muted px-1.5 py-0.5 font-mono text-xs">{f.suggestion.replace}</code>
@@ -1199,7 +1226,7 @@ function FindingCard({
             </p>
           )}
           {/* Secondary paths stay folded away until wanted; open by default when there is no one-click fix. */}
-          <details className="group" open={!(f.suggestion?.replace || f.suggestion?.operation === "remove")}>
+          <details className="group" open={!oneClickFix(f)}>
             <summary className="flex w-fit cursor-pointer list-none items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
               <ChevronRight className="size-3.5 transition-transform group-open:rotate-90" aria-hidden />
               Fix it in your own words, or dispute
