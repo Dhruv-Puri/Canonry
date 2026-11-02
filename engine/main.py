@@ -1360,8 +1360,15 @@ def get_submission(req: Request, sid: str):
                            "WHERE submission_id=? ORDER BY created_at DESC LIMIT 1", (sid,)).fetchone()
         # latest check run on the latest revision, so the UI can say when AI checks are still pending
         check = conn.execute(
-            "SELECT status, started_at, finished_at, ai_calls, discarded, knowledge_version, ai_reason FROM check_runs "
-            "WHERE revision_id = ? ORDER BY started_at DESC LIMIT 1", (latest["id"] if latest else "",)).fetchone()
+            "SELECT status, started_at, finished_at, ai_calls, discarded, knowledge_version, ai_reason, profile_json "
+            "FROM check_runs WHERE revision_id = ? ORDER BY started_at DESC LIMIT 1",
+            (latest["id"] if latest else "",)).fetchone()
+        if check:
+            check = dict(check)
+            try:  # what the content was understood to be (understand.profile); None on older runs
+                check["profile"] = json.loads(check.pop("profile_json") or "null")
+            except (TypeError, ValueError):
+                check["profile"] = None
         return {"submission": dict(sub), "revisions": revs, "latest_revision": latest,
                 "findings": findings, "decisions": decisions, "approvals": approvals,
                 "asset": asset, "poc": dict(poc) if poc else None,
@@ -1443,7 +1450,9 @@ def resolve_finding(req: Request, sid: str, body: ResolveIn):
         if body.action == "accept":
             repl = (suggestion or {}).get("replace")
             op = (suggestion or {}).get("operation", "replace")
-            if not repl and op != "remove":
+            if op == "rewrite" or (not repl and op != "remove"):
+                # "rewrite" carries advice ("State the actual conditions..."), not copy:
+                # pasting it into the draft would publish the advice
                 raise HTTPException(409, "This finding has no one-click fix — edit it in your own words or dispute it.")
             new_content = apply_fix(content, f["span_start"], f["span_text"], repl or "")
             if new_content == content:
@@ -1903,6 +1912,7 @@ def api_check(req: Request, body: ApiCheckIn):
                 "contract_version": contract.CONTRACT_VERSION,
                 "findings": result.get("findings", []), "discarded": result.get("discarded", 0),
                 "ai_pending": result.get("ai_pending", False), "ai_reason": result.get("ai_reason"),
+                "profile": result.get("profile"),
                 "links": {"self": f"/api/v1/submissions/{sid}"},
             }
             # the answer is stored in the same transaction as the submission

@@ -26,7 +26,8 @@ CLAIM_PATTERNS: List[Tuple[str, re.Pattern]] = [
     ("certification", re.compile(r"\bISO\s*27001\b|\bSOC\s*2\b|\bGDPR[- ]certified\b|\bHIPAA\b", re.IGNORECASE)),
     ("superlative", re.compile(
         r"#\d+\b|\bnumber\s*-?\s*one\b|\bno\.\s?1\b|\bbest[- ]in[- ]class\b|\bmost\s+trusted\b"
-        r"|\b(?:the|a|india'?s|world'?s|asia'?s)\s+(?:best|leading|largest|fastest|biggest)\b(?!\s+practices?\b)",
+        r"|\b(?:the|a|india'?s|world'?s|asia'?s)\s+(?:best|leading|largest|fastest|biggest)\b(?!\s+practices?\b)"
+        r"|\b(?:india'?s|world'?s|asia'?s)\s+top\b(?!\s+(?:\d|of\b))",
         re.IGNORECASE)),
     ("count", re.compile(
         r"(?:trusted\s+by\s+|over\s+|more\s+than\s+)?"
@@ -274,6 +275,8 @@ def superlative_fix(snippet: str, trigger: str) -> Optional[str]:
     dropped_owner = bool(before_words) and re.search(r"'s$", before_words[-1]) is not None
     if dropped_owner:
         before_words = before_words[:-1]
+    # the owner is part of the trigger ("India's top"): it goes with it
+    dropped_owner = dropped_owner or re.match(r"(?i)\w+'?s\s", trigger) is not None
     if re.match(r"(?i)(the|a)\s", trigger):  # "the leading" -> keep the article
         before_words.append(trigger.split()[0])
     rest = after.strip()
@@ -338,17 +341,38 @@ VERIFY_SYSTEM = (
 )
 
 
+PROFILE_PROMPT_VERSION = "claims+profile@5"
+
+
 def ai_implicit_claims(text: str, budget_ok: bool, conn: sqlite3.Connection,
-                       deadline: Optional[float] = None) -> Optional[List[Dict[str, str]]]:
+                       deadline: Optional[float] = None,
+                       profile_out: Optional[Dict[str, Any]] = None) -> Optional[List[Dict[str, str]]]:
+    """Implicit claims (one AI call). With `profile_out`, the same call also
+    describes the content (kind, intent, summary); a valid answer is written
+    into `profile_out`, a malformed one is ignored. No extra AI call."""
+    import understand  # local: understand reads this module's claim patterns
+
+    system = CLAIM_EXTRACT_SYSTEM
+    if profile_out is not None:
+        system = (CLAIM_EXTRACT_SYSTEM.replace(
+            'Answer ONLY with JSON: {"claims": [{"claim": "..."}]}.',
+            'Answer ONLY with JSON: {"claims": [{"claim": "..."}], "profile": {"kind": "...", "intent": "...", '
+            '"summary": "..."}}.') + understand.AI_PROFILE_INSTRUCTION)
     out = gateway.gateway_call(
         "extract_implicit_claims",
-        [{"role": "system", "content": CLAIM_EXTRACT_SYSTEM},
+        [{"role": "system", "content": system},
          {"role": "user", "content": text[:4000]}],
         conn=conn, budget_ok=budget_ok, deadline=deadline,
+        prompt_version=PROFILE_PROMPT_VERSION if profile_out is not None else IMPLICIT_PROMPT_VERSION,
     )
     if out is None:
         return None
-    items = gateway.json_list(gateway.parse_json_out(out["text"]), "claims")
+    data = gateway.parse_json_out(out["text"])
+    if profile_out is not None:
+        described = understand.valid_ai_profile(data)
+        if described:
+            profile_out.update(described)
+    items = gateway.json_list(data, "claims")
     if items is None:
         return None
     valid: List[Dict[str, str]] = []

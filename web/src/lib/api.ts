@@ -163,6 +163,8 @@ export type SubmissionDetail = {
     status: string; started_at: string; finished_at: string | null; ai_calls: number; discarded: number;
     /** why the AI checks were skipped on this run; null when they ran */
     ai_reason: AiReason | null;
+    /** what the engine understood the content to be before checking it; null on older runs */
+    profile?: ContentProfile | null;
   } | null;
   me: User;
   /** which lifecycle actions the current status allows (engine workflow rules) */
@@ -171,7 +173,29 @@ export type SubmissionDetail = {
   ai_allowance: AiAllowance;
 };
 
-export type AiReason = "no_provider" | "user_quota" | "workspace_quota" | "provider_unavailable" | "budget" | "time_budget";
+/** engine/understand.py: what the content is, read before any rule runs */
+export type ContentProfile = {
+  format: "text" | "pdf" | "word" | "image_with_words" | "image_without_words";
+  format_label: string;
+  kind: "social_post" | "ad" | "email" | "article" | "press_release" | "landing_page" | "internal_note" | "policy" | "other";
+  kind_label: string;
+  intent: "promotional" | "informational" | "internal";
+  audience: "customers" | "partners" | "internal";
+  language: "en" | "other";
+  language_note: string | null;
+  product: string[];
+  topics: string[];
+  /** factual claims it makes; ours=false when denied or someone else's */
+  claims: { type: string; text: string; ours: boolean; note?: string }[];
+  has_cta: boolean;
+  /** one plain sentence, e.g. "A promotional social post for Quillmark Pulse that makes 2 factual claims: ..." */
+  summary: string;
+  /** which checks ran on this kind of content, and why */
+  checks: { check: string; applies: boolean; why: string }[];
+  decided_by: "rules" | "rules+ai";
+};
+
+export type AiReason ="no_provider" | "user_quota" | "workspace_quota" | "provider_unavailable" | "budget" | "time_budget";
 export type AiAllowance = {
   used: number; limit: number; workspace_used: number; workspace_limit: number; resets_at: string;
 };

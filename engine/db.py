@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS check_runs (
   id TEXT PRIMARY KEY, revision_id TEXT NOT NULL, started_at TEXT NOT NULL,
   finished_at TEXT, ai_calls INTEGER DEFAULT 0, discarded INTEGER DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'done', knowledge_version INTEGER DEFAULT 0,
-  by_user TEXT, ai_reason TEXT
+  by_user TEXT, ai_reason TEXT, profile_json TEXT
 );
 CREATE TABLE IF NOT EXISTS findings (
   id TEXT PRIMARY KEY, revision_id TEXT NOT NULL, checker TEXT NOT NULL,
@@ -527,6 +527,7 @@ def _sqlite_migrations(conn) -> None:
         ("terms", "status", "status TEXT NOT NULL DEFAULT 'active'"),
         ("check_runs", "by_user", "by_user TEXT"),
         ("check_runs", "ai_reason", "ai_reason TEXT"),
+        ("check_runs", "profile_json", "profile_json TEXT"),
         ("invitations", "workspace_id", "workspace_id TEXT"),
         ("revisions", "asset_id", "asset_id TEXT"),
         ("revisions", "source_kind", "source_kind TEXT NOT NULL DEFAULT 'text'"),
@@ -552,6 +553,7 @@ def _postgres_migrations(conn) -> None:
         ("terms", "status", "status TEXT NOT NULL DEFAULT 'active'"),
         ("check_runs", "by_user", "by_user TEXT"),
         ("check_runs", "ai_reason", "ai_reason TEXT"),
+        ("check_runs", "profile_json", "profile_json TEXT"),
         ("invitations", "workspace_id", "workspace_id TEXT"),
         ("revisions", "asset_id", "asset_id TEXT"),
         ("revisions", "source_kind", "source_kind TEXT NOT NULL DEFAULT 'text'"),
