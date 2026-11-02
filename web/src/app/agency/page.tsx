@@ -68,7 +68,7 @@ export default function AgencyWorkspacePage() {
           <p className="eyebrow">Agency workspace</p>
           <h1 className="page-title mt-1.5">My work</h1>
           <p className="page-lede max-w-2xl">
-            Submit client work, fix the findings, and follow each item through review. You see only the submissions
+            Submit client work, fix what Canonry flags, and follow each item through review. You see only the submissions
             your agency created.
           </p>
         </div>
@@ -87,9 +87,11 @@ export default function AgencyWorkspacePage() {
         <Stat label="In review" value={counts.inReview} />
         <Stat label="Changes requested" value={counts.changes} tone={counts.changes > 0 ? "warning" : "normal"} />
         <Stat label="Signed" value={counts.signed} />
-        <Stat label="Open findings" value={counts.open} tone={counts.open > 0 ? "danger" : "normal"} />
+        <Stat label="Open issues" value={counts.open} tone={counts.open > 0 ? "danger" : "normal"} />
       </div>
 
+      {/* with no work yet, the empty state below is the one thing to do */}
+      {list.length > 0 && (
       <section className="space-y-4">
         <Reveal>
           <p className="eyebrow">Needs your attention</p>
@@ -103,12 +105,13 @@ export default function AgencyWorkspacePage() {
           <ul className="grid gap-4 md:grid-cols-2">
             {needsWork.map((s, i) => (
               <Reveal as="li" key={s.id} delay={(i % 2) * 80}>
-                <SubmissionCard submission={s} action="Fix findings" />
+                <SubmissionCard submission={s} />
               </Reveal>
             ))}
           </ul>
         )}
       </section>
+      )}
 
       <section className="space-y-4">
         <Reveal className="flex flex-wrap items-end justify-between gap-3">
@@ -116,9 +119,11 @@ export default function AgencyWorkspacePage() {
             <p className="eyebrow">Your submissions</p>
             <h2 className="mt-1 text-2xl font-bold tracking-tight">Everything your agency sent</h2>
           </div>
-          <Link href="/new" className="btn btn-secondary">
-            New submission <span aria-hidden className="btn-arrow">→</span>
-          </Link>
+          {list.length > 0 && (
+            <Link href="/new" className="btn btn-secondary">
+              New submission <span aria-hidden className="btn-arrow">→</span>
+            </Link>
+          )}
         </Reveal>
 
         {subs === null && !error && <p className="text-sm text-muted-foreground">Loading your work…</p>}
@@ -151,7 +156,7 @@ export default function AgencyWorkspacePage() {
         <ShieldCheck className="mt-0.5 size-4 shrink-0 text-brand" aria-hidden />
         <p className="text-xs leading-relaxed text-muted-foreground">
           Agency access is scoped: this workspace shows only work your agency submitted. Confidential brand facts stay
-          redacted, and the knowledge base is read-only.
+          redacted, and brand rules are read-only.
         </p>
       </div>
     </div>

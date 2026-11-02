@@ -16,12 +16,45 @@ import {
   type Term,
   type User,
 } from "@/lib/api";
+import { daysUntil, formatDay, plural, todayIso } from "@/lib/format";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EntityDialog, HistoryDialog, ImpactNotice, ReasonDialog } from "./editor";
 
 const NOUN: Record<KBKind, string> = { rules: "rule", facts: "fact", terms: "term" };
 
 type Lists = { rules: Rule[]; facts: Fact[]; terms: Term[] };
+
+/** Where a fact stands today. "Expiring soon" means it ends within 30 days. */
+type FactStatus = "active" | "expiring" | "expired" | "superseded" | "upcoming";
+
+function factStatus(f: Fact): FactStatus {
+  if (f.superseded) return "superseded";
+  const today = todayIso();
+  if (f.valid_to && f.valid_to < today) return "expired";
+  if (f.valid_from && f.valid_from > today) return "upcoming";
+  if (f.valid_to && daysUntil(f.valid_to) <= 30) return "expiring";
+  return "active";
+}
+
+/** Facts that no longer apply (superseded or past their end date) fold away behind "Show retired". */
+function retired(kind: KBKind, e: KBEntity): boolean {
+  if (kind === "facts") {
+    const st = factStatus(e as Fact);
+    return st === "superseded" || st === "expired";
+  }
+  return isRetired(kind, e);
+}
+
+/** One phrase for when a fact applies: "From 1 Oct 2026, no end date", "1 Jul 2026 → 31 Mar 2027", "Expired 30 Sep 2026". */
+function validity(f: Fact): string {
+  const from = formatDay(f.valid_from);
+  const to = formatDay(f.valid_to);
+  if (f.valid_to && f.valid_to < todayIso()) return `Expired ${to}`;
+  if (from && to) return `${from} → ${to}`;
+  if (from) return `From ${from}, no end date`;
+  if (to) return `Until ${to}`;
+  return "No end date";
+}
 
 function searchable(kind: KBKind, e: KBEntity): string {
   const v = Object.values(e).filter((x) => typeof x === "string" || typeof x === "number");
@@ -64,6 +97,8 @@ export default function KBPage() {
   }, [load]);
 
   const canEdit = me?.role === "reviewer" || me?.role === "admin";
+  // the engine replaces confidential fact text for other roles: list them as one line, not as placeholder rows
+  const hidesConfidential = Boolean(me) && !canEdit;
 
   function afterWrite(kind: KBKind, r: KBWriteResult, verb: string) {
     setNotice(`${NOUN[kind][0].toUpperCase() + NOUN[kind].slice(1)} ${r.entity.id} ${verb} (now v${r.entity.version}).`);
@@ -75,23 +110,34 @@ export default function KBPage() {
     if (!lists) return null;
     const q = query.trim().toLowerCase();
     const pick = <T extends KBEntity>(kind: KBKind, items: T[]) =>
-      items.filter((e) => (showRetired || !isRetired(kind, e)) && (!q || searchable(kind, e).includes(q)));
-    return { rules: pick("rules", lists.rules), facts: pick("facts", lists.facts), terms: pick("terms", lists.terms) };
-  }, [lists, query, showRetired]);
+      items.filter((e) => (showRetired || !retired(kind, e)) && (!q || searchable(kind, e).includes(q)));
+    const facts = hidesConfidential ? lists.facts.filter((f) => !f.confidential) : lists.facts;
+    return { rules: pick("rules", lists.rules), facts: pick("facts", facts), terms: pick("terms", lists.terms) };
+  }, [lists, query, showRetired, hidesConfidential]);
 
   const retiredCount = lists ? (["rules", "facts", "terms"] as KBKind[]).reduce(
-    (n, k) => n + (lists[k] as KBEntity[]).filter((e) => isRetired(k, e)).length, 0) : 0;
+    (n, k) => n + (lists[k] as KBEntity[]).filter(
+      (e) => retired(k, e) && !(hidesConfidential && k === "facts" && (e as Fact).confidential)).length, 0) : 0;
+  // the same definition as the home page: in date and not superseded (the engine's `active`)
+  const activeFacts = lists?.facts.filter((f) => f.active ?? factStatus(f) === "active").length ?? 0;
+  const hiddenConfidential = hidesConfidential
+    ? lists?.facts.filter((f) => f.confidential && !retired("facts", f)).length ?? 0 : 0;
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="eyebrow">Source of truth</p>
-          <h1 className="page-title mt-1.5">Knowledge base</h1>
+          <h1 className="page-title mt-1.5">Brand rules</h1>
           <p className="page-lede max-w-2xl">
-            Every check cites an entry from here. Changes are versioned: earlier findings and signed approvals keep
-            showing the version they were checked against.
+            The rules, facts and terms every check cites. Changes are versioned: earlier issues and signed approvals
+            keep showing the version they were checked against.
           </p>
+          {me && (
+            <p className="mt-2 text-sm text-muted-foreground">
+              {canEdit ? "Your role can add, edit and retire entries." : "Read only for your role. Reviewers and admins make changes."}
+            </p>
+          )}
         </div>
         {canEdit && (
           <div className="flex flex-wrap gap-2">
@@ -111,13 +157,10 @@ export default function KBPage() {
       )}
       {impact && <ImpactNotice factId={impact.factId} items={impact.items} onClose={() => setImpact(null)} />}
       {importOpen && canEdit && tab === "rules" && <RuleDocumentImporter onImported={(count) => { setImportOpen(false); setNotice(`${count} reviewed rule draft${count === 1 ? "" : "s"} added. Edit each draft and approve it before it is used in checks.`); void load(); }} onCancel={() => setImportOpen(false)} />}
-      {me && !canEdit && (
-        <p className="text-sm text-muted-foreground">You can read the knowledge base. Reviewers and admins change it.</p>
-      )}
 
       <div className="flex flex-wrap items-center gap-3">
         <label className="relative min-w-[220px] flex-1">
-          <span className="sr-only">Search the knowledge base</span>
+          <span className="sr-only">Search brand rules, facts and terms</span>
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
           <input
             className="field h-10 pl-9 pr-3"
@@ -126,8 +169,8 @@ export default function KBPage() {
             onChange={(e) => setQuery(e.target.value)}
           />
         </label>
-        <label className="inline-flex items-center gap-2 text-sm text-foreground-secondary">
-          <input type="checkbox" className="size-4 accent-[var(--brand)]" checked={showRetired} onChange={(e) => setShowRetired(e.target.checked)} />
+        <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 text-sm text-foreground-secondary">
+          <input type="checkbox" className="size-5 accent-[var(--brand)]" checked={showRetired} onChange={(e) => setShowRetired(e.target.checked)} />
           Show retired ({retiredCount})
         </label>
       </div>
@@ -141,15 +184,23 @@ export default function KBPage() {
 
         {(["rules", "facts", "terms"] as KBKind[]).map((kind) => (
           <TabsContent key={kind} value={kind} className="space-y-2 pt-3">
+            {kind === "facts" && lists && (
+              <p className="text-sm text-muted-foreground">
+                {plural(activeFacts, "active fact")}
+                {hiddenConfidential > 0 && <> · {plural(hiddenConfidential, "confidential fact is", "confidential facts are")} hidden for your role</>}
+                {!showRetired && <> · expired and superseded facts are under “Show retired”</>}
+              </p>
+            )}
             {visible && visible[kind].length === 0 && (
               <p className="rounded-xl border border-dashed border-border-strong p-8 text-center text-sm text-muted-foreground">
                 Nothing matches. {query ? "Try a different search." : ""}
               </p>
             )}
             {(visible?.[kind] as KBEntity[] | undefined)?.map((e) => {
-              const retired = isRetired(kind, e);
+              const isOld = retired(kind, e);
+              const gone = isRetired(kind, e);
               return (
-                <div key={String(e.id)} className={`surface p-4 text-sm ${retired ? "opacity-60" : "surface-interactive"}`}>
+                <div key={String(e.id)} className={`surface p-4 text-sm ${isOld ? "bg-muted/40" : "surface-interactive"}`}>
                   <div className="flex flex-wrap items-start gap-3">
                     <div className="min-w-0 flex-1">
                       {kind === "rules" && <RuleBody r={e as Rule} />}
@@ -157,12 +208,12 @@ export default function KBPage() {
                       {kind === "terms" && <TermBody t={e as Term} />}
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
-                      {retired && <span className="mr-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">Retired</span>}
+                      {gone && kind !== "facts" && <span className="mr-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-foreground-secondary">Retired</span>}
                       <span className="mr-1 font-mono text-[11px] text-muted-foreground">v{e.version}</span>
                       <IconButton label="History" onClick={() => setHistoryOf({ kind, entity: e })}>
                         <History className="size-4" />
                       </IconButton>
-                      {canEdit && !retired && (
+                      {canEdit && !gone && (
                         <>
                           <IconButton label={`Edit ${NOUN[kind]}`} onClick={() => setEditing({ kind, entity: e })}>
                             <Pencil className="size-4" />
@@ -172,7 +223,7 @@ export default function KBPage() {
                           </IconButton>
                         </>
                       )}
-                      {canEdit && retired && (
+                      {canEdit && gone && (
                         <IconButton label={`Restore ${NOUN[kind]} from history`} onClick={() => setHistoryOf({ kind, entity: e })}>
                           <RotateCcw className="size-4" />
                         </IconButton>
@@ -211,7 +262,7 @@ export default function KBPage() {
           open
           onOpenChange={(o) => !o && setRetiring(null)}
           title={`Retire ${NOUN[retiring.kind]} ${retiring.entity.id}?`}
-          description="It stops being used in checks. Past findings and approvals keep citing it, and you can restore it from History."
+          description="It stops being used in checks. Past issues and approvals keep citing it, and you can restore it from History."
           confirmLabel="Retire"
           onConfirm={async (reason) => {
             const r = await api<KBWriteResult>(`/kb/${retiring.kind}/${retiring.entity.id}/retire`, {
@@ -285,7 +336,7 @@ function RuleDocumentImporter({ onImported, onCancel }: { onImported: (count: nu
           <p className="text-sm text-muted-foreground">Review each extracted paragraph, change its category or wording, and remove anything that is not a rule. {preview.ignored > 0 ? `${preview.ignored} short or excess paragraphs were skipped.` : ""}</p>
           {rules.map((rule, index) => (
             <article key={index} className="rounded-xl border border-border bg-background p-3">
-              <div className="flex items-center justify-between gap-3"><span className="text-xs font-semibold text-warning-fg">Draft suggestion {index + 1}</span><button className="text-xs text-muted-foreground underline" onClick={() => setRules((current) => current.filter((_, i) => i !== index))}>Remove</button></div>
+              <div className="flex items-center justify-between gap-3"><span className="text-xs font-semibold text-warning-fg">Draft suggestion {index + 1}</span><button type="button" className="min-h-8 px-1 text-xs text-muted-foreground underline pointer-coarse:min-h-11" onClick={() => setRules((current) => current.filter((_, i) => i !== index))}>Remove</button></div>
               <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto]">
                 <input className="field h-9 px-3" aria-label={`Category for draft ${index + 1}`} value={rule.category} onChange={(e) => setRules((current) => current.map((item, i) => i === index ? { ...item, category: e.target.value } : item))} />
                 <select className="field h-9 px-3 capitalize" aria-label={`Severity for draft ${index + 1}`} value={rule.severity} onChange={(e) => setRules((current) => current.map((item, i) => i === index ? { ...item, severity: e.target.value } : item))}><option>low</option><option>medium</option><option>high</option></select>
@@ -316,10 +367,10 @@ function RuleBody({ r }: { r: Rule }) {
         <code className="font-mono text-xs font-semibold text-brand">{r.id}</code>
         <span className="text-xs text-muted-foreground">{r.category}</span>
         <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] capitalize text-foreground-secondary">{r.severity}</span>
-        {r.status === "draft" && <span className="rounded-full bg-warning-bg px-1.5 py-0.5 text-[11px] text-warning-fg">draft</span>}
+        {r.status === "draft" && <span className="rounded-full bg-warning-bg px-1.5 py-0.5 text-[11px] text-warning-fg">Draft</span>}
         {r.vague_flag && (
           <span className="rounded-full border border-dashed border-warning-border px-1.5 py-0.5 text-[11px] text-warning-fg">
-            possibly unclear: {r.vague_flag.replace("vague_", "").replace("_", " ")}
+            Needs clearer wording: {r.vague_flag.replace("vague_", "").replace("_", " ")}
           </span>
         )}
       </div>
@@ -334,27 +385,33 @@ function RuleBody({ r }: { r: Rule }) {
   );
 }
 
+const FACT_CHIP: Record<FactStatus, { label: string; cls: string }> = {
+  active: { label: "Active", cls: "bg-success-bg text-success-fg" },
+  expiring: { label: "Expiring soon", cls: "bg-warning-bg text-warning-fg" },
+  expired: { label: "Expired", cls: "bg-danger-bg text-danger-fg" },
+  superseded: { label: "Superseded", cls: "bg-neutral-bg text-neutral-fg" },
+  upcoming: { label: "Not in effect yet", cls: "bg-neutral-bg text-neutral-fg" },
+};
+
 function FactBody({ f }: { f: Fact }) {
+  const status = factStatus(f);
+  const chip = FACT_CHIP[status];
+  const old = status === "expired" || status === "superseded";
   return (
     <>
-      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
         <code className="font-mono font-semibold text-brand">{f.id}</code>
-        <span>owner: {f.owner ?? "—"}</span>
-        {f.source && <span>· {f.source}</span>}
-        {(f.valid_from || f.valid_to) && (
-          <span>
-            · valid {f.valid_from ?? "…"} → {f.valid_to ?? "open"}
-          </span>
-        )}
-        {!f.valid_to && !f.superseded && (
-          <span className="rounded-full bg-warning-bg px-1.5 py-0.5 text-warning-fg">No expiry set</span>
-        )}
-        {f.active === false && !f.superseded && (
-          <span className="rounded-full bg-danger-bg px-1.5 py-0.5 text-danger-fg">expired</span>
-        )}
-        {f.confidential ? <span className="rounded-full bg-info-bg px-1.5 py-0.5 text-info-fg">confidential</span> : null}
+        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${chip.cls}`}>{chip.label}</span>
+        {f.confidential ? (
+          <span className="rounded-full bg-info-bg px-2 py-0.5 text-[11px] font-semibold text-info-fg">Confidential</span>
+        ) : null}
+        <span className={status === "expired" ? "text-danger-fg" : undefined}>{validity(f)}</span>
       </div>
-      <p className="mt-2 text-foreground">{f.text}</p>
+      <p className={`mt-2 ${old ? "text-foreground-secondary" : "text-foreground"}`}>{f.text}</p>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Owner: {f.owner ?? "not set"}
+        {f.source && <> · Source: {f.source}</>}
+      </p>
     </>
   );
 }

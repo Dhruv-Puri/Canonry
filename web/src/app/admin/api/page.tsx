@@ -136,7 +136,7 @@ export default function ApiSettingsPage() {
 
   return (
     <div className="space-y-6">
-      <Link href="/admin" className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground">
+      <Link href="/admin" className="-ml-1 inline-flex min-h-8 items-center gap-1 rounded-md px-1 text-sm font-medium text-muted-foreground hover:text-foreground pointer-coarse:min-h-11">
         <ArrowLeft className="size-3.5" aria-hidden /> Workspace overview
       </Link>
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -199,9 +199,10 @@ export default function ApiSettingsPage() {
             </label>
             <div className="flex flex-wrap gap-2 pb-1">
               {["check", "read", "admin"].map((scope) => (
-                <label key={scope} className="inline-flex items-center gap-1.5 text-xs">
+                <label key={scope} className="inline-flex min-h-8 cursor-pointer items-center gap-1.5 text-xs pointer-coarse:min-h-11">
                   <input
                     type="checkbox"
+                    className="size-4 accent-[var(--brand)]"
                     checked={keyScopes.includes(scope)}
                     onChange={(e) => setKeyScopes((s) => e.target.checked ? [...new Set([...s, scope])] : s.filter((x) => x !== scope))}
                   />
@@ -284,9 +285,10 @@ export default function ApiSettingsPage() {
             </label>
             <div className="flex flex-wrap gap-3 pt-1">
               {EVENTS.map((event) => (
-                <label key={event} className="inline-flex items-center gap-1.5 text-xs">
+                <label key={event} className="inline-flex min-h-8 cursor-pointer items-center gap-1.5 text-xs pointer-coarse:min-h-11">
                   <input
                     type="checkbox"
+                    className="size-4 accent-[var(--brand)]"
                     checked={hookEvents.includes(event)}
                     onChange={(e) => setHookEvents((s) => e.target.checked ? [...new Set([...s, event])] : s.filter((x) => x !== event))}
                   />

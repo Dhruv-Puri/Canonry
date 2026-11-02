@@ -2,7 +2,10 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { api, CATEGORY_LABEL, TIER_LABEL } from "@/lib/api";
+import { formatDay, plural } from "@/lib/format";
+import { canReview } from "@/lib/roles";
+import { useIdentity } from "@/components/identity";
 
 type Insights = {
   by_checker: Record<string, { checker: string; c: number; definite: number }>;
@@ -26,161 +29,111 @@ type ExpiryAlert = {
 
 type StaleApproval = { submission_id: string; title: string; status: string; cites: string; current_version: number };
 
+type AiStatus = { providers: { provider: string; available: boolean; model: string }[] };
+
+/** Why a rule was flagged as unclear, in words. */
+const UNCLEAR_REASON: Record<string, string> = {
+  vague_no_examples: "No examples of what to do or avoid",
+  vague_contradictory: "Asks for two things that pull against each other",
+  vague_duplicate: "Says the same as another rule",
+};
+
 export default function InsightsPage() {
+  const { me } = useIdentity();
+  // AI gateway internals (providers, keys, the call ledger) are for the people who run the workspace
+  const staff = canReview(me?.role);
   const [ins, setIns] = useState<Insights | null>(null);
   const [alerts, setAlerts] = useState<ExpiryAlert[] | null>(null);
-  const [ai, setAi] = useState<{ providers: { provider: string; available: boolean; model: string }[]; ai_pending_note?: string } | null>(null);
+  const [ai, setAi] = useState<AiStatus | null>(null);
   const [stale, setStale] = useState<StaleApproval[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [i, e, a, s] = await Promise.all([
+      const [i, e, s, a] = await Promise.all([
         api<Insights>("/insights"),
         api<{ alerts: ExpiryAlert[] }>("/alerts/expiry"),
-        api<{ providers: { provider: string; available: boolean; model: string }[]; note: string }>("/ai-status"),
         api<{ items: StaleApproval[] }>("/kb/stale-approvals"),
+        staff ? api<AiStatus>("/ai-status") : Promise.resolve(null),
       ]);
       setIns(i);
       setAlerts(e.alerts);
-      setAi(a);
       setStale(s.items);
+      setAi(a);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
-  }, []);
+  }, [staff]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
+  const totalSubmissions = ins?.statuses.reduce((n, s) => n + s.c, 0) ?? 0;
+  const missing = mergeMissing(ins?.missing_facts ?? []);
+  const tiers = [...(ins?.tier_calibration ?? [])].sort((a, b) => TIER_ORDER.indexOf(a.tier) - TIER_ORDER.indexOf(b.tier));
+
   return (
     <div className="space-y-5">
       <div>
-        <p className="eyebrow">Governance health</p>
-        <h1 className="page-title mt-1.5">Insights</h1>
+        <p className="eyebrow">How the brand is doing</p>
+        <h1 className="page-title mt-1.5">Reports</h1>
         <p className="page-lede">
-          Where friction lives: ambiguous rules, contested decisions, and what the AI spends.
+          What Canonry catches most, which rules confuse people, and which facts need attention.
         </p>
       </div>
       {error && <p className="rounded-md border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger-fg">{error}</p>}
 
-      {ai && (
-        <div className="flex flex-wrap gap-2 text-sm">
-          {ai.providers?.map((p) => (
-            <span
-              key={p.provider}
-              className={`rounded-full px-2.5 py-1 text-xs font-medium ${
-                p.available
-                  ? "bg-success-bg text-success-fg"
-                  : "border border-border-strong bg-card text-muted-foreground"
-              }`}
-            >
-              AI gateway · {p.provider} {p.available ? `(${p.model})` : "(no key)"}
-            </span>
-          ))}
-        </div>
-      )}
-
       {ins && (
         <>
           <div className="surface grid grid-cols-1 divide-y divide-border overflow-hidden sm:grid-cols-4 sm:divide-x sm:divide-y-0">
-            <Stat label="Submissions by status" value={ins.statuses.map((s) => `${s.c}`).join(" / ")} hint={ins.statuses.map((s) => s.status).join(" / ") || "—"} />
-            <Stat label="Unsupported claims" value={String(ins.unsupported_claims)} hint="needing a fact on file" />
-            <Stat label="Disputes / overrides" value={String(ins.dispute_overrides.length)} hint="contested findings" />
-            <Stat label="Unclear rules" value={String(ins.possibly_unclear_rules.length)} hint="flagged for the brand owner" />
+            <Stat
+              label="Submissions"
+              value={String(totalSubmissions)}
+              hint={ins.statuses.map((s) => `${s.c} ${s.status.toLowerCase()}`).join(" · ") || "None yet"}
+            />
+            <Stat label="Claims with no fact" value={String(ins.unsupported_claims)} hint="need an approved fact behind them" />
+            <Stat label="Disputed issues" value={String(ins.dispute_overrides.length)} hint="someone disagreed with a check" />
+            <Stat label="Rules to re-word" value={String(ins.possibly_unclear_rules.length)} hint="flagged for the brand owner" />
           </div>
 
-          <Card title="Findings by checker">
-            {Object.values(ins.by_checker).map((b) => (
-              <Row key={b.checker} left={b.checker} right={`${b.c} findings · ${b.definite} definite`} />
-            ))}
-            {Object.keys(ins.by_checker).length === 0 && <Muted text="No checks have run yet." />}
-          </Card>
-
-          <Card title="Most frequent categories">
+          <Card title="What gets caught most">
             {ins.categories.slice(0, 8).map((c) => (
-              <Row key={c.category} left={c.category.replace(/_/g, " ")} right={String(c.c)} />
+              <Row key={c.category} left={CATEGORY_LABEL[c.category] ?? sentence(c.category)} right={plural(c.c, "issue")} />
             ))}
+            {ins.categories.length === 0 && <Muted text="Nothing caught yet. Run a check to see results here." />}
           </Card>
 
-          {ins.missing_facts && ins.missing_facts.length > 0 && (
-            <Card title="Clarity dashboard: claims missing a fact">
+          {missing.length > 0 && (
+            <Card title="Claims with no fact behind them">
               <p className="mb-2 text-xs text-muted-foreground">
-                These phrases recur without an approved fact behind them. One well-written fact can clear every occurrence
-                — a suggestion for the brand owner, never an auto-authored fact.
+                These phrases keep coming up without an approved fact to support them. One well-written fact can clear
+                every occurrence. Canonry suggests; the brand owner decides.
               </p>
-              {ins.missing_facts.map((m) => (
+              {missing.map((m) => (
                 <div key={m.span_text + m.sample_id} className="border-b border-border py-2.5 last:border-0 text-sm">
                   <p className="font-serif italic">“{m.span_text}”</p>
                   <p className="text-xs text-muted-foreground">
-                    {m.occurrences} submission{m.occurrences === 1 ? "" : "s"} · e.g.{" "}
-                    <Link href={`/submissions/${m.sample_id}`} className="link">{m.sample_title}</Link>{" "}
-                    · <Link href="/kb" className="link">add or link a fact</Link>
+                    {plural(m.occurrences, "submission")} · e.g.{" "}
+                    <Link href={`/submissions/${m.sample_id}`} className="link">{m.sample_title}</Link>
+                    {staff && (
+                      <>
+                        {" "}· <Link href="/kb" className="link">add or link a fact</Link>
+                      </>
+                    )}
                   </p>
                 </div>
               ))}
             </Card>
           )}
 
-          {ins.tier_calibration && ins.tier_calibration.length > 0 && (
-            <Card title="Tier calibration">
-              <p className="mb-2 text-xs text-muted-foreground">
-                Human disputes by tier. A Definite tier above a 10% dispute rate needs re-calibration before it is trusted.
-              </p>
-              {ins.tier_calibration.map((t) => (
-                <div key={t.tier} className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border py-2 last:border-0 text-sm">
-                  <span className="font-medium capitalize">{t.tier}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {t.total} findings · {t.disputed} disputed · {(t.dispute_rate * 100).toFixed(1)}% dispute rate
-                  </span>
-                  {t.needs_recalibration && (
-                    <span className="rounded-full bg-warning-bg px-2 py-0.5 text-[11px] font-semibold text-warning-fg">
-                      needs re-calibration
-                    </span>
-                  )}
-                </div>
-              ))}
-            </Card>
-          )}
-
-          <Card title="Disputes & overrides (latest 20)">
-            {ins.dispute_overrides.map((o, i) => (
-              <Row key={i} left={`“${o.reason}” — ${o.title}`} right={o.at.slice(0, 16)} />
-            ))}
-            {ins.dispute_overrides.length === 0 && <Muted text="No disputes yet." />}
-          </Card>
-
-          <Card title="AI usage (the honest ledger)">
-            {ins.ai_calls.map((a, i) => (
-              <Row key={i} left={`${a.task} · ${a.provider}/${a.model}`} right={`${a.c} calls (${a.ok ?? 0} ok)`} />
-            ))}
-            {ins.ai_calls.length === 0 && <Muted text="No AI calls yet — deterministic checks carry the load." />}
-          </Card>
-
-          {stale && (
-            <Card title="Approved content to re-review">
-              {stale.map((s) => (
-                <div key={s.submission_id + s.cites} className="border-b border-border py-2.5 last:border-0 text-sm">
-                  <Link href={`/submissions/${s.submission_id}`} className="link">
-                    {s.title}
-                  </Link>{" "}
-                  <span className="text-xs text-muted-foreground">
-                    ({s.status}) · approved against {s.cites}, now v{s.current_version}
-                  </span>
-                </div>
-              ))}
-              {stale.length === 0 && <Muted text="Every approved item cites current knowledge." />}
-            </Card>
-          )}
-
           {ins.possibly_unclear_rules.length > 0 && (
-            <Card title="Rules a human should re-word">
+            <Card title="Rules that need clearer wording">
               {ins.possibly_unclear_rules.map((r) => (
                 <div key={r.id} className="border-b border-border py-2.5 last:border-0">
                   <code className="font-mono text-xs font-semibold text-brand">{r.id}</code>{" "}
                   <span className="text-sm">{r.statement}</span>
-                  <p className="text-xs text-muted-foreground">flag: {r.vague_flag.replace("vague_", "")}</p>
+                  <p className="text-xs text-muted-foreground">{UNCLEAR_REASON[r.vague_flag] ?? sentence(r.vague_flag.replace("vague_", ""))}</p>
                 </div>
               ))}
             </Card>
@@ -189,30 +142,139 @@ export default function InsightsPage() {
       )}
 
       {alerts && (
-        <Card title="Fact expiry alerts">
-          {alerts.map((a) => (
-            <div key={a.fact.id} className="border-b border-border py-2.5 last:border-0 text-sm">
-              <p>
-                <code className="font-mono text-xs font-semibold text-brand">{a.fact.id}</code> {a.fact.text}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                valid to {a.fact.valid_to} · {a.affected_approved_content.length} approved item(s) cite it
-                {a.affected_approved_content.length > 0 &&
-                  `: ${a.affected_approved_content.map((c) => c.title).join(", ")}`}
-              </p>
+        <Card title="Facts that have expired">
+          {alerts.map((a) => {
+            const cited = a.affected_approved_content;
+            return (
+              <div key={a.fact.id} className="border-b border-border py-2.5 last:border-0 text-sm">
+                <p>
+                  <code className="font-mono text-xs font-semibold text-brand">{a.fact.id}</code> {a.fact.text}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Expired {formatDay(a.fact.valid_to)} ·{" "}
+                  {cited.length === 0
+                    ? "no approved content cites it"
+                    : `cited by ${plural(cited.length, "approved item")}: ${cited.map((c) => c.title).join(", ")}`}
+                </p>
+              </div>
+            );
+          })}
+          {alerts.length === 0 && <Muted text="Every fact on file is still in date." />}
+        </Card>
+      )}
+
+      {stale && (
+        <Card title="Approved content to re-check">
+          {stale.map((s) => (
+            <div key={s.submission_id + s.cites} className="border-b border-border py-2.5 last:border-0 text-sm">
+              <Link href={`/submissions/${s.submission_id}`} className="link">
+                {s.title}
+              </Link>{" "}
+              <span className="text-xs text-muted-foreground">
+                ({s.status}) · approved against {s.cites}, now version {s.current_version}
+              </span>
             </div>
           ))}
-          {alerts.length === 0 && <Muted text="No facts are past their valid_to date." />}
+          {stale.length === 0 && <Muted text="Every approved item was checked against the current rules and facts." />}
         </Card>
+      )}
+
+      {ins && (
+        <>
+          <Card title="Disputed and overridden issues (latest 20)">
+            {ins.dispute_overrides.map((o, i) => (
+              <Row key={i} left={`“${o.reason}” — ${o.title}`} right={formatDay(o.at)} />
+            ))}
+            {ins.dispute_overrides.length === 0 && <Muted text="No disputes yet." />}
+          </Card>
+
+          {staff && tiers.length > 0 && (
+            <Card title="How often each level is disputed">
+              <p className="mb-2 text-xs text-muted-foreground">
+                If more than 10% of “Must fix” issues are disputed, that level needs re-calibrating before people trust it.
+              </p>
+              {tiers.map((t) => (
+                <div key={t.tier} className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border py-2 last:border-0 text-sm">
+                  <span className="font-medium">{TIER_LABEL[t.tier] ?? sentence(t.tier)}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {plural(t.total, "issue")} · {t.disputed} disputed · {(t.dispute_rate * 100).toFixed(1)}% dispute rate
+                  </span>
+                  {t.needs_recalibration && (
+                    <span className="rounded-full bg-warning-bg px-2 py-0.5 text-[11px] font-semibold text-warning-fg">
+                      Needs re-calibrating
+                    </span>
+                  )}
+                </div>
+              ))}
+            </Card>
+          )}
+
+          {staff && (
+            <section aria-labelledby="ai-usage" className="space-y-5">
+              <h2 id="ai-usage" className="eyebrow pt-2">For reviewers and admins: how the checks run</h2>
+              {ai && ai.providers.length > 0 && (
+                <div className="flex flex-wrap gap-2 text-sm">
+                  {ai.providers.map((p) => (
+                    <span
+                      key={p.provider}
+                      className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                        p.available ? "bg-success-bg text-success-fg" : "border border-border-strong bg-card text-muted-foreground"
+                      }`}
+                    >
+                      AI provider · {p.provider} {p.available ? `(${p.model})` : "(no key)"}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <Card title="Issues by checker">
+                {Object.values(ins.by_checker).map((b) => (
+                  <Row key={b.checker} left={b.checker} right={`${plural(b.c, "issue")} · ${b.definite} must fix`} />
+                ))}
+                {Object.keys(ins.by_checker).length === 0 && <Muted text="No checks have run yet." />}
+              </Card>
+              <Card title="AI usage">
+                {ins.ai_calls.map((a, i) => (
+                  <Row key={i} left={`${a.task} · ${a.provider}/${a.model}`} right={`${plural(a.c, "call")} (${a.ok ?? 0} ok)`} />
+                ))}
+                {ins.ai_calls.length === 0 && <Muted text="No AI calls yet. Rule checks carry the load." />}
+              </Card>
+            </section>
+          )}
+        </>
       )}
     </div>
   );
 }
 
+/** "no_examples" -> "No examples" */
+function sentence(s: string): string {
+  const t = s.replace(/_/g, " ");
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+const TIER_ORDER = ["definite", "likely", "consider"];
+
+type MissingFact = NonNullable<Insights["missing_facts"]>[number];
+
+/** "India's #1" and "India’s #1" are the same claim: merge phrases that differ only in quotes, dashes, case or spacing. */
+function mergeMissing(items: MissingFact[]): MissingFact[] {
+  const key = (s: string) =>
+    s.normalize("NFKC").replace(/[‘’ʼ`´]/g, "'").replace(/[“”]/g, '"').replace(/[‐-―]/g, "-")
+      .replace(/\s+/g, " ").trim().toLowerCase();
+  const merged = new Map<string, MissingFact>();
+  for (const m of items) {
+    const k = key(m.span_text);
+    const seen = merged.get(k);
+    if (seen) merged.set(k, { ...seen, occurrences: seen.occurrences + m.occurrences });
+    else merged.set(k, { ...m });
+  }
+  return [...merged.values()].sort((a, b) => b.occurrences - a.occurrences);
+}
+
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="surface p-5">
-      <h2 className="eyebrow mb-3">{title}</h2>
+      <h2 className="mb-3 text-base font-bold tracking-tight text-foreground">{title}</h2>
       {children}
     </div>
   );
@@ -222,7 +284,7 @@ function Row({ left, right }: { left: string; right: string }) {
   return (
     <div className="flex items-baseline justify-between gap-3 border-b border-border py-2 last:border-0 text-sm">
       <span>{left}</span>
-      <span className="shrink-0 font-mono text-xs text-muted-foreground tabular-nums">{right}</span>
+      <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{right}</span>
     </div>
   );
 }

@@ -27,7 +27,7 @@ function useInView<T extends Element>() {
   return [ref, inView] as const;
 }
 
-/** Fades and lifts its children in the first time they scroll into view. */
+/** Lifts its children slightly the first time they scroll into view. They are never hidden (no opacity change). */
 export function Reveal({
   children,
   delay = 0,
@@ -51,12 +51,16 @@ export function Reveal({
   );
 }
 
-/** Counts from 0 to `value` once visible (instantly when reduced motion is on). */
+/** Shows `value`; counts up to it from 0 when it scrolls into view (not under reduced motion). */
 export function CountUp({ value, duration = 1200 }: { value: number; duration?: number }) {
   const [ref, inView] = useInView<HTMLSpanElement>();
-  const [shown, setShown] = useState(0);
+  // the real number from the start, so a page that is never scrolled (or captured) never reads "0"
+  const [shown, setShown] = useState(value);
   useEffect(() => {
-    if (!inView) return;
+    if (!inView) {
+      setShown(value);
+      return;
+    }
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       setShown(value);
       return;

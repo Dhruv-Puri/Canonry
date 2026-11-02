@@ -1,12 +1,13 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { ArrowRight, Check, ChevronRight, Sparkles } from "lucide-react";
 import { rememberFirstTime, useGuide } from "@/components/guide";
-import { api, ApiError, ENGINE_UNREACHABLE, SIGNED_OUT_EVENT, type AuthMode, type User } from "@/lib/api";
+import { api, ApiError, SIGNED_OUT_EVENT, type AuthMode, type User } from "@/lib/api";
 import { ROLES, type Role } from "@/lib/roles";
 import { BrandMark } from "@/components/brand";
+import { EngineDown, EngineLoading, GIVE_UP_MS, isWaking, RETRY_MS } from "@/components/engine-status";
 
 type Identity = {
   me: User | null;
@@ -37,8 +38,11 @@ export function IdentityGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
   const [me, setMe] = useState<User | null>(null);
-  const [demoMode, setDemoMode] = useState(false);
+  const [auth, setAuth] = useState<AuthMode | null>(null);
   const [state, setState] = useState<"loading" | "in" | "out" | "down">("loading");
+  const [elapsed, setElapsed] = useState(0);
+  // each boot gets a number; answers that arrive for an older boot (before "Try again") are ignored
+  const bootRef = useRef(0);
 
   const refresh = useCallback(async () => {
     try {
@@ -56,16 +60,69 @@ export function IdentityGate({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  /**
+   * First load. A free-tier engine can take 20–30 s to wake: keep asking (quietly
+   * for 3 s, then with a "waking up" card) and only give up after 45 s.
+   */
+  const boot = useCallback(async () => {
+    const id = ++bootRef.current;
+    const started = Date.now();
+    const current = () => bootRef.current === id;
+    setState("loading");
+    setElapsed(0);
+    const ask = async <T,>(path: string): Promise<T> => {
+      for (;;) {
+        try {
+          return await api<T>(path);
+        } catch (e) {
+          if (!isWaking(e) || Date.now() - started > GIVE_UP_MS || !current()) throw e;
+          await new Promise((r) => setTimeout(r, RETRY_MS));
+          if (!current()) throw e;
+        }
+      }
+    };
+    let user: User | null = null;
+    try {
+      user = await ask<User>("/me");
+    } catch (e) {
+      if (!current()) return;
+      if (!(e instanceof ApiError && e.status === 401)) {
+        setState("down");
+        return;
+      }
+    }
+    // the engine has answered, so this is quick; the welcome screen needs it
+    const mode = await ask<AuthMode>("/auth-mode").catch(() => null);
+    if (!current()) return;
+    setAuth(mode);
+    setMe(user);
+    setState(user ? "in" : "out");
+  }, []);
+
   useEffect(() => {
-    void api<AuthMode>("/auth-mode").then((mode) => setDemoMode(mode.demo_mode)).catch(() => setDemoMode(false));
-    void refresh();
+    void boot();
     const onOut = () => {
       setMe(null);
       setState("out");
     };
     window.addEventListener(SIGNED_OUT_EVENT, onOut);
-    return () => window.removeEventListener(SIGNED_OUT_EVENT, onOut);
-  }, [refresh]);
+    return () => {
+      bootRef.current++;
+      window.removeEventListener(SIGNED_OUT_EVENT, onOut);
+    };
+  }, [boot]);
+
+  // the counter on the waking card; past 45 s the "not answering" screen takes over
+  useEffect(() => {
+    if (state !== "loading") return;
+    const started = Date.now();
+    const t = window.setInterval(() => {
+      const ms = Date.now() - started;
+      setElapsed(ms);
+      if (ms > GIVE_UP_MS + RETRY_MS) setState((s) => (s === "loading" ? "down" : s));
+    }, 1000);
+    return () => window.clearInterval(t);
+  }, [state]);
 
   const update = useCallback(async (patch: { name?: string; role?: Role }) => {
     setMe(await api<User>("/me", { method: "PATCH", json: patch }));
@@ -77,33 +134,17 @@ export function IdentityGate({ children }: { children: React.ReactNode }) {
     setState("out");
   }, []);
 
-  if (state === "loading") return <div className="min-h-dvh" aria-busy="true" />;
-  if (state === "down" && !isPublic) return <EngineDown onRetry={() => { setState("loading"); void refresh(); }} />;
+  if (state === "loading") return <EngineLoading elapsedMs={elapsed} />;
+  if (state === "down" && !isPublic) return <EngineDown onRetry={() => void boot()} />;
   if (state === "out" && !isPublic) return <Welcome onJoined={(u) => { setMe(u); setState("in"); }} />;
   // remount everything when the person or their role changes, so every view
   // reloads with what the new role may see
   return (
-    <IdentityContext.Provider value={{ me, demoMode, refresh, update, leave }}>
+    <IdentityContext.Provider value={{ me, demoMode: auth?.demo_mode ?? false, refresh, update, leave }}>
       <div key={`${me?.id}:${me?.role}`} className="contents">
         {children}
       </div>
     </IdentityContext.Provider>
-  );
-}
-
-/** Shown when the engine does not answer at all; one button tries again. */
-function EngineDown({ onRetry }: { onRetry: () => void }) {
-  return (
-    <main className="grid min-h-dvh place-items-center px-5">
-      <div role="alert" className="surface max-w-md p-8 text-center">
-        <BrandMark className="mx-auto size-9" />
-        <h1 className="mt-4 text-xl font-bold tracking-tight text-foreground">Canonry is not answering</h1>
-        <p className="mt-2 text-sm leading-relaxed text-foreground-secondary">{ENGINE_UNREACHABLE}</p>
-        <button type="button" onClick={onRetry} className="btn btn-primary mt-6">
-          Try again
-        </button>
-      </div>
-    </main>
   );
 }
 

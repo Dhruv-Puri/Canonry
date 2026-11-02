@@ -78,16 +78,16 @@ export default function ReviewQueuePage() {
           <p className="eyebrow">Review workspace</p>
           <h1 className="page-title mt-1.5">Review queue</h1>
           <p className="page-lede max-w-2xl">
-            Submissions waiting on a person. Open one to read the cited findings, override with a reason, approve and
-            sign, or send it back with changes.
+            Submissions waiting on a person. Open one to read each issue and the rule behind it, then approve and sign,
+            or send it back with changes.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Link href="/kb" className="btn btn-secondary">
-            <BookMarked className="size-4" aria-hidden /> Knowledge base
+            <BookMarked className="size-4" aria-hidden /> Brand rules
           </Link>
           <Link href="/insights" className="btn btn-secondary">
-            <LineChart className="size-4" aria-hidden /> Insights
+            <LineChart className="size-4" aria-hidden /> Reports
           </Link>
         </div>
       </div>
@@ -133,9 +133,22 @@ export default function ReviewQueuePage() {
           </p>
           <p className="max-w-sm text-sm text-muted-foreground">
             {filter === "queue"
-              ? "No submission is waiting for a reviewer decision right now."
-              : "Try another filter, or check the knowledge base for anything that needs updating."}
+              ? "No submission is waiting for a reviewer decision right now. New ones appear here when a writer sends them for review."
+              : "No submissions have this status yet."}
           </p>
+          {filter === "queue" && counts.signed > 0 ? (
+            <button type="button" className="btn btn-secondary mt-2" onClick={() => setFilter("signed")}>
+              See signed work
+            </button>
+          ) : filter !== "queue" && filter !== "all" ? (
+            <button type="button" className="btn btn-secondary mt-2" onClick={() => setFilter("all")}>
+              Show all submissions
+            </button>
+          ) : (
+            <Link href="/kb" className="btn btn-secondary mt-2">
+              Look over the brand rules
+            </Link>
+          )}
         </div>
       )}
 
@@ -143,7 +156,7 @@ export default function ReviewQueuePage() {
         <ul className="grid gap-4 md:grid-cols-2">
           {visible.map((s, i) => (
             <Reveal as="li" key={s.id} delay={(i % 2) * 80}>
-              <SubmissionCard submission={s} action="Open review" />
+              <SubmissionCard submission={s} viewer="reviewer" />
             </Reveal>
           ))}
         </ul>
