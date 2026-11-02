@@ -228,7 +228,7 @@ export default function AdminOverviewPage() {
                 <Sparkles className="size-4 text-brand" aria-hidden />
                 <p className="eyebrow">AI review</p>
               </div>
-              <h2 className="mt-1 text-xl font-bold tracking-tight">Gateway and coverage</h2>
+              <h2 className="mt-1 text-xl font-bold tracking-tight">What the AI adds, and what it never does</h2>
             </div>
             <Link href="/insights" className="btn btn-ghost btn-sm">
               AI ledger <ArrowRight className="size-3.5" aria-hidden />
@@ -247,15 +247,20 @@ export default function AdminOverviewPage() {
                         : "border border-border-strong bg-card text-muted-foreground"
                     }`}
                   >
-                    {p.provider}: {p.available ? p.model : "no key"}
+                    {p.provider}: {p.available ? p.model : "not set up"}
                   </span>
                 ))}
                 {!ai && <span className="text-sm text-muted-foreground">Checking providers…</span>}
               </div>
-              <p className="mt-3 text-sm leading-relaxed text-foreground-secondary">
-                {ai?.note ??
-                  "Rule-based checks always run. AI adds implied-claim and tone review when a provider is available."}
-              </p>
+              <ul className="mt-3 space-y-1.5 text-sm leading-relaxed text-foreground-secondary">
+                <li><strong className="text-foreground">Adds:</strong> claims the rules cannot see (&ldquo;trusted by every bank&rdquo;),
+                  tone, and what an image shows.</li>
+                <li><strong className="text-foreground">Never:</strong> decides anything, or sees confidential facts. Its findings are at most
+                  Should fix and always cite a rule; people accept or dispute them.</li>
+                <li><strong className="text-foreground">Without it:</strong> every rule check still runs, and the page says AI was skipped.
+                  The first available provider in the list answers, on free tiers.</li>
+              </ul>
+              {ai?.note && <p className="mt-2 text-xs text-muted-foreground">{ai.note}</p>}
             </div>
             <div className="rounded-xl border border-border bg-muted/50 px-4 py-3 text-sm">
               <p className="text-xs font-medium text-muted-foreground">Calls answered</p>

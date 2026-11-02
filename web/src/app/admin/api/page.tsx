@@ -29,6 +29,19 @@ type Packs = {
 };
 
 const EVENTS = ["checked", "approved", "signed"] as const;
+/** What each event means, in plain words, next to its technical name. */
+const EVENT_MEANING: Record<(typeof EVENTS)[number], string> = {
+  checked: "a check finished",
+  approved: "a reviewer approved it",
+  signed: "the approval was signed: safe to publish",
+};
+
+/** The publishing gate in three plain steps, for an admin who has never set up an integration. */
+const GATE_STEPS = [
+  { title: "Your site sends a draft", body: "Your website or CMS sends the draft to Canonry with an API key, instead of publishing it straight away." },
+  { title: "Canonry checks it, people decide", body: "The same checks as here run; writers fix, a reviewer approves and Canonry signs the approval." },
+  { title: "Your site is told it may publish", body: "A webhook (a signed message) tells your site the draft was approved. The site publishes only if its text matches what was approved." },
+];
 
 function when(iso: string | null) {
   return iso ? `${iso.slice(0, 16).replace("T", " ")} UTC` : "never";
@@ -144,8 +157,8 @@ export default function ApiSettingsPage() {
           <p className="eyebrow">Integration surface</p>
           <h1 className="page-title mt-1.5">API &amp; webhooks</h1>
           <p className="page-lede max-w-2xl">
-            A versioned API with workspace-scoped keys, and HMAC-signed events for the systems that publish. Keys are
-            shown once; the database keeps only a hash.
+            Connect the systems that publish (a website, a CMS, a script) so nothing goes live before it passes Canonry.
+            You only need this if someone on your team publishes through one of those systems.
           </p>
         </div>
         <button onClick={() => void run(async () => {
@@ -156,6 +169,21 @@ export default function ApiSettingsPage() {
           <RefreshCw className={`size-4 ${busy ? "animate-spin" : ""}`} aria-hidden /> Send waiting webhooks now
         </button>
       </div>
+
+      <section aria-label="How the publishing gate works" className="surface p-5">
+        <p className="eyebrow">How it works</p>
+        <ol className="mt-3 grid gap-3 sm:grid-cols-3">
+          {GATE_STEPS.map((g, i) => (
+            <li key={g.title} className="rounded-xl border border-border bg-muted/60 p-4">
+              <p className="flex items-center gap-2 text-sm font-semibold">
+                <span className="grid size-6 shrink-0 place-items-center rounded-full bg-primary text-xs text-primary-foreground">{i + 1}</span>
+                {g.title}
+              </p>
+              <p className="mt-2 text-sm leading-relaxed text-foreground-secondary">{g.body}</p>
+            </li>
+          ))}
+        </ol>
+      </section>
 
       {publisherUp && <section className="surface flex flex-wrap items-center gap-3 p-5">
         <div className="min-w-0 flex-1">
@@ -177,9 +205,14 @@ export default function ApiSettingsPage() {
             <KeyRound className="size-4 text-brand" aria-hidden />
             <h2 className="section-title">API keys</h2>
           </div>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Scope <code>check</code> can create and check submissions; <code>read</code> can read them; <code>admin</code>{" "}
-            includes both. Send <code>Authorization: Bearer ck_live_…</code>.
+          <p className="mt-2 text-sm leading-relaxed text-foreground-secondary">
+            A key is a password for another system: it lets your website or a script send drafts to Canonry and read the
+            results. Give each system its own key, so you can switch one off without breaking the others.
+          </p>
+          <p className="mt-2 text-xs text-muted-foreground">
+            For developers: scope <code>check</code> can create and check submissions; <code>read</code> can read them;{" "}
+            <code>admin</code> includes both. Send <code>Authorization: Bearer ck_live_…</code>. Keys are shown once; only
+            a hash is stored.
           </p>
           <form
             className="mt-4 flex flex-wrap items-end gap-2"
@@ -257,8 +290,13 @@ export default function ApiSettingsPage() {
             <Webhook className="size-4 text-brand" aria-hidden />
             <h2 className="section-title">Webhook endpoints</h2>
           </div>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Each delivery is signed: <code className="break-all">X-Canonry-Signature: sha256=HMAC(secret, timestamp + &quot;.&quot; + body)</code>.
+          <p className="mt-2 text-sm leading-relaxed text-foreground-secondary">
+            A webhook is a message Canonry sends to your system the moment something happens, such as a draft being
+            approved, so it can publish without anyone copying and pasting. If your system is down, Canonry keeps trying.
+          </p>
+          <p className="mt-2 text-xs text-muted-foreground">
+            For developers: each delivery is signed:{" "}
+            <code className="break-all">X-Canonry-Signature: sha256=HMAC(secret, timestamp + &quot;.&quot; + body)</code>.
             A failed delivery is retried after 30 s, 2 min, 10 min, 30 min, 1 h, 2 h and 6 h, then marked failed.
           </p>
           <form
@@ -292,7 +330,7 @@ export default function ApiSettingsPage() {
                     checked={hookEvents.includes(event)}
                     onChange={(e) => setHookEvents((s) => e.target.checked ? [...new Set([...s, event])] : s.filter((x) => x !== event))}
                   />
-                  {event}
+                  <span><code>{event}</code> <span className="text-muted-foreground">({EVENT_MEANING[event]})</span></span>
                 </label>
               ))}
             </div>
@@ -357,7 +395,7 @@ export default function ApiSettingsPage() {
           <Send className="size-4 text-brand" aria-hidden />
           <h2 className="section-title">Delivery log</h2>
         </div>
-        <p className="mt-1 text-sm text-muted-foreground">Newest first. Retry re-queues the exact same signed payload.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Every message Canonry sent to your systems, newest first. Retry sends the exact same signed message again.</p>
         <div className="mt-3 overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead className="text-xs uppercase tracking-wide text-muted-foreground">
@@ -384,7 +422,7 @@ export default function ApiSettingsPage() {
                   </td>
                 </tr>
               ))}
-              {deliveries.length === 0 && <tr><td colSpan={6} className="py-3 text-sm text-muted-foreground">No deliveries yet.</td></tr>}
+              {deliveries.length === 0 && <tr><td colSpan={6} className="py-3 text-sm text-muted-foreground">Nothing sent yet. Once an endpoint is added, every check, approval and signature it listens for shows up here, with failed ones retried automatically.</td></tr>}
             </tbody>
           </table>
         </div>
