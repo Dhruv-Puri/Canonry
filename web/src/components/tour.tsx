@@ -1,7 +1,7 @@
 
 "use client";
 
-import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -11,7 +11,6 @@ import {
   BookOpen,
   Building2,
   Check,
-  ClipboardCheck,
   FileText,
   FileUp,
   Home,
@@ -21,9 +20,6 @@ import {
   LayoutDashboard,
   MousePointer2,
   PenLine,
-  Search,
-  Sparkles,
-  Stamp,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -36,288 +32,156 @@ type Step = {
   body: string;
   icon: LucideIcon;
   points?: string[];
-  compare?: { rule: string[]; ai: string[] };
-  demo?: "write";
-  tip?: string;
+  demo?: "write" | "check";
   /** open the window this step describes */
   cta?: { href: string; label: string };
+  /** the element this step points at (a window in the nav bar) */
+  target?: string;
+  /** the window this page is about, so the tour can take you there without ending */
+  href?: string;
 };
 
-const CORE_STEPS: Step[] = [
-  {
-    eyebrow: "Start here",
-    title: "Write it here, or upload the file you already have",
-    body:
-      "Canonry checks marketing copy the way you already work: type it in, or bring the PDF, Word file or image you were about to publish. Both land in the same check.",
-    icon: PenLine,
-    demo: "write",
-  },
-  {
-    eyebrow: "Two kinds of checks",
-    title: "Rules always run. AI adds judgement.",
-    body:
-      "Canonry doesn't only ask an AI. Most findings come from deterministic rules that always run; AI adds judgement where rules can't.",
-    icon: Search,
-    compare: {
-      rule: ["Terminology and banned words", "Readability, channel limits, CTA", "Tone heuristics and confidential leaks"],
-      ai: ["Implied claims", "Fact verification", "Tone judgement"],
-    },
-    tip: "The same report shows both: rule findings always arrive; AI findings appear when the model answers, or that section is marked pending.",
-  },
-  {
-    eyebrow: "Always on",
-    title: "The rule checks run first",
-    body:
-      "They are deterministic, fast, and free. They still run when the AI is off, out of quota, or every provider is busy.",
-    icon: Check,
-    points: [
-      "Terminology, banned words, readability, channel limits and calls to action.",
-      "Tone heuristics and confidential-leak checks.",
-      "Every finding cites the rule, term or fact it was checked against.",
-      "A check can come back with findings even when AI is marked pending.",
-    ],
-  },
-  {
-    eyebrow: "Extra coverage",
-    title: "AI suggests; people decide",
-    body:
-      "When a provider answers, AI looks for implied claims, verifies them against your Fact Library, and judges tone against your voice rules.",
-    icon: Sparkles,
-    points: [
-      "AI findings are suggestions: accept, edit, or dispute them.",
-      "If the provider is unavailable, AI is marked pending — rule findings still arrive.",
-      "Confidential facts are held back from free AI providers.",
-    ],
-  },
-  {
-    eyebrow: "The finish line",
-    title: "Every issue is pinned where it happens",
-    body:
-      "A document opens in a page preview that keeps its layout. Each issue is highlighted in place and numbered to match its card, so you see the problem where a reader would meet it.",
-    icon: Stamp,
-    points: [
-      "PDF findings point to a page and line; Word findings to a section and paragraph.",
-      "Accept, edit or dispute each one — the preview updates as you go.",
-      "Once a reviewer approves, the approval is signed and anyone can verify it.",
-    ],
-  },
-];
+/** The write window with both ways in. Only authoring profiles get this page. */
+const WRITE_STEP: Step = {
+  eyebrow: "Start here",
+  title: "Write it, or upload it",
+  body: "Type a draft, or drop the PDF, Word file or image you already have.",
+  icon: FileText,
+  demo: "write",
+  target: '[data-nav="/new"]',
+  href: "/new",
+};
 
-/** One step per window the signed-in profile actually has. */
+/** The four check pages, on one page. */
+const PIPELINE_STEP: Step = {
+  eyebrow: "How a check works",
+  title: "Rules first, AI second, you decide",
+  body: "Rules always run and are free. AI adds judgement when it can. Every finding cites its source and is pinned in the document.",
+  icon: Check,
+  points: [
+    "Rule findings arrive even when the AI is off or out of quota.",
+    "AI findings are suggestions: accept, edit or dispute them.",
+  ],
+  demo: "check",
+};
+
+/** One short page per window the profile actually has. */
 const ROLE_WINDOWS: Record<Role, Step[]> = {
   creator: [
     {
       eyebrow: "Your windows",
       title: "Home is your desk",
-      body: "Everything starts here: a quick draft box, what is waiting, and every submission you have already checked.",
+      body: "Paste a draft, see what is waiting, and reopen your submissions.",
       icon: Home,
-      points: [
-        "Paste a draft and check it without leaving the page.",
-        "At a glance: approved rules, facts on file and open drafts.",
-        "Your submissions, newest first, with their open-finding counts.",
-      ],
+      target: '[data-nav="/"]',
+      href: "/",
+      cta: { href: "/", label: "Open home" },
     },
     {
       eyebrow: "Your windows",
-      title: "A draft page is the whole story",
-      body: "Open a submission and the content sits beside its issues, with the same numbers in both places.",
-      icon: ClipboardCheck,
-      points: [
-        "Accept a suggested fix, write your own, or dispute one with a reason.",
-        "Compare revisions and read the decision and approval history.",
-        "Send it for review when nothing is left to fix.",
-      ],
-    },
-    {
-      eyebrow: "Your windows",
-      title: "Knowledge base: what it checks against",
-      body: "Rules, approved facts and preferred terms live here, each with a version and a reason for every change. Creators read it; reviewers and admins edit it.",
+      title: "Knowledge base",
+      body: "The rules, facts and terms every check runs against.",
       icon: BookOpen,
-      points: [
-        "Search across rules, facts and terms before you write.",
-        "See when a fact expired or a rule was replaced.",
-        "Every finding cites the version it was checked against.",
-      ],
       cta: { href: "/kb", label: "Open the knowledge base" },
     },
     {
       eyebrow: "Your windows",
-      title: "Reports: how the brand is doing",
-      body: "The numbers behind the review: what gets caught most, approval health and how much AI checking was used.",
+      title: "Insights",
+      body: "What gets caught most, and how review is going.",
       icon: BarChart3,
-      points: [
-        "What is caught most often, by category.",
-        "How many drafts are waiting, approved or signed.",
-        "Useful when a rule keeps firing on the same thing.",
-      ],
-      cta: { href: "/insights", label: "Open reports" },
+      cta: { href: "/insights", label: "Open insights" },
     },
   ],
   reviewer: [
     {
       eyebrow: "Your windows",
-      title: "The review queue",
-      body: "Everything waiting for a decision is here. Reviewers get a queue, never a draft box.",
+      title: "Review queue",
+      body: "Everything waiting on a decision, oldest first.",
       icon: Inbox,
-      points: [
-        "Oldest waiting first, so nothing stalls.",
-        "Risk and open-finding counts before you open a draft.",
-        "Your own sent drafts are highlighted for you.",
-      ],
       cta: { href: "/review", label: "Open the review queue" },
     },
     {
       eyebrow: "Your windows",
-      title: "Deciding on a draft",
-      body: "Open a draft and the content, the issues and the decision bar are on one page.",
-      icon: ClipboardCheck,
-      points: [
-        "Approve and sign, or send back with a comment.",
-        "Must-fix issues block approval unless you override each with a reason.",
-        "Every decision is recorded for the signed proof.",
-      ],
-    },
-    {
-      eyebrow: "Your windows",
-      title: "Knowledge base: the source of truth",
-      body: "Reviewers can edit rules, facts and terms. Every change is a new version with a reason, and approved content is re-checked against it.",
+      title: "Knowledge base",
+      body: "Edit the rules and facts, with a reason for every change.",
       icon: BookOpen,
-      points: [
-        "Search and filter across all three kinds of knowledge.",
-        "See which approved content a change would affect before you save.",
-        "Retire an old fact without losing its history.",
-      ],
       cta: { href: "/kb", label: "Open the knowledge base" },
     },
     {
       eyebrow: "Your windows",
-      title: "Reports: what the checks add up to",
-      body: "Approval health, common findings and AI usage for reviewers and admins, in one place.",
+      title: "Insights",
+      body: "Approval health and the findings that fire most.",
       icon: BarChart3,
-      points: [
-        "Which categories fire most, and on what.",
-        "How long drafts wait before a decision.",
-        "How many AI checks are left today.",
-      ],
-      cta: { href: "/insights", label: "Open reports" },
+      cta: { href: "/insights", label: "Open insights" },
     },
   ],
   agency: [
     {
       eyebrow: "Your windows",
       title: "My work",
-      body: "Only your agency's submissions appear here, never the client's other work.",
+      body: "Only your agency's submissions, and what needs fixing.",
       icon: Building2,
-      points: [
-        "Fix these before they can move on, at the top.",
-        "Everything your agency sent, with its stage.",
-        "Confidential brand facts stay hidden from agency accounts.",
-      ],
       cta: { href: "/agency", label: "Open my work" },
     },
     {
       eyebrow: "Your windows",
-      title: "A draft page and client review",
-      body: "Your upload opens as pages with every issue marked, then goes to the client's review queue.",
-      icon: ClipboardCheck,
-      points: [
-        "PDF findings point to a page and line; Word to a section and paragraph.",
-        "Fix a PDF or image in its source, then upload a new version.",
-        "The client's reviewer approves or sends it back.",
-      ],
-    },
-    {
-      eyebrow: "Your windows",
       title: "Knowledge base",
-      body: "Read the client's rules, preferred terms and approved facts, so you can get it right before uploading.",
+      body: "The client's rules, so you can get it right first time.",
       icon: BookOpen,
-      points: [
-        "The same rules the checks use, with their versions.",
-        "Facts that are public are shown; confidential ones are not.",
-        "Every finding cites the exact rule, term or fact.",
-      ],
       cta: { href: "/kb", label: "Open the knowledge base" },
     },
   ],
   admin: [
     {
       eyebrow: "Your windows",
-      title: "Workspace overview",
-      body: "The admin home: the whole workspace at a glance, with shortcuts into every admin window.",
+      title: "Overview",
+      body: "The workspace at a glance, and every admin door.",
       icon: LayoutDashboard,
-      points: [
-        "Approved rules, facts and terms in one summary.",
-        "Review load: what is waiting on a person.",
-        "Governance signals for rules that keep firing.",
-      ],
       cta: { href: "/admin", label: "Open the overview" },
     },
     {
       eyebrow: "Your windows",
       title: "Review queue",
-      body: "Admins can decide on any draft, exactly like a reviewer. Open one to approve, sign or send it back.",
+      body: "Any draft waiting on a person.",
       icon: Inbox,
-      points: [
-        "Everything waiting for a decision.",
-        "Override a single finding with a reason.",
-        "Approvals are signed and publicly verifiable.",
-      ],
       cta: { href: "/review", label: "Open the review queue" },
     },
     {
       eyebrow: "Your windows",
-      title: "Knowledge base: rules, facts and terms",
-      body: "The source of truth every check runs against. Each change is a version with a reason, and you can preview its impact first.",
+      title: "Knowledge base",
+      body: "Rules, facts and terms; every change is a version.",
       icon: BookOpen,
-      points: [
-        "Add, edit, retire or restore any entry.",
-        "Preview which approved content a change would break.",
-        "Import a rulebook as drafts instead of in one shot.",
-      ],
       cta: { href: "/kb", label: "Open the knowledge base" },
     },
     {
       eyebrow: "Your windows",
-      title: "Reports",
-      body: "Approval health, what gets caught most and how the AI quota is being used, across the workspace.",
+      title: "Insights",
+      body: "Approval health, top findings and AI usage.",
       icon: BarChart3,
-      points: [
-        "Findings by category and by rule.",
-        "How long drafts wait before a decision.",
-        "AI checks used today, per person and for the workspace.",
-      ],
-      cta: { href: "/insights", label: "Open reports" },
+      cta: { href: "/insights", label: "Open insights" },
     },
     {
       eyebrow: "Your windows",
       title: "API & webhooks",
-      body: "Run checks from your own pipeline and hear about approvals automatically. Keys are shown once and can be revoked.",
+      body: "Run checks from your own pipeline, and hear about approvals.",
       icon: KeyRound,
-      points: [
-        "Create an API key and send a draft for checking.",
-        "Webhook endpoints with a delivery log and retries.",
-        "Compliance packs for the rules a check used.",
-      ],
       cta: { href: "/admin/api", label: "Open API & webhooks" },
     },
   ],
 };
 
-/** The write window is only offered to people who can actually author content. */
+/** The write window first for authors; every profile ends on the checks. */
 function stepsFor(role: Role): Step[] {
-  const rest = CORE_STEPS.slice(1);
-  const windows = ROLE_WINDOWS[role] ?? [];
+  const windows = (ROLE_WINDOWS[role] ?? []).map((s) => {
+    const href = s.cta?.href ?? s.href;
+    if (!href) return s;
+    return { ...s, href, target: s.target ?? '[data-nav="' + href + '"]' };
+  });
   return role === "creator" || role === "agency"
-    ? [CORE_STEPS[0], ...windows, ...rest]
-    : [...windows, ...rest];
+    ? [WRITE_STEP, ...windows, PIPELINE_STEP]
+    : [...windows, PIPELINE_STEP];
 }
 
-/**
- * A first-run tour of the review pipeline. It deliberately separates the
- * always-on rule checks from the AI-assisted ones, because a pending AI review
- * never means the draft went unchecked. The first step is interactive: it shows
- * the write window, including the file option, with a pointer on what to press.
- */
 export function ProductTour({
   open,
   role,
@@ -329,10 +193,14 @@ export function ProductTour({
   onClose: () => void;
   onFinish: () => void;
 }) {
+  const router = useRouter();
+  const pathname = usePathname();
   const [mounted, setMounted] = useState(false);
   const [step, setStep] = useState(0);
   const cardRef = useRef<HTMLDivElement>(null);
+  const openedNav = useRef(false);
   const STEPS = stepsFor(role);
+  const [spot, setSpot] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -375,40 +243,116 @@ export function ProductTour({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
+  const targetSelector = STEPS[step]?.target;
+
+  // Walk the windows: measure the nav item this step points at and keep the
+  // highlight on it through scrolls and layout shifts.
+  useEffect(() => {
+    if (!open || !targetSelector) {
+      setSpot(null);
+      return;
+    }
+    const measure = () => {
+      // Pick the visible one: the desktop row and the phone menu hold the same link.
+      const el = Array.from(document.querySelectorAll<HTMLElement>(targetSelector)).find(
+        (node) => node.getClientRects().length > 0 && node.getBoundingClientRect().width > 8,
+      );
+      if (!el) {
+        // On a phone the windows live in the menu: open it so the tour can point.
+        if (!openedNav.current) {
+          openedNav.current = true;
+          window.dispatchEvent(new Event("canonry:open-nav"));
+        }
+        setSpot(null);
+        return;
+      }
+      const r = el.getBoundingClientRect();
+      setSpot((prev) =>
+        prev &&
+        Math.abs(prev.top - r.top) < 1 &&
+        Math.abs(prev.left - r.left) < 1 &&
+        Math.abs(prev.width - r.width) < 1 &&
+        Math.abs(prev.height - r.height) < 1
+          ? prev
+          : { top: r.top, left: r.left, width: r.width, height: r.height },
+      );
+    };
+    measure();
+    const timer = window.setInterval(measure, 300);
+    window.addEventListener("resize", measure);
+    window.addEventListener("scroll", measure, { passive: true });
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", measure);
+    };
+  }, [open, targetSelector]);
+
+  // If the tour had to open the phone menu, close it again when the tour ends.
+  useEffect(() => {
+    if (open || !openedNav.current) return;
+    openedNav.current = false;
+    window.dispatchEvent(new Event("canonry:close-nav"));
+  }, [open]);
+
   if (!mounted || !open) return null;
 
   const current = STEPS[step];
   const Icon = current.icon;
   const last = step === STEPS.length - 1;
+  const spotLabel = current.cta?.label?.replace(/^Open /, "") ?? current.title;
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[90] grid place-items-center overflow-y-auto bg-foreground/35 px-3 py-4 backdrop-blur-md sm:px-4"
+      className="fixed inset-0 z-[90] grid place-items-center overflow-y-auto px-3 pb-4 pt-24 sm:px-4"
       role="presentation"
     >
+      {!spot && <div aria-hidden className="fixed inset-0 bg-foreground/35 backdrop-blur-md" />}
+      {spot && (
+        <>
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-label={current.href ? `Open ${spotLabel}` : undefined}
+            onClick={() => {
+              const href = current.href;
+              if (href) router.push(href);
+            }}
+            className="tour-hole"
+            style={{ top: spot.top, left: spot.left, width: spot.width, height: spot.height }}
+          />
+          <span
+            aria-hidden
+            className="tour-spot-label"
+            style={{ top: spot.top + spot.height + 10, left: spot.left + spot.width / 2 }}
+          >
+            <MousePointer2 className="size-3.5" fill="currentColor" strokeWidth={1.4} />
+            {spotLabel}
+            <span className="font-normal opacity-70">· click to open</span>
+          </span>
+        </>
+      )}
       <div
         ref={cardRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="tour-title"
         tabIndex={-1}
-        className="surface animate-fade-up my-auto max-h-[calc(100dvh-2rem)] w-full max-w-2xl overflow-y-auto border-border-strong shadow-float outline-none"
+        style={{ height: "min(80dvh, 35rem)" }}
+        className="surface relative z-10 my-auto flex w-full max-w-xl flex-col overflow-hidden border-border-strong shadow-float outline-none"
       >
-        <div className="flex items-start gap-3 border-b border-border bg-muted/60 px-5 py-4 sm:px-6">
-          <BrandMark className="mt-0.5 size-9" />
-          <div className="min-w-0">
-            <p className="eyebrow">Quick tour · {ROLE_LABEL[role] ?? role}</p>
-            <p className="mt-0.5 text-xs tabular-nums text-muted-foreground">
-              Step {step + 1} of {STEPS.length}
-            </p>
-          </div>
+        <div className="flex shrink-0 items-center gap-2.5 border-b border-border bg-muted/60 px-5 py-3">
+          <BrandMark className="size-7" />
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-brand">
+            Quick tour · {ROLE_LABEL[role] ?? role}
+          </p>
           <button type="button" onClick={onClose} className="btn btn-ghost btn-sm ml-auto" aria-label="Skip tour">
-            <X className="size-3.5" aria-hidden /> Skip tour
+            <X className="size-3.5" aria-hidden /> Skip
           </button>
         </div>
 
         {/* progress rail: also the step picker, so a returning visitor can jump */}
-        <div className="flex gap-1 px-5 pt-4 sm:px-6" role="tablist" aria-label="Tour steps">
+        <div className="flex shrink-0 gap-1 px-5 pt-3" role="tablist" aria-label="Tour steps">
           {STEPS.map((s, i) => (
             <button
               key={s.title}
@@ -424,130 +368,72 @@ export function ProductTour({
           ))}
         </div>
 
-        <div className="p-5 sm:p-7">
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
           <div className="flex items-start gap-4">
-            <span className="relative grid size-12 shrink-0 place-items-center rounded-2xl border border-border-strong bg-card text-brand shadow-sm">
+            <span className="relative grid size-10 shrink-0 place-items-center rounded-xl border border-border-strong bg-card text-brand shadow-sm">
               <span aria-hidden className="tour-halo absolute inset-0 rounded-2xl" />
-              <Icon className="relative size-5" strokeWidth={1.8} aria-hidden />
+              <Icon className="relative size-4" strokeWidth={1.8} aria-hidden />
             </span>
             <div className="min-w-0">
               <p className="eyebrow">{current.eyebrow}</p>
-              <h2 id="tour-title" className="mt-1 text-2xl font-bold tracking-tight text-foreground">
+              <h2 id="tour-title" className="mt-0.5 text-xl font-bold tracking-tight text-foreground">
                 {current.title}
               </h2>
             </div>
           </div>
 
-          <p className="mt-4 text-sm leading-relaxed text-foreground-secondary">{current.body}</p>
+          <p className="mt-3 text-sm leading-relaxed text-foreground-secondary">{current.body}</p>
 
           {current.demo === "write" && (
             <>
               <WriteWindowDemo />
-              <div className="mt-4">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Choose how to start
-                </p>
-                <div className="mt-2 grid gap-2 sm:grid-cols-3">
-                  <button
-                    type="button"
-                    onClick={onFinish}
-                    className="flex flex-col items-start gap-1 rounded-xl border border-border-strong bg-card p-3 text-left transition-all hover:-translate-y-0.5 hover:border-brand hover:shadow-card"
-                  >
-                    <PenLine className="size-4 text-brand" aria-hidden />
-                    <span className="text-xs font-semibold text-foreground">Make a draft here</span>
-                    <span className="text-[11px] leading-snug text-muted-foreground">
-                      Use the paste box on this page.
-                    </span>
-                  </button>
-                  <Link
-                    href="/new"
-                    onClick={onClose}
-                    className="flex flex-col items-start gap-1 rounded-xl border border-border-strong bg-card p-3 text-left transition-all hover:-translate-y-0.5 hover:border-brand hover:shadow-card"
-                  >
-                    <FileText className="size-4 text-brand" aria-hidden />
-                    <span className="text-xs font-semibold text-foreground">Write window</span>
-                    <span className="text-[11px] leading-snug text-muted-foreground">
-                      Title, channel and a full text box.
-                    </span>
-                  </Link>
-                  <Link
-                    href="/new?mode=file"
-                    onClick={onClose}
-                    className="flex flex-col items-start gap-1 rounded-xl border border-brand/60 bg-brand/[0.05] p-3 text-left transition-all hover:-translate-y-0.5 hover:border-brand hover:shadow-card"
-                  >
-                    <FileUp className="size-4 text-brand" aria-hidden />
-                    <span className="text-xs font-semibold text-foreground">Upload a file</span>
-                    <span className="text-[11px] leading-snug text-muted-foreground">
-                      PDF, Word or image — the drop zone opens lit.
-                    </span>
-                  </Link>
-                </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button type="button" onClick={() => router.push("/new")} className="btn btn-sm btn-primary">
+                  Open the write window <ArrowRight className="size-3.5" aria-hidden />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => router.push("/new?mode=file")}
+                  className="btn btn-sm btn-secondary"
+                >
+                  Upload a file
+                </button>
+                <span className="text-[11px] text-muted-foreground">The tour stays with you.</span>
               </div>
             </>
           )}
 
-          {current.compare ? (
-            <div className="mt-5 grid gap-3 sm:grid-cols-2">
-              <div className="rounded-xl border border-border-strong bg-card p-4">
-                <div className="flex items-center gap-2">
-                  <Search className="size-4 text-brand" aria-hidden />
-                  <span className="text-[11px] font-semibold uppercase tracking-wide text-brand">Rule-based</span>
-                </div>
-                <p className="mt-2 text-sm font-semibold text-foreground">Always runs</p>
-                <ul className="mt-2 space-y-1.5 text-xs leading-relaxed text-foreground-secondary">
-                  {current.compare.rule.map((item) => (
-                    <li key={item} className="flex gap-2">
-                      <span aria-hidden className="mt-1.5 size-1 shrink-0 rounded-full bg-brand" />
-                      <span>{item}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <div className="rounded-xl border border-border-strong bg-muted/50 p-4">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="size-4 text-brand" aria-hidden />
-                  <span className="text-[11px] font-semibold uppercase tracking-wide text-brand">AI-assisted</span>
-                </div>
-                <p className="mt-2 text-sm font-semibold text-foreground">When available</p>
-                <ul className="mt-2 space-y-1.5 text-xs leading-relaxed text-foreground-secondary">
-                  {current.compare.ai.map((item) => (
-                    <li key={item} className="flex gap-2">
-                      <span aria-hidden className="mt-1.5 size-1 shrink-0 rounded-full bg-brand" />
-                      <span>{item}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-          ) : (
-            current.points && (
-              <ul className="mt-5 space-y-2.5 text-sm leading-relaxed text-foreground-secondary">
-                {current.points.map((point) => (
-                  <li key={point} className="flex gap-2.5">
-                    <Check className="mt-0.5 size-4 shrink-0 text-brand" strokeWidth={2.2} aria-hidden />
-                    <span>{point}</span>
-                  </li>
-                ))}
-              </ul>
-            )
+          {current.demo === "check" && <CheckDemo />}
+
+          {current.points && (
+            <ul className="mt-3 space-y-2 text-[13px] leading-relaxed text-foreground-secondary">
+              {current.points.map((point) => (
+                <li key={point} className="flex gap-2.5">
+                  <Check className="mt-0.5 size-4 shrink-0 text-brand" strokeWidth={2.2} aria-hidden />
+                  <span>{point}</span>
+                </li>
+              ))}
+            </ul>
           )}
 
-          {current.tip && (
-            <p className="mt-4 rounded-xl border border-border bg-muted/50 px-3.5 py-3 text-xs leading-relaxed text-muted-foreground">
-              {current.tip}
-            </p>
-          )}
-
-          {current.cta && (
-            <Link href={current.cta.href} onClick={onClose} className="btn btn-sm btn-secondary mt-4 w-fit">
-              {current.cta.label} <ArrowRight className="size-3.5" aria-hidden />
-            </Link>
+          {current.cta && current.href && (
+            <button
+              type="button"
+              onClick={() => {
+                const href = current.href;
+                if (href) router.push(href);
+              }}
+              className="btn btn-sm btn-secondary mt-3 w-fit"
+            >
+              {pathname === current.href ? "You are in this window" : current.cta.label}
+              <ArrowRight className="size-3.5" aria-hidden />
+            </button>
           )}
         </div>
 
-        <div className="sticky bottom-0 z-10 flex flex-wrap items-center gap-3 border-t border-border bg-card px-5 py-4 sm:px-6">
+        <div className="flex shrink-0 items-center gap-3 border-t border-border bg-card px-5 py-3">
           <p className="text-xs tabular-nums text-muted-foreground">
-            {step + 1} / {STEPS.length}
+            Step {step + 1} of {STEPS.length}
           </p>
           <div className="ml-auto flex items-center gap-2">
             <button
@@ -576,6 +462,68 @@ export function ProductTour({
       </div>
     </div>,
     document.body,
+  );
+}
+
+/**
+ * The two halves of a check, as something to press: rules always run; AI rows
+ * appear only when the model answers. It teaches the split by doing it.
+ */
+function CheckDemo() {
+  const [ai, setAi] = useState(false);
+  const rows = [
+    { tag: "Rule", text: "“India’s #1” is a banned superlative.", verdict: "Must fix" },
+    { tag: "Rule", text: "“₹999/month!” breaks the price format.", verdict: "Should fix" },
+    { tag: "AI", text: "“5,000+ teams” is not supported by the fact library.", verdict: "Check" },
+    { tag: "AI", text: "The tone reads as over-promising for this channel.", verdict: "Consider" },
+  ];
+  return (
+    <div className="mt-3 rounded-xl border border-border-strong bg-card p-3 shadow-card">
+      <div className="flex flex-wrap items-center gap-2">
+        <div role="group" aria-label="What the check includes" className="flex rounded-full bg-muted p-0.5">
+          <button
+            type="button"
+            aria-pressed={!ai}
+            onClick={() => setAi(false)}
+            className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+              !ai ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Rules only
+          </button>
+          <button
+            type="button"
+            aria-pressed={ai}
+            onClick={() => setAi(true)}
+            className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+              ai ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Rules + AI
+          </button>
+        </div>
+        <p className="ml-auto text-[11px] text-muted-foreground">
+          {ai ? "4 findings" : "2 findings, even offline"}
+        </p>
+      </div>
+      <ul className="mt-2 space-y-1.5">
+        {rows
+          .filter((row) => ai || row.tag === "Rule")
+          .map((row) => (
+            <li key={row.text} className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-2.5 py-1.5">
+              <span
+                className={`mt-0.5 rounded px-1 text-[9px] font-bold uppercase ${
+                  row.tag === "AI" ? "bg-brand/10 text-brand" : "bg-danger-bg text-danger-fg"
+                }`}
+              >
+                {row.tag}
+              </span>
+              <span className="flex-1 text-[11.5px] leading-snug text-foreground-secondary">{row.text}</span>
+              <span className="shrink-0 text-[10px] font-medium text-muted-foreground">{row.verdict}</span>
+            </li>
+          ))}
+      </ul>
+    </div>
   );
 }
 
@@ -612,7 +560,7 @@ function WriteWindowDemo() {
 
   return (
     <div
-      className="mt-5 overflow-hidden rounded-2xl border border-border-strong bg-card shadow-card"
+      className="mt-3 overflow-hidden rounded-xl border border-border-strong bg-card shadow-card"
       aria-label="Preview of the write window"
     >
       <div className="flex items-center gap-2 border-b border-border bg-muted/60 px-3.5 py-2">
@@ -656,7 +604,7 @@ function WriteWindowDemo() {
           </button>
         </div>
 
-        <div className="relative mt-3 min-h-[156px]">
+        <div className="relative mt-2 min-h-[132px]">
           {tab === "text" ? (
             <div className="animate-fade-up space-y-2">
               <div className="rounded-xl border border-border bg-card px-3 py-2.5">

@@ -472,8 +472,10 @@ def login(body: LoginIn, req: Request):
 
 
 def _set_session_cookie(resp: JSONResponse, token: str) -> None:
+    # A session cookie on purpose: closing the browser signs the person out, so
+    # the next visit starts at the welcome screen instead of mid-flow.
     resp.set_cookie("canonry_session", token, httponly=True, secure=COOKIE_SECURE,
-                    samesite="lax", max_age=24 * 60 * 60, path="/")
+                    samesite="lax", path="/")
 
 
 def _password_hash(password: str) -> str:

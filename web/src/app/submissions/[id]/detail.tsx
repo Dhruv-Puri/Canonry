@@ -691,6 +691,7 @@ function AssetPreview({
         <DocumentPreview
           kind={asset.kind as "pdf" | "docx"}
           filename={asset.filename}
+          src={`/engine/assets/${asset.id}`}
           content={content}
           locatorMap={locatorMap}
           findings={pinnedFindings}

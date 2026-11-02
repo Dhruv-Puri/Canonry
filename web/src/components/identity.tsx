@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { ArrowRight, Check, ChevronRight, Sparkles } from "lucide-react";
-import { hasVisited, rememberFirstTime, useGuide } from "@/components/guide";
+import { forgetVisit, hasVisited, rememberFirstTime, useGuide } from "@/components/guide";
 import { api, ApiError, SIGNED_OUT_EVENT, type AuthMode, type User } from "@/lib/api";
 import { ROLES, type Role } from "@/lib/roles";
 import { BrandMark } from "@/components/brand";
@@ -129,9 +129,15 @@ export function IdentityGate({ children }: { children: React.ReactNode }) {
   }, []);
 
   const leave = useCallback(async () => {
-    await api("/logout", { method: "POST" });
-    setMe(null);
-    setState("out");
+    try {
+      await api("/logout", { method: "POST" });
+    } finally {
+      // Logging out forgets the visit too, so the next person gets the welcome
+      // screen and a first-run tour instead of the last person's leftovers.
+      forgetVisit();
+      setMe(null);
+      setState("out");
+    }
   }, []);
 
   if (state === "loading") return <EngineLoading elapsedMs={elapsed} />;

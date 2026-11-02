@@ -19,6 +19,18 @@ export function SiteNav() {
 
   useEffect(() => setOpen(false), [pathname]);
 
+  // The product tour can open the phone menu, so it can point at a window there.
+  useEffect(() => {
+    const openMenu = () => setOpen(true);
+    const closeMenu = () => setOpen(false);
+    window.addEventListener("canonry:open-nav", openMenu);
+    window.addEventListener("canonry:close-nav", closeMenu);
+    return () => {
+      window.removeEventListener("canonry:open-nav", openMenu);
+      window.removeEventListener("canonry:close-nav", closeMenu);
+    };
+  }, []);
+
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
     onScroll();
@@ -49,9 +61,9 @@ export function SiteNav() {
           <span className="text-[17px] font-bold tracking-tight text-foreground">Canonry</span>
         </Link>
 
-        <nav aria-label="Main" className="mx-auto hidden items-center gap-1 rounded-full border border-border bg-card/70 p-1 md:flex">
+        <nav aria-label="Main" data-nav-list className="mx-auto hidden items-center gap-1 rounded-full border border-border bg-card/70 p-1 md:flex">
           {links.map(({ href, label }) => (
-            <Link key={href} href={href} aria-current={isActive(href) ? "page" : undefined} className="capsule-link">
+            <Link key={href} href={href} data-nav={href} aria-current={isActive(href) ? "page" : undefined} className="capsule-link">
               {label}
             </Link>
           ))}
@@ -68,9 +80,9 @@ export function SiteNav() {
 
       {open && (
         <div className="capsule animate-fade-up mx-auto mt-2 max-w-6xl rounded-3xl p-3 md:hidden">
-          <nav aria-label="Main" className="grid gap-1">
+          <nav aria-label="Main" data-nav-list className="grid gap-1">
             {links.map(({ href, label }) => (
-              <Link key={href} href={href} aria-current={isActive(href) ? "page" : undefined} className="capsule-link py-2.5 text-[15px]">
+              <Link key={href} href={href} data-nav={href} aria-current={isActive(href) ? "page" : undefined} className="capsule-link py-2.5 text-[15px]">
                 {label}
               </Link>
             ))}
@@ -93,9 +105,14 @@ function ProfileMenu({ inline = false }: { inline?: boolean }) {
   const [inviteRole, setInviteRole] = useState("creator");
   const [inviteLink, setInviteLink] = useState("");
   const [renaming, setRenaming] = useState(false);
+  const [confirmLogout, setConfirmLogout] = useState(false);
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const box = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) setConfirmLogout(false);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -197,13 +214,42 @@ function ProfileMenu({ inline = false }: { inline?: boolean }) {
               <PencilLine className="size-4 text-brand" aria-hidden /> Change name
             </button>
           )}
-          <button
-            role="menuitem"
-            onClick={() => run(leave)}
-            className="flex w-full items-center gap-2.5 rounded-xl px-2 py-2 text-left text-sm hover:bg-muted"
-          >
-            <LogOut className="size-4 text-brand" aria-hidden /> Switch person
-          </button>
+          {confirmLogout ? (
+            <div className="rounded-xl border border-border bg-muted/60 p-2.5">
+              <p className="text-xs leading-relaxed text-foreground">
+                Log out of this browser? The next person starts fresh at the welcome screen.
+              </p>
+              <div className="mt-2 flex gap-2">
+                <button
+                  role="menuitem"
+                  onClick={() =>
+                    run(async () => {
+                      await leave();
+                      router.replace("/");
+                    })
+                  }
+                  className="btn btn-sm btn-primary flex-1 justify-center"
+                >
+                  Log out
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmLogout(false)}
+                  className="btn btn-sm btn-secondary flex-1 justify-center"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              role="menuitem"
+              onClick={() => setConfirmLogout(true)}
+              className="flex w-full items-center gap-2.5 rounded-xl px-2 py-2 text-left text-sm hover:bg-muted"
+            >
+              <LogOut className="size-4 text-brand" aria-hidden /> Log out
+            </button>
+          )}
           {error && <p role="alert" className="px-2 pt-1 text-xs text-danger-fg">{error}</p>}
         </div>
       )}
