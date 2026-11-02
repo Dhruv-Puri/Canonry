@@ -199,7 +199,7 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
       <div className="flex flex-wrap items-center gap-2">
         <h1 className="page-title mr-1">{s.title}</h1>
         <StatusBadge status={s.status} />
-        <RiskBadge risk={s.risk} />
+        {canReview && <RiskBadge risk={s.risk} />}
         <span className="rounded-md bg-muted px-1.5 py-0.5 text-[11px] text-foreground-secondary">
           {sourceLabel(s.channel)} · {sourceLabel(s.source_type)}
         </span>
@@ -252,12 +252,12 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
                   Go to issue 1 <span aria-hidden className="btn-arrow">→</span>
                 </a>
                 {acceptable > 1 && (
-                  <button type="button" disabled={busy} onClick={() => void acceptAll()} className="btn btn-secondary">
+                  <button type="button" data-guide="accept-all" disabled={busy} onClick={() => void acceptAll()} className="btn btn-secondary">
                     Accept all {acceptable} suggested fixes
                   </button>
                 )}
                 {d.allowed.submit && (
-                  <button type="button" disabled={busy} onClick={() => void submitForReview()} className="btn btn-ghost">
+                  <button type="button" data-guide="send-review" disabled={busy} onClick={() => void submitForReview()} className="btn btn-ghost">
                     Send for review anyway
                   </button>
                 )}
@@ -286,7 +286,7 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
             actions={
               <>
                 {d.allowed.submit && (
-                  <button type="button" disabled={busy} onClick={() => void submitForReview()} className="btn btn-primary">
+                  <button type="button" data-guide="send-review" disabled={busy} onClick={() => void submitForReview()} className="btn btn-primary">
                     Send for review <span aria-hidden className="btn-arrow">→</span>
                   </button>
                 )}
@@ -685,6 +685,7 @@ function ReviewBar({
           <button
             type="button"
             disabled={busy}
+            data-guide="send-back"
             onClick={() => void onReview("request_changes", reason.trim() || "Please fix the issues marked Must fix.")}
             className="btn btn-sm btn-secondary"
           >
@@ -708,6 +709,7 @@ function ReviewBar({
           <button
             disabled={busy || openHigh}
             title={openHigh ? "Resolve or override the Must fix issues first" : ""}
+            data-guide="approve"
             onClick={() => void onReview("approve", reason)}
             className="btn btn-primary"
           >
@@ -1174,6 +1176,7 @@ function FindingCard({
               <code className="rounded-md border border-border bg-muted px-1.5 py-0.5 font-mono text-xs">{f.suggestion.replace}</code>
               <button
                 disabled={disabled}
+                data-guide={index === 1 ? "accept" : undefined}
                 onClick={() => void onAccept()}
                 className="btn btn-sm btn-primary"
               >

@@ -205,6 +205,7 @@ export default function NewSubmissionPage() {
 
             <div className="flex items-center justify-end">
               <button
+                data-guide="check-it"
                 onClick={() => void submit()}
                 disabled={busy || !content.trim() || !title.trim()}
                 className="btn btn-primary"

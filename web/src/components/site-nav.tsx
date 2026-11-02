@@ -9,6 +9,11 @@ import { useIdentity } from "@/components/identity";
 import { api } from "@/lib/api";
 import { canReview, initials, navLinksFor, ROLE_LABEL, ROLES, roleHome } from "@/lib/roles";
 
+/** A short confirmation that appears for a moment (role switches). */
+export function announce(text: string) {
+  window.dispatchEvent(new CustomEvent("canonry:toast", { detail: text }));
+}
+
 export function SiteNav() {
   const { me } = useIdentity();
   const [open, setOpen] = useState(false);
@@ -85,7 +90,7 @@ export function SiteNav() {
 }
 
 /** The person's chip: switch role, change name, or hand the device to someone else. */
-function ProfileMenu({ inline = false }: { inline?: boolean }) {
+export function ProfileMenu({ inline = false, compact = false }: { inline?: boolean; compact?: boolean }) {
   const router = useRouter();
   const { me, demoMode, update, leave } = useIdentity();
   const [open, setOpen] = useState(false);
@@ -127,14 +132,19 @@ function ProfileMenu({ inline = false }: { inline?: boolean }) {
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
         aria-haspopup="menu"
+        aria-label={`Account: ${me.name}, ${ROLE_LABEL[me.role] ?? me.role}. Switch role or person`}
+        data-guide="account"
         className="flex items-center gap-2 rounded-full py-1 pl-1 pr-3 transition-colors hover:bg-accent"
       >
         <span className="grid size-8 place-items-center rounded-full bg-gradient-to-br from-brand to-primary text-xs font-bold text-primary-foreground">
           {initials(me.name)}
         </span>
-        <span className="text-left leading-tight">
+        <span className={`text-left leading-tight ${compact ? "hidden sm:block" : ""}`}>
           <span className="block max-w-[160px] truncate text-[13px] font-semibold text-foreground">{me.name}</span>
-          <span className="block text-[11px] text-muted-foreground">{ROLE_LABEL[me.role] ?? me.role}</span>
+          <span className="block text-[11px] text-muted-foreground">
+            {ROLE_LABEL[me.role] ?? me.role}
+            {demoMode && <span className="ml-1 rounded bg-muted px-1 text-[10px] font-semibold uppercase tracking-wide">Demo</span>}
+          </span>
         </span>
         <ChevronDown className={`size-4 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} aria-hidden />
       </button>
@@ -145,17 +155,26 @@ function ProfileMenu({ inline = false }: { inline?: boolean }) {
           className={`animate-fade-up z-50 w-72 rounded-2xl border border-border bg-card p-2 shadow-float ${inline ? "mt-2" : "absolute right-0 top-12"}`}
         >
           {demoMode && <>
-          <p className="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Switch demo role</p>
-          {ROLES.map(({ id, label, icon: Icon }) => (
+          <p className="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">View as (demo)</p>
+          {ROLES.map(({ id, label, short, icon: Icon }) => (
             <button
               key={id}
               role="menuitemradio"
               aria-checked={me.role === id}
-              onClick={() => run(async () => { await update({ role: id }); setOpen(false); router.push(roleHome(id)); })}
-              className="flex w-full items-center gap-2.5 rounded-xl px-2 py-2 text-left text-sm hover:bg-muted"
+              aria-label={`View as ${label}: ${short}`}
+              onClick={() => run(async () => {
+                await update({ role: id });
+                setOpen(false);
+                announce(`You're now viewing as ${label}.`);
+                router.push(roleHome(id));
+              })}
+              className="flex w-full items-start gap-2.5 rounded-xl px-2 py-2 text-left text-sm hover:bg-muted"
             >
-              <Icon className="size-4 text-brand" aria-hidden />
-              <span className="flex-1">{label}</span>
+              <Icon className="mt-0.5 size-4 text-brand" aria-hidden />
+              <span className="flex-1">
+                <span className="block font-medium">View as {label}</span>
+                <span className="block text-xs text-muted-foreground">{short}</span>
+              </span>
               {me.role === id && <Check className="size-4 text-brand" strokeWidth={3} aria-hidden />}
             </button>
           ))}
