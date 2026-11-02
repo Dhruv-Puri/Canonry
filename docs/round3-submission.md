@@ -95,7 +95,7 @@ is down or waking up).
 
 ## 4. Testing details
 
-- **Automated:** `python engine/tests/run_tests.py` runs **23 suites** on a fresh database each, plus the
+- **Automated:** `python engine/tests/run_tests.py` runs **24 suites** on a fresh database each, plus the
   evaluation gate (precision and recall per checker on a frozen split). The suites never call a real AI
   provider; malformed AI answers and slow models are tested with fake providers. CI runs them on every
   push with a web type-check, a production build, `pip-audit` and `npm audit`.

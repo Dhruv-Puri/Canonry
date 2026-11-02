@@ -252,6 +252,10 @@ def phase_journey(browser: Browser) -> None:
     rp.get_by_label(re.compile("Reviewer comment")).fill("Please add the trial link")
     rp.get_by_role("button", name="Request changes").click()
     settle(rp)
+    for _ in range(20):  # the status changes a moment after the click on a slow server
+        if "Changes requested" in body_text(rp):
+            break
+        rp.wait_for_timeout(500)
     check("Changes requested" in body_text(rp), "reviewer requested changes")
     cp.reload()
     settle(cp)

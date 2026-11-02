@@ -10,6 +10,8 @@ by exact numbers/units/names/dates so repeat claims confirm instantly.
 from __future__ import annotations
 
 import hashlib
+import bisect
+import functools
 import json
 import re
 import sqlite3
@@ -68,14 +70,27 @@ def find_claims(text: str) -> List[Dict[str, Any]]:
     return claims
 
 
+@functools.lru_cache(maxsize=8)
+def _word_spans(text: str) -> Tuple[Tuple[int, int, str], ...]:
+    return tuple((m.start(), m.end(), m.group()) for m in re.finditer(r"\S+", text))
+
+
+@functools.lru_cache(maxsize=8)
+def _word_starts(text: str) -> Tuple[int, ...]:
+    return tuple(w[0] for w in _word_spans(text))
+
+
 def _widen_to_claim(text: str, trigger_span: Tuple[int, int], left_max: int = 3) -> Tuple[int, int]:
     """Extend a trigger into a short claim phrase: at most left_max words back,
     never crossing sentence punctuation; complete the trailing word/unit."""
     s, e = trigger_span
-    words = [(m.start(), m.end(), m.group()) for m in re.finditer(r"\S+", text)]
+    words = _word_spans(text)
     if not words:
         return s, e
-    idx = next((i for i, w in enumerate(words) if w[0] <= s < w[1]), None)
+    # the word that contains s: words are sorted by start, so binary search (a long
+    # draft has thousands of claims; re-scanning every word for each made it O(n^2))
+    i = bisect.bisect_right(_word_starts(text), s) - 1
+    idx = i if i >= 0 and words[i][0] <= s < words[i][1] else None
     if idx is None:
         return s, e
     lo, count = idx, 0

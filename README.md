@@ -88,7 +88,7 @@ every number now traces to an approved fact, and the router fast-tracked it as l
 | Judging criterion (points) | Evidence |
 |---|---|
 | Core workflow runs end to end (30) | §1 journey; `test_engine.py` drives it through the API; seeded launch post to try it in the browser |
-| Technical depth and reliability (25) | 23 test suites + evaluation gate in CI, and a 184-check browser walk (§7); finding contract enforced on every finding; role scoping and lifecycle locks tested; honest AI degradation |
+| Technical depth and reliability (25) | 24 test suites + evaluation gate in CI, and a 184-check browser walk (§7); finding contract enforced on every finding; role scoping and lifecycle locks tested; honest AI degradation |
 | Progress against the plan (20) | [docs/plan-vs-build.md](docs/plan-vs-build.md): every plan commitment, what changed and why; [docs/changelog.md](docs/changelog.md): milestones M1–M6 with evidence |
 | Three planned improvements (15) | §12 (Round 3 plan); §3 shows the Round 1 improvements delivered |
 | Usability so far (10) | password-free demo personas, plain-language findings, one-click fixes; usability kit (§8) |
@@ -209,7 +209,7 @@ Main technical decisions (full list with reasons in the [decision log](docs/deci
 ## 7. Tests and reliability
 
 ```bash
-.venv/Scripts/python engine/tests/run_tests.py     # 23 suites (fresh DB each) + evaluation gate
+.venv/Scripts/python engine/tests/run_tests.py     # 24 suites (fresh DB each) + evaluation gate
 ```
 
 | Suite (`engine/tests/`) | Proves |
@@ -238,6 +238,7 @@ Main technical decisions (full list with reasons in the [decision log](docs/deci
 | evaluation gate | precision / recall per checker and tier on the frozen split; fails on regression |
 
 | `test_review_r3` | findings of the Round 3 code review stay fixed: a hostile embedded seal, a Word zip bomb, damaged Word parts, alt text on an image with words, huge logo files, tidying only the edited paragraph, non-Latin file names |
+| `test_long_draft` | a 50,000-character draft is checked in about a second (it took over two minutes live before the fix) |
 | `test_slow_ai_lock` | a check waiting on a slow AI model never locks other visitors out (sign-ins and drafts during the first and later AI calls answer at once) |
 
 Image checks use Tesseract for the words in an image. The suites fake it, so they run anywhere; the
@@ -329,7 +330,7 @@ What a judge may run into on the live demo:
 ├── data/                    ← demo brand book: rules, facts, terms (CSV)
 ├── engine/                  ← FastAPI analysis engine (all product logic)
 │   ├── *.py                 ← modules listed in §5
-│   ├── tests/               ← 23 suites + run_tests.py
+│   ├── tests/               ← 24 suites + run_tests.py
 │   ├── evaluation/          ← evaluate.py, labelled set, committed baseline
 │   ├── Dockerfile
 │   └── requirements.txt

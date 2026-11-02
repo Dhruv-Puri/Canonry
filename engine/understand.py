@@ -135,8 +135,10 @@ _CLAUSE_BREAK = re.compile(r"[.!?;\n—–]|,\s*(?:but|yet|while|whereas)\b", re
 # ---- context of a claim -------------------------------------------------------
 
 def _clause_start(text: str, pos: int) -> int:
-    start = 0
-    for m in _CLAUSE_BREAK.finditer(text, 0, pos):
+    # a clause is never thousands of characters long: look back a bounded window
+    # (scanning from the start for every claim made long drafts quadratic)
+    start = max(0, pos - 1500)
+    for m in _CLAUSE_BREAK.finditer(text, start, pos):
         # a full stop inside a number ("4.2") or a decimal version ("2.0") is not a break
         if m.group(0) == "." and m.end() < len(text) and not text[m.end()].isspace():
             continue

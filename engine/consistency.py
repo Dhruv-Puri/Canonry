@@ -85,17 +85,38 @@ def _same_issue(leader: Dict[str, Any], f: Dict[str, Any]) -> bool:
     return True
 
 
+_CELL = 256  # characters per position bucket
+
+
 def merge_duplicates(findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """One finding per issue on the same words (see module docstring)."""
     order = sorted(range(len(findings)), key=lambda i: _strength(findings[i]))
     leaders: List[Dict[str, Any]] = []
     members: Dict[int, List[Dict[str, Any]]] = {}
+    # same-issue findings must overlap in the text, so leaders are indexed by position
+    # (comparing every pair made a long draft with a thousand findings take seconds)
+    buckets: Dict[int, List[Dict[str, Any]]] = {}
+
+    def cells(f: Dict[str, Any]) -> range:
+        s, e = _span(f)
+        return range(s // _CELL, max(s, e - 1) // _CELL + 1)
+
     for i in order:
         f = findings[i]
-        leader = next((ld for ld in leaders if _same_issue(ld, f)), None)
+        near: List[Dict[str, Any]] = []
+        seen_ids = set()
+        for c in cells(f):
+            for ld in buckets.get(c, ()):
+                if id(ld) not in seen_ids:
+                    seen_ids.add(id(ld))
+                    near.append(ld)
+        near.sort(key=lambda ld: leaders.index(ld) if len(near) > 1 else 0)  # first-come leader wins, as before
+        leader = next((ld for ld in near if _same_issue(ld, f)), None)
         if leader is None:
             leaders.append(f)
             members[id(f)] = []
+            for c in cells(f):
+                buckets.setdefault(c, []).append(f)
         else:
             members[id(leader)].append(f)
     kept_ids = {id(ld) for ld in leaders}
