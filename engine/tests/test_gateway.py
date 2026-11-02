@@ -283,6 +283,38 @@ expect(r["ai_pending"] is False and d["check"]["status"] == "done",
 expect(hung["hung_calls"] == 1, f"a model that timed out is set aside for the rest of the check ({hung['hung_calls']} calls)")
 del os.environ["CANONRY_AI_DEADLINE_SECONDS"]
 
+print("== a slow model does not hold up the answer")
+# live, 3 Nov: free-tier calls usually answer in ~1 s but now and then one stalls
+# for 10-25 s; a check makes three calls in a row, so one stall made it take 30 s
+slow = {"calls": []}
+
+
+def slow_handler(request: httpx.Request) -> httpx.Response:
+    if request.url.host == "generativelanguage.googleapis.com":
+        slow["calls"].append(request.url.path.split("/")[-1].split(":")[0])
+        if "gemini-3.1-flash-lite" in request.url.path:
+            time.sleep(2.0)  # stalled, but would answer in the end
+        return _gemini_reply(json.loads(request.content or b"{}"))
+    return _openai_reply(json.loads(request.content or b"{}"))
+
+
+gateway.reset_limits()
+gateway.configure(env={"GEMINI_API_KEY": "test"}, transport=httpx.MockTransport(slow_handler))
+saved_hedge = gateway.HEDGE_AFTER_SECONDS
+gateway.HEDGE_AFTER_SECONDS = 0.3
+t0 = time.perf_counter()
+ans = gateway.gateway_call("tone_check", [{"role": "user", "content": "hello"}])
+took = time.perf_counter() - t0
+expect(ans is not None and ans["model"] == "gemini-3.5-flash-lite",
+       f"the next model is asked while the first stalls, and its answer is used ({ans and ans['model']})")
+expect(took < 1.5, f"the answer does not wait for the stalled call ({took:.1f} s)")
+ans2 = gateway.gateway_call("tone_check", [{"role": "user", "content": "hello"}])
+expect(ans2 is not None and slow["calls"].count("gemini-3.1-flash-lite") == 1,
+       f"the stalled model is set aside for the next call too ({slow['calls']})")
+gateway.HEDGE_AFTER_SECONDS = saved_hedge
+gateway.reset_limits()
+time.sleep(2.0)  # let the stalled call finish before the next section
+
 print("== env file")
 import tempfile  # noqa: E402
 env_file = os.path.join(tempfile.mkdtemp(), "keys.env")
