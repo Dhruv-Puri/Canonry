@@ -209,7 +209,7 @@ Main technical decisions (full list with reasons in the [decision log](docs/deci
 ## 7. Tests and reliability
 
 ```bash
-.venv/Scripts/python engine/tests/run_tests.py     # 24 suites (fresh DB each) + evaluation gate
+.venv/Scripts/python engine/tests/run_tests.py     # 25 suites (fresh DB each) + evaluation gate
 ```
 
 | Suite (`engine/tests/`) | Proves |
@@ -239,6 +239,7 @@ Main technical decisions (full list with reasons in the [decision log](docs/deci
 
 | `test_review_r3` | findings of the Round 3 code review stay fixed: a hostile embedded seal, a Word zip bomb, damaged Word parts, alt text on an image with words, huge logo files, tidying only the edited paragraph, non-Latin file names |
 | `test_long_draft` | a 50,000-character draft is checked in about a second (it took over two minutes live before the fix) |
+| `test_vision` | image understanding with a faked Gemini: a competitor's brand cites the comparative clause (the logo rule with the pack off), a retired name seen only by the model is Should fix, "India's #1" in the picture is checked like text, a picture that contradicts its caption is Worth a look, the seen alt text is accepted in one click; malformed answers, timeouts and an empty allowance leave exactly the old findings; one card when OCR and the model see the same name; the call counts toward the allowance |
 | `test_slow_ai_lock` | a check waiting on a slow AI model never locks other visitors out (sign-ins and drafts during the first and later AI calls answer at once) |
 
 Image checks use Tesseract for the words in an image. The suites fake it, so they run anywhere; the
@@ -313,6 +314,7 @@ What a judge may run into on the live demo:
 - **One draft at a time per item**: if the same draft is open in two tabs, the tab that acts second is told the draft changed and shows the latest version; nothing is merged. Drafts pasted as text are limited to 100,000 characters.
 - **English only**: checks, and the reading of words in images, are English.
 - **Files**: PDF, Word (.docx), PNG and JPEG, up to 4 MB through the web app (Vercel's proxy limit; 10 MB through the API). Scanned PDFs without a text layer are refused rather than guessed at. Canonry edits Word files in place, but not PDFs or the pixels of an image: those are fixed in their source and uploaded as a new version. A Word edit that adds a paragraph, or text inside a Word text box, must also be made in Word.
+- **Image understanding is a model's judgement**: what Canonry "sees" in a picture comes from one AI call, so it can be wrong; its findings are never above *Should fix*. It needs a provider that reads images (Gemini on the live demo; Groq and OpenRouter only with a vision model set), uses the same daily allowance and Gemini's free quota, and is skipped (with the reason shown) when that runs out.
 - **Logo checks** recognise the logos in the brand kit (Quillmark: the current and the retired logo); a logo that is not in the kit cannot be judged. They target flat, designed graphics, not photographs.
 - **Publishing gate**: the demo publisher runs inside the engine (open to anyone, shared, reset with the demo). Webhooks are retried for about 10 hours (8 attempts), then marked failed; while the free engine sleeps nothing is retried. A webhook host is checked before every attempt, but the address is resolved again when connecting, so a DNS answer that changes in that instant is not caught. Signing secrets are stored as plain values in the database (keys only as hashes).
 - **India pack**: rule patterns, not legal advice. The labelled set (32 sentences) was written by the team from the CCPA and ASCI texts, not taken from ASCI complaint decisions, so its 100% precision and recall are an internal check, not a field result. Patterns can still miss rephrased violations or flag ordinary copy; findings are *Likely* or *Consider* except the clear Section 5 and 12(a) cases. Retrieval uses a local hashed-n-gram embedding stored in SQLite; the Postgres + pgvector path (`CANONRY_DATABASE_URL`) exists in code but the live demo and CI do not run it.
@@ -330,7 +332,7 @@ What a judge may run into on the live demo:
 ├── data/                    ← demo brand book: rules, facts, terms (CSV)
 ├── engine/                  ← FastAPI analysis engine (all product logic)
 │   ├── *.py                 ← modules listed in §5
-│   ├── tests/               ← 24 suites + run_tests.py
+│   ├── tests/               ← 25 suites + run_tests.py
 │   ├── evaluation/          ← evaluate.py, labelled set, committed baseline
 │   ├── Dockerfile
 │   └── requirements.txt
@@ -379,6 +381,7 @@ banner"), `data/demo/quillmark_pulse_onepager.pdf` or `data/demo/quillmark_broch
 | Brand colours | Dominant colours compared with the approved palette by ΔE 2000; photographs are recognised and left alone. |
 | Text contrast (WCAG) | Tesseract reads the words in the image (from a copy where each pixel's distance from its background is drawn in black, so faint text is read too); contrast is measured **per line** on the original pixels against 4.5:1, or 3:1 for large text, and the line is **boxed on the preview**. The words in an image are also checked like any copy, so a claim printed in a graphic is caught. |
 | Alt text | Missing, too short, too long, "image of…", file names, keyword stuffing; edited in Canonry. |
+| Image understanding | When an AI provider that reads images is set up (Gemini), one call per checked image says **what Canonry sees in this image**: a description, brands (ours, retired, competitor), claims drawn into the picture, and whether it fits its title and caption. It flags a retired name or logo OCR missed, a competitor's brand (India-pack comparative clause), a "#1" badge (checked like text) and a picture that contradicts its words, never above *Should fix*, and offers the seen description as one-click alt text. Without it, the image checks are exactly the rule-based ones. |
 | Proof of Compliance in the file | The approved PDF, Word, PNG or JPEG carries its signed proof in its own metadata (Word: a custom document property). The public verify page checks an uploaded file: the approved original or its stamped copy verifies; **a changed file, or a real seal copied onto other bytes, does not**. |
 
 Bugs found while finishing it, each fixed with a test that failed first: an intermittent "Internal Server
