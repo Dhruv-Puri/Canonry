@@ -885,3 +885,17 @@ body {
     animation: none;
   }
 }
+
+/* one walkthrough at a time: the guide steps aside while the product tour is open */
+body.tour-open .guide-panel {
+  display: none;
+}
+body.tour-open .guide-pulse {
+  animation: none;
+  box-shadow: none;
+  outline: none;
+}
+body.tour-open .guide-pulse::before,
+body.tour-open .guide-pulse::after {
+  display: none;
+}
