@@ -37,12 +37,19 @@ flowchart LR
 ```
 
 1. A **creator** submits copy and picks a channel (social, web, blog, email, sales) and a source (in-house, agency, AI-assisted).
-2. The engine returns **findings**. Each has the exact text span, a plain explanation, a **citation** to the real rule or fact behind it, a **confidence tier** (Definite / Likely / Consider) and, where possible, a one-click minimal fix.
+2. The engine first **reads what the content is** (format, kind, purpose, audience, the claims it makes) and runs only the checks that fit it, then returns **findings**. Each has the exact text span, a plain explanation, a **citation** to the real rule or fact behind it, a **confidence tier** (Definite / Likely / Consider, shown as *Must fix* / *Should fix* / *Worth a look*) and, where possible, a one-click minimal fix. The page says what Canonry understood and which checks ran, and why.
 3. The creator **accepts**, **edits** or **disputes** (with a reason) each finding. Every change creates a new revision that is re-checked automatically; a word-level diff shows what changed.
 4. **Submit for review**: a router assigns risk and the reviewer level. A narrow, logged exemption lane can auto-approve clean email digests.
 5. A **reviewer** approves, requests changes, or overrides a single finding with a reason. High-severity findings block approval until resolved or explicitly overridden: the AI never decides.
 6. Approval signs a **Proof of Compliance**: SHA-256 of the approved text, approver role, knowledge version and time, signed with Ed25519. Approved content is then locked.
 7. Anyone can open `/verify/<id>` without signing in and paste the published text: **Verified** (exact approved text) or **Modified**.
+
+**First visit: an interactive walkthrough.** The welcome screen offers *Show me around (first time
+here)*, ticked on a browser's first visit and unticked afterwards. When it is on, a small guide floats
+beside the page, says the one next thing to do in plain words and puts a glowing ring on the exact
+button: pick the sample → *Check draft* → *Accept all suggested fixes* → *Send for review* → switch to
+*Reviewer* in the top-right menu → open the draft you sent → *Approve & sign* → *Verify*. It follows
+what the visitor actually does, can be closed at any time, and never appears for returning visitors.
 
 ### What it looks like
 
@@ -81,7 +88,7 @@ every number now traces to an approved fact, and the router fast-tracked it as l
 | Judging criterion (points) | Evidence |
 |---|---|
 | Core workflow runs end to end (30) | §1 journey; `test_engine.py` drives it through the API; seeded launch post to try it in the browser |
-| Technical depth and reliability (25) | 20 test suites + evaluation gate in CI (§7); finding contract enforced on every finding; role scoping and lifecycle locks tested; honest AI degradation |
+| Technical depth and reliability (25) | 23 test suites + evaluation gate in CI, and a 184-check browser walk (§7); finding contract enforced on every finding; role scoping and lifecycle locks tested; honest AI degradation |
 | Progress against the plan (20) | [docs/plan-vs-build.md](docs/plan-vs-build.md): every plan commitment, what changed and why; [docs/changelog.md](docs/changelog.md): milestones M1–M6 with evidence |
 | Three planned improvements (15) | §12 (Round 3 plan); §3 shows the Round 1 improvements delivered |
 | Usability so far (10) | password-free demo personas, plain-language findings, one-click fixes; usability kit (§8) |
@@ -202,7 +209,7 @@ Main technical decisions (full list with reasons in the [decision log](docs/deci
 ## 7. Tests and reliability
 
 ```bash
-.venv/Scripts/python engine/tests/run_tests.py     # 21 suites (fresh DB each) + evaluation gate
+.venv/Scripts/python engine/tests/run_tests.py     # 23 suites (fresh DB each) + evaluation gate
 ```
 
 | Suite (`engine/tests/`) | Proves |
@@ -230,6 +237,9 @@ Main technical decisions (full list with reasons in the [decision log](docs/deci
 | `test_understanding` | the content profile (social post, internal note, press release, policy, PDF, image); checks gated by it; denied, attributed and quoted claims; one card per issue; accepting every fix in turn never brings a fixed issue back; every rule an explanation names is cited |
 | evaluation gate | precision / recall per checker and tier on the frozen split; fails on regression |
 
+| `test_review_r3` | findings of the Round 3 code review stay fixed: a hostile embedded seal, a Word zip bomb, damaged Word parts, alt text on an image with words, huge logo files, tidying only the edited paragraph, non-Latin file names |
+| `test_slow_ai_lock` | a check waiting on a slow AI model never locks other visitors out (sign-ins and drafts during the first and later AI calls answer at once) |
+
 Image checks use Tesseract for the words in an image. The suites fake it, so they run anywhere; the
 real-OCR checks in `test_image_text` run when Tesseract is installed (it is, in the Docker image) and
 are skipped otherwise.
@@ -245,6 +255,11 @@ agency isolation, an admin's knowledge-base change and its effect on a re-check,
 double clicks, refresh and back, two tabs on one draft, an expired session, unknown ids, and every screen
 at 1280 px and 390 px. A separate `offline` phase runs with the engine stopped and expects a plain
 message on every page. Screenshots go to `e2e/.tmp/shots`. Needs `pip install playwright` and Microsoft Edge.
+
+Results on the final Round 3 build (2 Nov 2026): **184/184** checks on a local production build
+(journey, reliability, layout), and the first-visit walkthrough, driven by clicking exactly what the
+guide points at, end to end for a first and a returning visitor at 1280 px and 390 px: **18/18 locally
+and 18/18 on the live site**, with real AI and Tesseract.
 
 ```bash
 sh e2e/start_engine.sh fresh                                    # engine on :8202, temp DB, no AI keys
@@ -314,7 +329,7 @@ What a judge may run into on the live demo:
 ├── data/                    ← demo brand book: rules, facts, terms (CSV)
 ├── engine/                  ← FastAPI analysis engine (all product logic)
 │   ├── *.py                 ← modules listed in §5
-│   ├── tests/               ← 20 suites + run_tests.py
+│   ├── tests/               ← 23 suites + run_tests.py
 │   ├── evaluation/          ← evaluate.py, labelled set, committed baseline
 │   ├── Dockerfile
 │   └── requirements.txt
@@ -420,3 +435,17 @@ qualifier in the next sentence ("See full terms at …") ignored; the gate count
 
 All code was written by team vaidvansh6 during the build window, with the AI
 assistance disclosed above. Demo brand data is fictional.
+
+## 13. Roadmap
+
+What comes next, in order, and what each fixes. Nothing below is claimed as built.
+
+| Next | Why | First step |
+|---|---|---|
+| **Managed Postgres + pgvector live** | The India pack's clause retrieval and all data should survive restarts; the code path exists (`CANONRY_DATABASE_URL`) but the demo runs on SQLite | Point the engine at a free Neon / Supabase database, run the suites against it in CI |
+| **Field-tested India pack** | Its 100% precision/recall is on 32 sentences written by the team | Label real lines from published ASCI complaint decisions; report precision and recall per clause |
+| **User testing** | No real users have used Canonry yet | Run the prepared 5-person SUS study ([docs/usability-test-kit.md](docs/usability-test-kit.md)) on the live link; fix the top three issues |
+| **Larger evaluation set** | The claim-check evaluation has 20 samples labelled by the team | 200 samples labelled by someone outside the team; hold the 85% recall / 80% precision targets |
+| **Signed approvals that survive restarts** | The free server regenerates its signing key on restart | A persistent key (paid disk or a key-management service) |
+| **Where people write** | Content is checked after it is written | Google Docs add-on and the MCP connector in AI writing tools, using the public API |
+| **More formats and markets** | Today: text, PDF, Word, PNG, JPEG; English; India pack | Slides and video frames; more language and market packs as data, not code |
