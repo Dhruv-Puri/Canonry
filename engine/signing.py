@@ -113,7 +113,6 @@ def sign_approval(conn, workspace_id: str, submission_id: str, revision_id: str,
          record["content_sha256"], sig, pub_fp, record["decided_at"],
          record.get("asset_id"), content_kind),
     )
-    conn.commit()
     return {"poc_id": poc_id, "record": {**record, "ledger_hash": ledger_hash}, "signature": sig}
 
 
