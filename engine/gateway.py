@@ -149,8 +149,13 @@ class Provider:
         """Models this provider may try, primary first. Most have exactly one."""
         return [self.model()]
 
+    def vision_models(self) -> List[str]:
+        """Models that can look at an image, primary first; [] = this provider
+        cannot, and is skipped for image tasks."""
+        return []
+
     def chat(self, client: httpx.Client, messages: List[Dict[str, str]],
-             model: Optional[str] = None) -> Dict[str, str]:
+             model: Optional[str] = None, images: Optional[List[Dict[str, str]]] = None) -> Dict[str, str]:
         raise NotImplementedError
 
     @staticmethod
@@ -180,6 +185,9 @@ class Gemini(Provider):
                 out.append(candidate)
         return out
 
+    def vision_models(self) -> List[str]:
+        return self.models()  # every Gemini model reads images
+
     @staticmethod
     def _answer_text(data: Dict[str, Any]) -> str:
         """The answer text, skipping any thinking parts that come before it."""
@@ -194,12 +202,17 @@ class Gemini(Provider):
         finish = next((c.get("finishReason") for c in data.get("candidates") or []), None)
         raise ProviderError(f"no answer in the response (finishReason={finish})")
 
-    def chat(self, client, messages, model=None):
+    def chat(self, client, messages, model=None, images=None):
         model = model or self.model()
         system = "\n\n".join(m["content"] for m in messages if m["role"] == "system")
+        contents = [{"role": "user", "parts": [{"text": m["content"]}]}
+                    for m in messages if m["role"] != "system"]
+        if images and contents:
+            # the picture travels with the last user message, as inline base64 parts
+            contents[-1]["parts"] += [{"inline_data": {"mime_type": i["mime_type"], "data": i["data"]}}
+                                      for i in images]
         payload: Dict[str, Any] = {
-            "contents": [{"role": "user", "parts": [{"text": m["content"]}]}
-                         for m in messages if m["role"] != "system"],
+            "contents": contents,
             "generationConfig": {"temperature": 0.1, "responseMimeType": "application/json"},
         }
         if system:
@@ -223,10 +236,22 @@ class OpenAICompatible(Provider):
             return bool(_setting(self.url_setting))
         return super().available()
 
-    def chat(self, client, messages, model=None):
+    def vision_models(self) -> List[str]:
+        """Only a model named in CANONRY_<PROVIDER>_VISION_MODEL is sent images:
+        the default text models of these services cannot read them."""
+        model = _setting(f"CANONRY_{self.name.upper()}_VISION_MODEL")
+        return [model] if model else []
+
+    def chat(self, client, messages, model=None, images=None):
         model = model or self.model()
         base = _setting(self.url_setting).rstrip("/") if self.url_setting else self.url
         headers = {"Authorization": f"Bearer {_setting(self.key_setting)}"} if self.key_setting else {}
+        if images:
+            messages = [dict(m) for m in messages]
+            last = max(i for i, m in enumerate(messages) if m["role"] != "system")
+            messages[last]["content"] = [{"type": "text", "text": messages[last]["content"]}] + [
+                {"type": "image_url", "image_url": {"url": f"data:{i['mime_type']};base64,{i['data']}"}}
+                for i in images]
         data = self._check(client.post(
             base + "/v1/chat/completions" if self.url_setting else base, headers=headers,
             json={"model": model, "messages": messages, "temperature": 0.1, "max_tokens": 1500,
@@ -328,6 +353,11 @@ def any_available() -> bool:
     return any(p.available() for p in PROVIDERS)
 
 
+def vision_available() -> bool:
+    """True when some configured provider can look at an image."""
+    return any(p.available() and p.vision_models() for p in PROVIDERS)
+
+
 def call_budget_ok(revision_words: int, calls_so_far: int) -> bool:
     """<=3 batched LLM calls per 1,000-word check (doc 9.6/9.8)."""
     return calls_so_far < max(3, (revision_words // 1000) * 3)
@@ -354,19 +384,22 @@ def _log(conn: sqlite3.Connection, task: str, provider: Provider, model: str, pr
 
 def gateway_call(task: str, messages: List[Dict[str, str]], conn: Optional[sqlite3.Connection] = None,
                  budget_ok: bool = True, prompt_version: str = PROMPT_VERSION,
-                 deadline: Optional[float] = None) -> Optional[Dict[str, Any]]:
+                 deadline: Optional[float] = None,
+                 images: Optional[List[Dict[str, str]]] = None) -> Optional[Dict[str, Any]]:
     """Run one AI task through the fallback chain. Returns
     {'text', 'model', 'provider'}, or None when over budget, out of time, or no
     provider answered. `deadline` is a time.monotonic() moment; no attempt runs
-    past it. A model that returns 429/503 is cooled down and skipped."""
-    providers = [p for p in PROVIDERS if p.available()]
+    past it. A model that returns 429/503 is cooled down and skipped.
+    `images` ([{'mime_type', 'data': base64}]) go only to models that read
+    images; providers without one are skipped for the task."""
+    providers = [p for p in PROVIDERS if p.available() and (not images or p.vision_models())]
     if not budget_ok or not providers:
         return None
     own = conn is None
     conn = conn or connect()
     try:
         for provider in providers:
-            models = provider.models()
+            models = provider.vision_models() if images else provider.models()
             for round_no in range(2):  # one retry after a transient failure
                 retryable_seen = False
                 for model in models:
@@ -384,7 +417,8 @@ def gateway_call(task: str, messages: List[Dict[str, str]], conn: Optional[sqlit
                     started = time.perf_counter()
                     try:
                         with httpx.Client(timeout=timeout, transport=_transport) as client:
-                            out = provider.chat(client, messages, model=model)
+                            out = (provider.chat(client, messages, model=model, images=images) if images
+                                   else provider.chat(client, messages, model=model))
                     except (ProviderError, httpx.HTTPError) as e:
                         _log(conn, task, provider, model, prompt_version, started, ok=False)
                         retryable = isinstance(e, httpx.TransportError) or getattr(e, "retryable", False)

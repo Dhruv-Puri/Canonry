@@ -37,6 +37,8 @@ CATEGORIES = [
     "misleading_claim", "unsubstantiated_claim", "missing_disclosure",
     "bait_advertising", "surrogate_advertising", "free_claim",
     "children_directed", "comparative_advertising", "endorsement_disclosure",
+    # what the image shows (vision)
+    "competitor_brand", "image_text_mismatch",
 ]
 
 
@@ -59,6 +61,8 @@ class Locator(BaseModel):
     # image region in source pixels: (x, y, width, height)
     bbox: Optional[Tuple[int, int, int, int]] = None
     region: Optional[str] = None
+    # what the vision check saw in the picture (a model gives no reliable box)
+    seen: Optional[str] = None
 
 
 class Citation(BaseModel):
@@ -122,6 +126,8 @@ def finding_to_dict(f: Finding) -> Dict[str, Any]:
 def location_key(finding: Dict[str, Any]) -> str:
     loc = finding.get("locator") or {}
     checker, category = finding.get("checker", ""), finding.get("category", "")
+    if loc.get("seen"):  # read from the picture by the vision check: keyed by what was seen
+        return f"{checker}|{category}|seen:{str(loc['seen']).lower()}"
     if loc.get("bbox"):
         return f"{checker}|{category}|{loc.get('region') or 'region'}:{','.join(map(str, loc['bbox']))}"
     if loc.get("page") or loc.get("paragraph"):

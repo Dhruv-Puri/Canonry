@@ -149,6 +149,32 @@ def _absorb(leader: Dict[str, Any], group: List[Dict[str, Any]]) -> None:
     prov["found_by_label"] = f"found by {len(everyone)} checks"
 
 
+def merge_seen(findings: List[Dict[str, Any]], seen: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Add findings read from a picture (vision.py; no text span, `locator.seen`
+    names what was seen) to `findings`, one card per issue: a finding of the same
+    family that already names the same thing (OCR read "Quillmark Insights", the
+    pixel matcher found the retired logo) absorbs the picture's finding."""
+    out = list(findings)
+    for f in seen:
+        what = str((f.get("locator") or {}).get("seen") or "").lower()
+
+        def same(e: Dict[str, Any]) -> bool:
+            if _family(e) != _family(f):
+                return False
+            other = str((e.get("locator") or {}).get("seen") or (e.get("span") or {}).get("text") or "").lower()
+            if other and what and (what in other or other in what):
+                return True
+            # one image-wide issue per category (the retired logo found twice)
+            return e.get("checker") == f.get("checker") == "image" and not other
+
+        leader = next((e for e in out if same(e)), None)
+        if leader is None:
+            out.append(f)
+        else:
+            _absorb(leader, [f])
+    return out
+
+
 # ---- conflict-safe fixes -------------------------------------------------------------
 
 Issue = Dict[str, Any]  # {"start", "end", "what", "fix": Optional[str]}
