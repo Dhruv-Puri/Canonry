@@ -14,7 +14,8 @@ EVALUATE = os.path.join(HERE, "..", "evaluation", "evaluate.py")
 SUITES = ["test_engine", "test_identity", "test_knowledge", "test_regressions", "test_seed_data",
           "test_edge_cases", "test_policy", "test_access", "test_workflow", "test_gateway", "test_quota",
           "test_documents", "test_compliance", "test_ai_shapes", "test_image_text", "test_logos", "test_docx_fix", "test_review_r3", "test_api", "test_publisher",
-          "test_reliability", "test_slow_ai_lock", "test_understanding", "test_long_draft", "test_vision", "test_suggested_facts", "test_large_images", "test_term_matching", "test_creator_work"]
+          "test_reliability", "test_slow_ai_lock", "test_understanding", "test_long_draft", "test_vision", "test_suggested_facts", "test_large_images", "test_term_matching", "test_creator_work",
+          "test_api_gate", "test_media"]
 
 
 def main() -> int:

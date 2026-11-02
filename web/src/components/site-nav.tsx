@@ -14,7 +14,8 @@ export function SiteNav() {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const pathname = usePathname();
-  const links = navLinksFor(me?.role);
+  // a signed-out visitor (the public verify page) gets no app menu: those pages need an account
+  const links = me ? navLinksFor(me.role) : [];
   const home = roleHome(me?.role);
 
   useEffect(() => setOpen(false), [pathname]);
@@ -62,7 +63,7 @@ export function SiteNav() {
           <span className="text-[17px] font-bold tracking-tight text-foreground">Canonry</span>
         </Link>
 
-        <nav aria-label="Main" data-nav-list className="mx-auto hidden items-center gap-1 rounded-full border border-border bg-card/70 p-1 md:flex">
+        <nav aria-label="Main" data-nav-list className={`mx-auto hidden items-center gap-1 rounded-full border border-border bg-card/70 p-1 ${links.length ? "md:flex" : ""}`}>
           {links.map(({ href, label }) => (
             <Link key={href} href={href} data-nav={href} aria-current={isActive(href) ? "page" : undefined} className="capsule-link">
               {label}
@@ -74,12 +75,12 @@ export function SiteNav() {
           <ProfileMenu />
         </div>
 
-        <button className="btn btn-ghost ml-auto px-2.5 md:hidden" onClick={() => setOpen((o) => !o)} aria-label={open ? "Close menu" : "Open menu"} aria-expanded={open}>
+        {me && <button className="btn btn-ghost ml-auto px-2.5 md:hidden" onClick={() => setOpen((o) => !o)} aria-label={open ? "Close menu" : "Open menu"} aria-expanded={open}>
           {open ? <X className="size-5" /> : <Menu className="size-5" />}
-        </button>
+        </button>}
       </div>
 
-      {open && (
+      {open && me && (
         <div className="capsule animate-fade-up mx-auto mt-2 max-w-6xl rounded-3xl p-3 md:hidden">
           <nav aria-label="Main" data-nav-list className="grid gap-1">
             {links.map(({ href, label }) => (

@@ -8,7 +8,7 @@
 | **Live link** | https://canonry-sigma.vercel.app (tick *Show me around* on a first visit, then *Continue as guest*). Engine health: https://canonry-engine.onrender.com/health. Free tier: the first visit after idle can take about 50 s; the page says so while it wakes up. |
 | **Demo accounts** | Shared on purpose so you can try every role without signing up; a real deployment uses production mode (one-use invitations, own passwords, fixed roles, agencies isolated). See README, "Demo accounts". |
 | **Repository** | https://github.com/Dhruv-Puri/Canonry (public; branch `main`) |
-| **Final PDF** | [to attach] |
+| **Final PDF** | `Canonry_Round3_Final_vaidvansh6.pdf` (attached; also in the repository at `docs/`) |
 
 ## 1. Feature list
 
@@ -26,7 +26,10 @@
   against an approved fact library (numbers matched exactly; expired and superseded facts caught),
   AI-assisted implied claims and tone on free models, with honest degradation when AI is unavailable.
 - People decide: accept, edit or dispute each finding; risk-routed review; approve, request changes
-  (the writer sees the reviewer's comment) or override with a reason; everything recorded.
+  or override with a reason; everything recorded.
+- **My work for writers:** every draft grouped as sent back, to finish, with a reviewer or approved, with
+  the reviewer's verdict and words on the card; a sent-back draft opens on the reviewer's request, and
+  its text can be edited into a new checked revision (files get a new version instead).
 - Proof of Compliance: an Ed25519-signed, hash-chained approval record; a public page verifies pasted
   text or a published file.
 - Knowledge base with versioned rules, facts and terms, change history and change-impact preview;
@@ -95,7 +98,9 @@ Details: README §5 and [architecture.md](architecture.md); decisions with reaso
 
 Also in Round 3: image understanding with a vision model (`test_vision`), a knowledge base that grows
 from claims writers keep making (`test_suggested_facts`), the "understand first" analysis
-(`test_understanding`), a first-visit walkthrough,
+(`test_understanding`), a first-visit walkthrough and a role tour, **My work** with text editing for
+writers (`test_creator_work`), whole-phrase banned-term matching (`test_term_matching`), checks that
+stay at 3–5 s when a free AI model stalls (a second model is asked after 4 s; `test_gateway`),
 security fixes (a copied seal verified as genuine; Word zip bombs; webhook address checks; a race that
 could sign twice), and reliability fixes (an intermittent server error on submit; one slow AI call
 locking every other visitor out; two tabs undoing each other's fixes; plain messages when the engine
@@ -103,15 +108,16 @@ is down or waking up).
 
 ## 4. Testing details
 
-- **Automated:** `python engine/tests/run_tests.py` runs **30 suites** on a fresh database each, plus the
+- **Automated:** `python engine/tests/run_tests.py` runs **32 suites** on a fresh database each, plus the
   evaluation gate (precision and recall per checker on a frozen split). The suites never call a real AI
   provider; malformed AI answers and slow models are tested with fake providers. CI runs them on every
   push with a web type-check, a production build, `pip-audit` and `npm audit`.
 - **Browser:** `e2e/journey.py` drives Microsoft Edge through every role's journey, hostile input (blank,
   120,000 characters, emoji/Hindi/RTL/HTML, wrong, renamed, cut-off and 0-byte files), double clicks,
   refresh and back, two tabs, an expired session, unknown ids and every screen at 1280 and 390 px:
-  **184/184** on the final build. The first-visit walkthrough, driven by clicking exactly what the guide
-  points at, passes **18/18** locally and on the live site (real AI and OCR).
+  **185/185** on the final build. Two scripts click exactly what a person would: the first-visit
+  walkthrough (**27/27**) and the writer's sent back → edit → send again → approved loop (**16/16**),
+  both locally and on the live site with real AI and OCR.
 - **Code review:** an independent review of the Round 3 branch; every Important finding fixed with a
   test that failed first (docs/progress.md §0).
 - **Bugs found by testing and fixed:** docs/progress.md §0, §7, §8.
@@ -123,5 +129,17 @@ is down or waking up).
 
 See README §13: managed Postgres + pgvector live; the India pack blind-tested on newer ASCI
 decisions; the five-person usability study; a larger, independently labelled evaluation set; signing
-keys that survive restarts; checks where people write (Google Docs add-on, MCP connector); more
-formats and market packs.
+keys that survive restarts; checks where people write (Google Docs add-on, MCP connector); audio
+and video (the header module exists, not yet wired); more formats and market packs.
+
+## 6. Team and contributions
+
+- **Vansh Vaid (team leader):** product direction; web app and review workflow; Round 3 file checks on
+  the shared pipeline (Word, OCR, logos), image understanding, understand-first checks, the India pack's
+  real-case test, the growing knowledge base, large-image memory limits, My work and text editing, the
+  slow-AI fixes, browser test scripts, deployments, documentation and this PDF.
+- **Dhruv Puri:** initial engine; Gemini fallbacks and the admin, agency and review pages; the Round 3
+  base for all three improvements (uploads and stamping, REST API and webhooks, demo publisher, India
+  pack with clause retrieval, admin API page); the role tour and document viewer; the audio/video
+  module and the API-gate test.
+- Details with commit ids: README §9. AI assistance: docs/disclosure-log.md.
