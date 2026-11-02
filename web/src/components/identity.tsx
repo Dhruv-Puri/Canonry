@@ -125,7 +125,9 @@ export function IdentityGate({ children }: { children: React.ReactNode }) {
   }, [state]);
 
   const update = useCallback(async (patch: { name?: string; role?: Role }) => {
-    setMe(await api<User>("/me", { method: "PATCH", json: patch }));
+    const changed = await api<User>("/me", { method: "PATCH", json: patch });
+    // keep what the reply leaves out (an older engine omitted the email, so My work lost its drafts)
+    setMe((prev) => (prev ? { ...prev, ...changed } : changed));
   }, []);
 
   const leave = useCallback(async () => {
@@ -292,9 +294,15 @@ function GuestWelcome({ onJoined }: { onJoined: (u: User) => void }) {
           <button type="submit" disabled={busy} className="btn btn-primary btn-lg mt-6 w-full">
             {busy ? "Opening Canonry…" : <>Continue as guest <ArrowRight className="btn-arrow size-4" aria-hidden /></>}
           </button>
-          <p className="mt-4 text-center text-xs leading-relaxed text-muted-foreground">
-            Switch roles anytime from the top bar. This is a shared demo workspace, so please don&apos;t enter real brand material.
-          </p>
+          <div className="mt-4 rounded-xl border border-border bg-muted/60 px-4 py-3 text-xs leading-relaxed text-foreground-secondary">
+            <p className="font-semibold text-foreground">A shared demo, on purpose</p>
+            <p className="mt-1">
+              Every visitor uses one sample workspace and can switch between all four roles from the top bar, so you
+              can try each side of a review. A real deployment runs in production mode: each person signs in with their
+              own invited account and password, the invitation fixes their role, and agency partners only ever see their
+              own work. Please don&apos;t enter real brand material here.
+            </p>
+          </div>
         </form>
       </div>
     </main>

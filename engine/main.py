@@ -609,7 +609,8 @@ def update_me(req: Request, body: Dict[str, Any]):
         if changes:
             audit(conn, user["email"], "profile_change", "; ".join(changes))
         conn.commit()
-        return {"id": user["id"], "name": name, "role": role}
+        # the same shape as /me: without the email, the page forgot whose drafts were whose after a role switch
+        return {"id": user["id"], "name": name, "role": role, "email": user["email"]}
     finally:
         conn.close()
 
@@ -1298,7 +1299,16 @@ def list_submissions(req: Request):
             "(SELECT signature FROM proof_of_compliance WHERE revision_id = (SELECT id FROM revisions "
             "WHERE submission_id = s.id ORDER BY revision_no DESC LIMIT 1)) poc_sig "
             "FROM submissions s ORDER BY s.created_at DESC").fetchall()
-        return {"submissions": [dict(r) for r in rows if access.can_see_submission(user, r)]}
+        visible = [dict(r) for r in rows if access.can_see_submission(user, r)]
+        # the latest reviewer verdict, so a writer sees on their list what was decided and why
+        for sub in visible:
+            last = conn.execute(
+                "SELECT a.action, a.reason, a.at, COALESCE(u.name, a.reviewer) AS by_name FROM approvals a "
+                "LEFT JOIN users u ON u.email = a.reviewer WHERE a.submission_id = ? "
+                "AND a.action IN ('approve', 'request_changes', 'exempt_approve') ORDER BY a.at DESC LIMIT 1",
+                (sub["id"],)).fetchone()
+            sub["last_review"] = dict(last) if last else None
+        return {"submissions": visible}
     finally:
         conn.close()
 
@@ -1551,6 +1561,42 @@ def recheck(req: Request, sid: str):
         rev = conn.execute(
             "SELECT * FROM revisions WHERE submission_id=? ORDER BY revision_no DESC LIMIT 1", (sid,)).fetchone()
         result = run_check_for_submission(conn, sid, rev["content"], user["email"], asset=_revision_asset(rev))
+        conn.commit()
+        return result
+    finally:
+        conn.close()
+
+
+class EditIn(BaseModel):
+    content: str
+
+
+@app.post("/submissions/{sid}/edit")
+def edit_text(req: Request, sid: str, body: EditIn):
+    """The writer changes the text of a draft (for example, what a reviewer asked for when sending it
+    back). It becomes the next revision and is checked again; history and decisions stay together.
+    Only while the draft is with its writer, never during review or after approval."""
+    _require_same_origin(req)
+    if not body.content.strip():
+        raise HTTPException(422, "Write something to check: the draft is empty.")
+    if len(body.content) > MAX_DRAFT_CHARS:
+        raise HTTPException(422, f"This draft is too long to check at once ({len(body.content):,} characters; "
+                                 f"the limit is {MAX_DRAFT_CHARS:,}). Split it into smaller pieces.")
+    conn = connect()
+    try:
+        user = _user(req, conn)
+        _lock_submission(conn, sid)
+        _visible_sub(conn, user, sid, "edit")
+        rev = conn.execute(
+            "SELECT * FROM revisions WHERE submission_id=? ORDER BY revision_no DESC LIMIT 1", (sid,)).fetchone()
+        if rev is None:
+            raise HTTPException(404, "Submission not found")
+        if _revision_asset(rev):
+            raise HTTPException(409, "This draft is a file: change it in its source and use Upload new version.")
+        if rev["content"] == body.content:
+            raise HTTPException(422, "Nothing changed: edit the text, then save.")
+        audit(conn, user["email"], "edit_text", f"{sid}: revision {rev['revision_no'] + 1}")
+        result = run_check_for_submission(conn, sid, body.content, user["email"])
         conn.commit()
         return result
     finally:

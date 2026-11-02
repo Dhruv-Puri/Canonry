@@ -132,6 +132,8 @@ export type Submission = {
   poc_sig?: string | null;
   created_by?: string;
   created_at: string;
+  /** the reviewer's latest verdict: approved, sent back (with why) or auto-approved */
+  last_review?: { action: "approve" | "request_changes" | "exempt_approve"; reason?: string | null; by_name?: string | null; at: string } | null;
 };
 
 export type Decision = {

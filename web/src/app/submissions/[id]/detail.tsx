@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronRight, GitCompare, Info, Sparkles, TriangleAlert } from "lucide-react";
+import { ChevronRight, GitCompare, Info, PenLine, Sparkles, TriangleAlert } from "lucide-react";
 import {
   api,
   ApiError,
@@ -39,6 +39,9 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
   const [diffMode, setDiffMode] = useState(false);
   const [tierFilter, setTierFilter] = useState<"all" | "definite" | "likely" | "consider">("all");
   const [pocId, setPocId] = useState<string | null>(null);
+  // editing the text of a text draft (not a file), while it is with its writer
+  const [editing, setEditing] = useState(false);
+  const [draftText, setDraftText] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -83,6 +86,25 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
       if (e instanceof ApiError && e.status === 409) await load();
     } finally {
       setBusy(false);
+    }
+  }
+
+  function startEditing() {
+    setDraftText(d?.latest_revision?.content ?? "");
+    setRevIdx(-1);
+    setDiffMode(false);
+    setEditing(true);
+  }
+
+  async function saveEdit() {
+    setChecking(true);
+    try {
+      await act(async () => {
+        await api(`/submissions/${sid}/edit`, { method: "POST", json: { content: draftText } });
+        setEditing(false);
+      });
+    } finally {
+      setChecking(false);
     }
   }
 
@@ -191,11 +213,15 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
   const profile = d.check?.profile ?? null;
   const canReview = ["reviewer", "admin"].includes(d.me.role);
   const canResolve = ["creator", "admin", "agency"].includes(d.me.role);
-  const backHref = canReview ? "/review" : d.me.role === "agency" ? "/agency" : "/";
-  const backLabel = canReview ? "Review queue" : d.me.role === "agency" ? "My work" : "All submissions";
+  const backHref = canReview ? "/review" : d.me.role === "agency" ? "/agency" : "/work";
+  const backLabel = canReview ? "Review queue" : "My work";
   const inReview = s.status === "In review";
   // the engine says what this status allows; content changes only while with the creator
   const editable = d.allowed.edit;
+  // text drafts can be edited by their writer while with them; files are changed in their source
+  const canEditText = editable && canResolve && !d.asset && showActionsForRev;
+  // has the writer changed anything since the reviewer sent it back?
+  const changedSinceSentBack = Boolean(sentBack && d.latest_revision && d.latest_revision.created_at > sentBack.at);
 
   return (
     <div className="space-y-5">
@@ -300,9 +326,32 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
               </>
             )}
           </NextStep>
+        ) : s.status === "Changes requested" && !changedSinceSentBack ? (
+          <NextStep
+            title="Make the change the reviewer asked for"
+            actions={
+              <>
+                {canEditText && !editing && (
+                  <button type="button" disabled={busy} onClick={startEditing} className="btn btn-primary">
+                    <PenLine className="size-4" aria-hidden /> Edit the text
+                  </button>
+                )}
+                {d.allowed.submit && (
+                  <button type="button" disabled={busy} onClick={() => void submitForReview()} className="btn btn-secondary">
+                    Send it back unchanged
+                  </button>
+                )}
+              </>
+            }
+          >
+            The reviewer&apos;s request is above.{" "}
+            {d.asset
+              ? "Change the file in its source and use Upload new version; Canonry checks it again."
+              : "Edit the text and Canonry checks it again; then send it for review."}
+          </NextStep>
         ) : (
           <NextStep
-            title="Ready for review"
+            title={s.status === "Changes requested" ? "Changed: send it again" : "Ready for review"}
             progress={d.decisions.length ? { done: d.decisions.length, total: d.decisions.length } : undefined}
             actions={
               <>
@@ -404,6 +453,11 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
       <section className="paper pb-5 pl-12 pr-4 pt-4 sm:pl-14 sm:pr-6 lg:sticky lg:top-24 lg:max-h-[calc(100dvh-7rem)] lg:overflow-auto">
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <h2 className="eyebrow mr-auto">Your content</h2>
+          {canEditText && !editing && (
+            <button type="button" onClick={startEditing} disabled={busy} className="btn btn-secondary btn-sm">
+              <PenLine className="size-3.5" aria-hidden /> Edit text
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setDiffMode((v) => !v)}
@@ -432,7 +486,30 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
               ))}
           </select>
         </div>
-        {diffMode && prevRev ? (
+        {editing ? (
+          <div className="space-y-2">
+            <label className="sr-only" htmlFor="edit-text">Edit the text</label>
+            <textarea
+              id="edit-text"
+              className="field min-h-48 w-full px-3 py-2 font-serif text-[15px] leading-relaxed"
+              value={draftText}
+              onChange={(e) => setDraftText(e.target.value)}
+              autoFocus
+            />
+            <p className="text-xs text-muted-foreground">
+              Saving keeps this as a new version and checks it again; the earlier version stays in the history.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" className="btn btn-primary btn-sm" onClick={() => void saveEdit()}
+                disabled={busy || !draftText.trim() || draftText === (d.latest_revision?.content ?? "")}>
+                {checking ? "Checking…" : "Save and check again"}
+              </button>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setEditing(false)} disabled={busy}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : diffMode && prevRev ? (
           <RevisionDiff before={prevRev.content} after={rev?.content ?? ""}
                         fromNo={prevRev.revision_no} toNo={rev?.revision_no} />
         ) : d.asset ? (

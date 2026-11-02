@@ -56,11 +56,12 @@ export function navLinksFor(role: string | null | undefined): { href: string; la
       { href: "/kb", label: "Knowledge base" },
     ];
   }
+  // a writer's own list replaces Insights: what was approved, what was sent back and why
   return [
     { href: "/", label: "Home" },
     { href: "/new", label: "Write" },
+    { href: "/work", label: "My work" },
     { href: "/kb", label: "Knowledge base" },
-    { href: "/insights", label: "Insights" },
   ];
 }
 

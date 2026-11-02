@@ -86,10 +86,10 @@ const ROLE_WINDOWS: Record<Role, Step[]> = {
     },
     {
       eyebrow: "Your windows",
-      title: "Insights",
-      body: "What gets caught most, and how review is going.",
-      icon: BarChart3,
-      cta: { href: "/insights", label: "Open insights" },
+      title: "My work",
+      body: "Everything you wrote: what a reviewer sent back and why, what is with them, and what was approved.",
+      icon: Inbox,
+      cta: { href: "/work", label: "Open my work" },
     },
   ],
   reviewer: [
