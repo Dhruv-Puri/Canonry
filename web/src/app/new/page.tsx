@@ -273,6 +273,14 @@ export default function NewSubmissionPage() {
                 className="field p-3 font-serif text-base leading-relaxed"
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
+                onKeyDown={(e) => {
+                  // Ctrl/⌘ + Enter checks it, as in most writing tools
+                  if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !busy && content.trim() && title.trim()) {
+                    e.preventDefault();
+                    void submit();
+                  }
+                }}
+                aria-keyshortcuts="Control+Enter Meta+Enter"
                 placeholder="Paste or write your post, email or page copy here."
               />
             </Field>
@@ -283,8 +291,8 @@ export default function NewSubmissionPage() {
             </p>
 
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-xs text-muted-foreground">
-                Or switch to <strong className="font-medium text-foreground">PDF, Word or image</strong> above to upload a file.
+              <p className="hidden text-xs text-muted-foreground sm:block">
+                Press <kbd className="kbd">Ctrl</kbd> or <kbd className="kbd">⌘</kbd> + <kbd className="kbd">Enter</kbd> to check
               </p>
               <button
                 data-guide="check-it"

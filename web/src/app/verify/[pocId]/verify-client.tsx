@@ -198,14 +198,20 @@ export function VerifyClient({ pocId }: { pocId: string }) {
           {shown?.record && (
           <div className="surface p-6">
             <h2 className="section-title mb-4">Signed record</h2>
-            <dl className="divide-y divide-border rounded-lg border border-border bg-background font-mono text-[13px]">
-              {Object.entries(shown.record).map(([k, v]) => (
-                <div key={k} className="flex flex-col gap-0.5 px-4 py-2.5 sm:flex-row sm:gap-3">
-                  <dt className="shrink-0 text-muted-foreground sm:w-40">{k}</dt>
-                  <dd className="break-all">{String(v)}</dd>
-                </div>
-              ))}
-            </dl>
+            <RecordSummary record={shown.record} />
+            <details className="group mt-4">
+              <summary className="cursor-pointer text-sm font-medium text-muted-foreground hover:text-foreground">
+                Technical details: every signed field
+              </summary>
+              <dl className="mt-3 divide-y divide-border rounded-lg border border-border bg-background font-mono text-[13px]">
+                {Object.entries(shown.record).map(([k, v]) => (
+                  <div key={k} className="flex flex-col gap-0.5 px-4 py-2.5 sm:flex-row sm:gap-3">
+                    <dt className="shrink-0 text-muted-foreground sm:w-40">{k}</dt>
+                    <dd className="break-all">{typeof v === "object" && v !== null ? JSON.stringify(v) : String(v)}</dd>
+                  </div>
+                ))}
+              </dl>
+            </details>
           </div>
           )}
 
@@ -219,5 +225,52 @@ export function VerifyClient({ pocId }: { pocId: string }) {
         </>
       )}
     </div>
+  );
+}
+
+const PACK_NAME: Record<string, string> = { in_advertising: "India advertising pack" };
+
+/** The signed record in words, the way a certificate reads; the raw fields stay one click away. */
+function RecordSummary({ record }: { record: Record<string, unknown> }) {
+  const str = (k: string) => {
+    const v = record[k];
+    return v === null || v === undefined || v === "" || v === "null" ? null : String(v);
+  };
+  const role = str("approver_role");
+  const self = record.self_approved === true || record.self_approved === "true";
+  const at = str("decided_at");
+  const date = at && !Number.isNaN(new Date(at).getTime())
+    ? new Date(at).toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" })
+    : at;
+  const file = str("filename");
+  const packs = record.pack_versions;
+  const packText =
+    packs && typeof packs === "object"
+      ? Object.entries(packs as Record<string, unknown>)
+          .map(([k, v]) => `${PACK_NAME[k] ?? k.replace(/_/g, " ")} ${String(v)}`)
+          .join(", ")
+      : str("pack_versions");
+  const hash = str("content_sha256");
+  const rows: [string, string | null][] = [
+    ["Approved by", role ? `${role[0].toUpperCase()}${role.slice(1)}${self ? " (self-approved, demo mode)" : ""}` : null],
+    ["Approved on", date],
+    ["Content", file ? `File: ${file}` : str("content_kind") === "file" ? "A file" : "Text"],
+    ["Knowledge version", str("knowledge_version")],
+    ["Compliance packs", packText && packText !== "{}" && packText !== "[object Object]" ? packText : "None in force"],
+    ["Fingerprint (SHA-256)", hash ? `${hash.slice(0, 12)}…${hash.slice(-8)}` : null],
+  ];
+  return (
+    <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+      {rows
+        .filter(([, v]) => v)
+        .map(([k, v]) => (
+          <div key={k} className="min-w-0">
+            <dt className="text-xs font-medium text-muted-foreground">{k}</dt>
+            <dd className={`mt-0.5 text-sm font-semibold text-foreground [overflow-wrap:anywhere] ${k.startsWith("Fingerprint") ? "font-mono font-medium" : ""}`}>
+              {v}
+            </dd>
+          </div>
+        ))}
+    </dl>
   );
 }

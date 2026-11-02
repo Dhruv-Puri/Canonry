@@ -163,6 +163,11 @@ body {
   h3 {
     color: var(--foreground);
   }
+  /* toggles get a 24 px target (WCAG 2.2) without moving anything */
+  summary {
+    padding-block: 4px;
+    margin-block: -4px;
+  }
 }
 
 ::selection {
@@ -378,6 +383,9 @@ body {
 
   .link {
     overflow-wrap: anywhere;
+    /* a 24 px target (WCAG 2.2) for links inside text; layout unchanged */
+    padding-block: 4px;
+    margin-block: -4px;
     color: var(--brand);
     font-weight: 600;
     text-decoration: underline;
@@ -899,4 +907,65 @@ body.tour-open .guide-pulse {
 body.tour-open .guide-pulse::before,
 body.tour-open .guide-pulse::after {
   display: none;
+}
+
+/* ---- small text links: a 24 px target (WCAG 2.2), layout unchanged ---- */
+.tap {
+  padding: 4px 2px;
+  margin: -4px -2px;
+}
+
+/* ---- a finding card and its words light up together (hover or keyboard focus) ---- */
+mark.mark-linked {
+  background: var(--highlight-active);
+  box-shadow: 0 0 0 2px var(--ring);
+  border-radius: 3px;
+  transition: background-color 120ms ease, box-shadow 120ms ease;
+}
+
+/* ---- confirmations after an action ---- */
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  max-width: min(32rem, 100%);
+  padding: 0.7rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  background: var(--card);
+  color: var(--foreground);
+  font-size: 0.875rem;
+  font-weight: 500;
+  box-shadow: 0 10px 30px -12px rgba(43, 29, 20, 0.35), 0 2px 6px rgba(43, 29, 20, 0.08);
+  animation: toast-in 220ms var(--ease-out) both;
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---- selects match the text fields: same border, radius and a quiet chevron ---- */
+select.field {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 2rem;
+  background: var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237a5f4a' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 0.7rem center / 14px;
+  cursor: pointer;
+}
+select.field:hover:not(:focus) {
+  border-color: var(--border-strong);
+}
+
+/* ---- keyboard keys in hints ---- */
+.kbd {
+  display: inline-block;
+  min-width: 1.4em;
+  padding: 0.05rem 0.35rem;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--card);
+  color: var(--foreground-secondary);
+  font: 600 0.7rem/1.4 var(--font-sans);
+  text-align: center;
 }

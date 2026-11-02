@@ -152,7 +152,7 @@ function MarkedRange({ text, base, marks }: { text: string; base: number; marks:
         const slice = text.slice(start - base, stop - base);
         if (covering.length === 0) return <span key={i}>{slice}</span>;
         return (
-          <mark key={i} className={`${HIGHLIGHT[worstTier(covering)]} text-foreground`}>
+          <mark key={i} data-fids={covering.map((m) => m.f.id).join(" ")} className={`${HIGHLIGHT[worstTier(covering)]} text-foreground`}>
             {covering
               .filter((m) => m.start === start && m.number !== undefined)
               .map((m) => (
@@ -169,7 +169,7 @@ function MarkedRange({ text, base, marks }: { text: string; base: number; marks:
               ))}
             <a
               href={`#finding-${covering[0].f.id}`}
-              className="rounded-sm no-underline"
+              className="tap rounded-sm no-underline"
               title={covering
                 .map((m) => `${CATEGORY_LABEL[m.f.category] ?? m.f.category} · ${TIER_LABEL[m.f.tier]}`)
                 .join("\n")}
