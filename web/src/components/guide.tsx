@@ -47,6 +47,11 @@ export function hasVisited(): boolean {
   return read(FIRST_KEY) !== null;
 }
 
+/** True when this visitor asked, on the welcome screen, to be shown around. */
+export function wantsGuide(): boolean {
+  return read(FIRST_KEY) === "yes";
+}
+
 /** Called by the welcome screen with the visitor's answer. */
 export function rememberFirstTime(first: boolean) {
   write(FIRST_KEY, first ? "yes" : "no");
@@ -204,10 +209,11 @@ function nextStep(path: string, role: string, mine: Submission[], detail: Submis
       title: "Check some content",
       body: (
         <>
-          The sample has a few planted mistakes. Press <strong>Check it</strong>, or paste your own text first.
+          Paste your own text, or switch to <strong>PDF, Word or image</strong> and drop a document in. The sample has a
+          few planted mistakes, so you can press <strong>Check it</strong> straight away.
         </>
       ),
-      target: '[data-guide="check-it"]',
+      target: '[data-guide="new-primary"]',
     };
   }
   if (signed && !draft && !inReview) {

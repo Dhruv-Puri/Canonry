@@ -97,7 +97,27 @@ export type Finding = {
   location_key?: string | null;
 };
 
-export type Revision = { id: string; revision_no: number; content: string; created_at: string };
+/** One page (PDF) or paragraph (Word) of the extracted file, with its offsets in `content`. */
+export type LocatorBlock = {
+  page?: number | null;
+  paragraph?: number | null;
+  section?: string | null;
+  start: number;
+  end: number;
+  lines?: { start: number; end: number; line: number }[];
+};
+
+export type Revision = {
+  id: string;
+  revision_no: number;
+  content: string;
+  created_at: string;
+  /** "text", "pdf", "docx" or "image"; set for uploaded files */
+  source_kind?: string | null;
+  asset_id?: string | null;
+  /** JSON string of LocatorBlock[]: pages for a PDF, paragraphs for Word */
+  locator_map_json?: string | null;
+};
 
 export type Submission = {
   id: string;

@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { FileUp, PenLine, ShieldCheck } from "lucide-react";
-import { api, uploadFile } from "@/lib/api";
+import { useEffect, useRef, useState } from "react";
+import { FileText, FileUp, Image as ImageIcon, PenLine, ShieldCheck, X } from "lucide-react";
+import { api, MAX_UPLOAD_BYTES, uploadFile } from "@/lib/api";
 import { AiLoadingScreen } from "@/components/ai-loading";
 import { useIdentity } from "@/components/identity";
 import { canReview } from "@/lib/roles";
@@ -17,12 +17,55 @@ const MISTAKES_POST =
   "Meet Quillmark Insights 2.0 — India's #1 analytics platform, trusted by " +
   "5,000+ teams and fully ISO 27001 certified. Plans start at just ₹999/month!";
 
+const ACCEPT =
+  ".pdf,.docx,.png,.jpg,.jpeg,application/pdf," +
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/png,image/jpeg";
+
 function words(text: string): number {
   const t = text.trim();
   return t ? t.split(/\s+/).length : 0;
 }
 function exclamations(text: string): number {
   return (text.match(/!/g) ?? []).length;
+}
+
+function fileKindLabel(file: File): string {
+  const ext = file.name.toLowerCase().split(".").pop() ?? "";
+  if (ext === "pdf") return "PDF document";
+  if (ext === "docx") return "Word document";
+  if (ext === "png" || ext === "jpg" || ext === "jpeg") return "Image";
+  return "File";
+}
+
+function isImageFile(file: File): boolean {
+  return fileKindLabel(file) === "Image";
+}
+
+/** Why this file cannot be checked, in plain words; null when it can. */
+function fileProblem(file: File): string | null {
+  if (fileKindLabel(file) === "File") {
+    return "Choose a PDF, a Word .docx, or a PNG or JPEG image.";
+  }
+  if (file.size === 0) return "This file is empty. Choose it again, or export it again from its source.";
+  if (file.size > MAX_UPLOAD_BYTES) {
+    return `This file is ${(file.size / 1024 / 1024).toFixed(1)} MB; uploads can be up to 4 MB. Compress it or export a smaller copy.`;
+  }
+  return null;
+}
+
+/** A local thumbnail for an uploaded image. Other files get no preview URL. */
+function useFilePreview(file: File | null): string | null {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!file || !isImageFile(file)) {
+      setUrl(null);
+      return;
+    }
+    const next = URL.createObjectURL(file);
+    setUrl(next);
+    return () => URL.revokeObjectURL(next);
+  }, [file]);
+  return url;
 }
 
 export default function NewSubmissionPage() {
@@ -37,20 +80,50 @@ export default function NewSubmissionPage() {
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<"text" | "file">("text");
   const [file, setFile] = useState<File | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
   const [altText, setAltText] = useState("");
   const [uploading, setUploading] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const preview = useFilePreview(file);
+
+  // The tour and the guide deep-link here with ?mode=file, so the upload side
+  // opens directly. Read it from the URL after mount instead of useSearchParams
+  // so this page keeps rendering without a Suspense boundary.
+  useEffect(() => {
+    const wanted = new URLSearchParams(window.location.search).get("mode");
+    if (wanted === "file" || wanted === "text") setMode(wanted);
+  }, []);
+
+  function chooseFile(next: File | null) {
+    if (!next) {
+      setFile(null);
+      setFileError(null);
+      return;
+    }
+    const problem = fileProblem(next);
+    setFileError(problem);
+    setFile(problem ? null : next);
+    setAltText("");
+  }
 
   async function upload() {
     if (!file) return;
+    const problem = fileProblem(file);
+    if (problem) {
+      setFileError(problem);
+      return;
+    }
     setUploading(true);
     setError(null);
+    setFileError(null);
     try {
       const qs = new URLSearchParams({
         title: title.trim() || file.name,
         channel,
         source_type: isAgency ? "agency" : source,
         filename: file.name,
-        alt_text: altText,
+        alt_text: isImageFile(file) ? altText : "",
       });
       const data = await uploadFile<{ submission_id: string }>(`/submissions/upload?${qs.toString()}`, file);
       router.push(`/submissions/${data.submission_id}`);
@@ -100,14 +173,20 @@ export default function NewSubmissionPage() {
         <p className="eyebrow">{isAgency ? "Agency submission" : "New check"}</p>
         <h1 className="page-title mt-1.5">{isAgency ? "Submit client work" : "Check your content"}</h1>
         <p className="page-lede">
-          Paste text or upload a file. Canonry checks it against Quillmark&apos;s brand rules and approved facts as
+          Write it here or upload a file. Canonry checks it against Quillmark&apos;s brand rules and approved facts as
           soon as you submit, and tells you what to fix.
           {isAgency ? " It then goes to the client’s review queue under your agency source." : ""}
         </p>
       </div>
 
       <div className="surface space-y-4 p-6">
-        <div className="flex flex-wrap gap-1 rounded-full border border-border bg-muted/50 p-1 w-fit" role="tablist" aria-label="What are you submitting?">
+        <div
+          data-guide={mode === "text" ? "new-primary" : undefined}
+          tabIndex={-1}
+          className="flex w-fit flex-wrap gap-1 rounded-full border border-border bg-muted/50 p-1"
+          role="tablist"
+          aria-label="What are you submitting?"
+        >
           <button
             type="button"
             role="tab"
@@ -203,7 +282,10 @@ export default function NewSubmissionPage() {
               {content === MISTAKES_POST && " · this sample has a few planted mistakes for you to find and fix"}
             </p>
 
-            <div className="flex items-center justify-end">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-muted-foreground">
+                Or switch to <strong className="font-medium text-foreground">PDF, Word or image</strong> above to upload a file.
+              </p>
               <button
                 data-guide="check-it"
                 onClick={() => void submit()}
@@ -216,29 +298,108 @@ export default function NewSubmissionPage() {
           </>
         ) : (
           <>
-            <Field label="File (PDF, DOCX, PNG or JPEG · up to 4 MB)">
+            <div
+              data-guide={mode === "file" ? "new-primary" : undefined}
+              tabIndex={-1}
+              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOver(false);
+                chooseFile(e.dataTransfer.files?.[0] ?? null);
+              }}
+              className={`animate-fade-up rounded-2xl border-2 border-dashed px-5 py-6 text-center transition-all ${
+                dragOver
+                  ? "border-brand bg-brand/10 shadow-[0_0_0_6px_var(--ring-glow)]"
+                  : "border-brand/60 bg-brand/[0.04] shadow-[0_0_0_4px_var(--ring-glow)]"
+              }`}
+            >
               <input
+                ref={fileInput}
                 type="file"
-                accept=".pdf,.docx,.png,.jpg,.jpeg,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/png,image/jpeg"
-                className="field p-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-2 file:py-1 file:text-xs file:font-medium"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                accept={ACCEPT}
+                className="sr-only"
+                onChange={(e) => {
+                  chooseFile(e.target.files?.[0] ?? null);
+                  e.target.value = "";
+                }}
               />
-            </Field>
-            <Field label="Alt text (for an image; findings check it)">
-              <input
-                className="field h-[38px] px-3"
-                value={altText}
-                onChange={(e) => setAltText(e.target.value)}
-                placeholder="Describe what a person who cannot see the image needs to know"
-              />
-            </Field>
+              {!file ? (
+                <>
+                  <span className="mx-auto grid size-11 place-items-center rounded-2xl bg-card text-brand ring-1 ring-border">
+                    <FileUp className="size-5" aria-hidden />
+                  </span>
+                  <p className="mt-3 text-sm font-semibold text-foreground">Drop your document or image here</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    PDF, Word, PNG or JPEG · up to 4 MB · PDFs up to 20 pages
+                  </p>
+                  <button
+                    type="button"
+                    data-guide="upload"
+                    onClick={() => fileInput.current?.click()}
+                    className="btn btn-secondary btn-sm mt-3"
+                  >
+                    Choose a file
+                  </button>
+                </>
+              ) : (
+                <div className="flex items-center gap-3 text-left">
+                  {preview ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={preview} alt="" className="size-12 shrink-0 rounded-lg object-cover ring-1 ring-border" />
+                  ) : (
+                    <span className="grid size-12 shrink-0 place-items-center rounded-lg bg-card text-brand ring-1 ring-border">
+                      {isImageFile(file) ? <ImageIcon className="size-5" aria-hidden /> : <FileText className="size-5" aria-hidden />}
+                    </span>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-foreground">{file.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {fileKindLabel(file)} · {(file.size / 1024).toFixed(0)} KB · ready to check
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => chooseFile(null)}
+                    className="btn btn-ghost btn-sm"
+                    aria-label="Remove this file"
+                  >
+                    <X className="size-3.5" aria-hidden />
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {fileError && (
+              <p role="alert" className="text-sm text-danger-fg">
+                {fileError}
+              </p>
+            )}
+
+            {file && isImageFile(file) && (
+              <Field label="Alt text (findings check it too)">
+                <input
+                  className="field h-[38px] px-3"
+                  value={altText}
+                  onChange={(e) => setAltText(e.target.value)}
+                  placeholder="Describe what a person who cannot see the image needs to know"
+                />
+              </Field>
+            )}
+
             <p className="text-xs leading-relaxed text-muted-foreground">
-              PDFs report the page and line of each finding; Word reports the section and paragraph. Scanned PDFs
-              without a text layer are refused rather than guessed at. Fixes to a Word file are made inside the file; a PDF or an
-              image is fixed in its source, then uploaded as a new version.
+              PDFs report the page and line of each finding; Word reports the section and paragraph, and opens in a page
+              preview with each issue highlighted and numbered. A PDF or image is fixed in its source and uploaded as a
+              new version; Word fixes are made inside the file. Scanned PDFs without a text layer are refused rather
+              than guessed at.
             </p>
-            <div className="flex justify-end">
+
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-muted-foreground">
+                {file ? "The result opens with the issue pins on the document." : "Choose a file to check it."}
+              </p>
               <button
+                data-guide="upload"
                 onClick={() => void upload()}
                 disabled={uploading || !file || !title.trim()}
                 className="btn btn-primary"
@@ -251,7 +412,10 @@ export default function NewSubmissionPage() {
         {error && <p className="text-sm text-danger-fg" role="alert">{error}</p>}
       </div>
 
-
+      <p className="text-xs leading-relaxed text-muted-foreground">
+        Text and files are checked the same way: the always-on rules run first, and AI adds judgement when a provider is
+        available.
+      </p>
 
       <AiLoadingScreen open={busy || uploading} title={mode === "file" ? "Reading and checking your file" : "Checking your submission"} />
     </div>

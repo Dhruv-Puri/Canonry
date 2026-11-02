@@ -6,6 +6,7 @@ import { BrandMark } from "@/components/brand";
 import { Spotlight } from "@/components/effects";
 import { IdentityGate } from "@/components/identity";
 import { GuidePanel, GuideProvider } from "@/components/guide";
+import { TourHost } from "@/components/tour-host";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -56,6 +57,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           </div>
         </footer>
         <GuidePanel />
+        <TourHost />
         </IdentityGate>
         </GuideProvider>
         </Suspense>

@@ -13,6 +13,7 @@ import {
   type Finding,
   type FindingLocator,
   type ImageReading,
+  type LocatorBlock,
   type Revision,
   type SubmissionDetail,
   uploadFile,
@@ -21,6 +22,7 @@ import { diffSummary, diffWords, type DiffToken } from "@/lib/diff";
 import { LevelBadge, RiskBadge, StatusBadge } from "@/components/fx";
 import { AiLoadingScreen } from "@/components/ai-loading";
 import { JourneySteps, NextStep, VerifyLink } from "@/components/journey";
+import { DocumentPreview } from "@/components/document-preview";
 import { rememberSent } from "@/components/guide";
 import { markIssueHandled } from "@/components/start-here";
 import { ROLE_LABEL, roleHome } from "@/lib/roles";
@@ -383,6 +385,10 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
         <AssetPreview
           asset={d.asset}
           findings={d.findings}
+          content={rev?.content ?? ""}
+          locatorMap={locatorMapOf(rev)}
+          pinnedFindings={showActionsForRev ? d.findings : []}
+          numbers={issueNumber}
           canUpload={canResolve && editable}
           busy={busy || checking}
           onUpload={uploadVersion}
@@ -429,10 +435,12 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
         {diffMode && prevRev ? (
           <RevisionDiff before={prevRev.content} after={rev?.content ?? ""}
                         fromNo={prevRev.revision_no} toNo={rev?.revision_no} />
-        ) : d.asset && ["png", "jpeg"].includes(d.asset.kind) ? (
-          <p className="text-sm text-muted-foreground">
-            This is an image. The visual findings are drawn on the preview above; its alt text is “{d.asset.alt_text || "—"}”.
-          </p>
+        ) : d.asset ? (
+          <FileContentNote
+            asset={d.asset}
+            content={rev?.content ?? ""}
+            pinned={rev?.id === d.latest_revision?.id ? openFindings.length : 0}
+          />
         ) : (
           <ContentWithSpans
             content={rev?.content ?? ""}
@@ -605,12 +613,20 @@ const BOX_COLOR: Record<string, string> = {
 function AssetPreview({
   asset,
   findings,
+  content,
+  locatorMap,
+  pinnedFindings,
+  numbers,
   canUpload,
   busy,
   onUpload,
 }: {
   asset: NonNullable<SubmissionDetail["asset"]>;
   findings: Finding[];
+  content: string;
+  locatorMap: LocatorBlock[] | null;
+  pinnedFindings: Finding[];
+  numbers: Map<string, number>;
   canUpload: boolean;
   busy: boolean;
   onUpload: (file: File) => Promise<void>;
@@ -633,53 +649,53 @@ function AssetPreview({
           {asset.page_count ? ` · ${asset.page_count} page${asset.page_count === 1 ? "" : "s"}` : ""}
           {asset.width && asset.height ? ` · ${asset.width}×${asset.height}` : ""}
         </span>
+        <a className="btn btn-sm btn-secondary" href={`/engine/assets/${asset.id}`} target="_blank" rel="noreferrer">
+          {asset.kind === "docx" ? "Download this version" : "Open the file"}
+        </a>
       </div>
 
       {["png", "jpeg"].includes(asset.kind) ? (
-        <div
-          className="relative mx-auto mt-4 max-h-[460px] w-fit max-w-full overflow-hidden rounded-xl border border-border bg-muted"
-          style={{ aspectRatio: asset.width && asset.height ? `${asset.width} / ${asset.height}` : undefined }}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={`/engine/assets/${asset.id}`}
-            alt={asset.alt_text || `Uploaded image ${asset.filename}`}
-            className="max-h-[460px] w-auto max-w-full object-contain"
-          />
-          {boxes.map((f) => {
-            const [x, y, w, h] = f.locator!.bbox!;
-            return (
-              <span
-                key={f.id}
-                title={`${CATEGORY_LABEL[f.category] ?? f.category} · ${TIER_LABEL[f.tier]}`}
-                className={`pointer-events-none absolute rounded-sm border-2 ${BOX_COLOR[f.severity] ?? BOX_COLOR.low}`}
-                style={{
-                  left: `${(x / (asset.width || 1)) * 100}%`,
-                  top: `${(y / (asset.height || 1)) * 100}%`,
-                  width: `${(w / (asset.width || 1)) * 100}%`,
-                  height: `${(h / (asset.height || 1)) * 100}%`,
-                }}
-              />
-            );
-          })}
+        <div className="doc-desk mt-4 rounded-2xl p-4 sm:p-6">
+          <div
+            className="relative mx-auto max-h-[460px] w-fit max-w-full overflow-hidden rounded-lg bg-muted shadow-[0_18px_40px_-18px_rgba(0,0,0,0.6)]"
+            style={{ aspectRatio: asset.width && asset.height ? `${asset.width} / ${asset.height}` : undefined }}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={`/engine/assets/${asset.id}`}
+              alt={asset.alt_text || `Uploaded image ${asset.filename}`}
+              className="max-h-[460px] w-auto max-w-full object-contain"
+            />
+            {boxes.map((f) => {
+              const [x, y, w, h] = f.locator!.bbox!;
+              return (
+                <span
+                  key={f.id}
+                  title={`${CATEGORY_LABEL[f.category] ?? f.category} · ${TIER_LABEL[f.tier]}`}
+                  className={`pointer-events-none absolute rounded-sm border-2 ${BOX_COLOR[f.severity] ?? BOX_COLOR.low}`}
+                  style={{
+                    left: `${(x / (asset.width || 1)) * 100}%`,
+                    top: `${(y / (asset.height || 1)) * 100}%`,
+                    width: `${(w / (asset.width || 1)) * 100}%`,
+                    height: `${(h / (asset.height || 1)) * 100}%`,
+                  }}
+                />
+              );
+            })}
+          </div>
+          <p className="mt-3 text-center text-[11px] text-[#cbb79f]">
+            Alt text: {asset.alt_text ? `“${asset.alt_text}”` : "missing"} · boxes mark where the visual findings sit.
+          </p>
         </div>
       ) : (
-        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-dashed border-border-strong bg-muted/30 p-4">
-          <div>
-            <p className="text-sm font-medium text-foreground">{asset.filename}</p>
-            <p className="text-xs text-muted-foreground">
-              Findings point to {asset.kind === "pdf" ? "a page and line" : "a section and paragraph"} in the extracted text below.
-            </p>
-          </div>
-          <a className="btn btn-sm btn-secondary ml-auto" href={`/engine/assets/${asset.id}`} target="_blank" rel="noreferrer">
-            {asset.kind === "docx" ? "Download this version" : "Open the file"}
-          </a>
-        </div>
-      )}
-      {["png", "jpeg"].includes(asset.kind) && (
-        <p className="mt-3 text-xs text-muted-foreground">
-          Alt text: {asset.alt_text ? `“${asset.alt_text}”` : "missing"} · boxes mark where the visual findings sit.
-        </p>
+        <DocumentPreview
+          kind={asset.kind as "pdf" | "docx"}
+          filename={asset.filename}
+          content={content}
+          locatorMap={locatorMap}
+          findings={pinnedFindings}
+          numbers={numbers}
+        />
       )}
       {canUpload && (
         <label className={`btn btn-sm btn-secondary mt-3 w-fit ${busy ? "pointer-events-none opacity-60" : "cursor-pointer"}`}>
@@ -702,6 +718,69 @@ function AssetPreview({
 }
 
 /* ------------------------------------------------------------------ */
+
+/** The engine returns the revision's page/paragraph map as JSON; the preview reads it. */
+function locatorMapOf(rev: Revision | null): LocatorBlock[] | null {
+  if (!rev?.locator_map_json) return null;
+  try {
+    const parsed: unknown = JSON.parse(rev.locator_map_json);
+    return Array.isArray(parsed) ? (parsed as LocatorBlock[]) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** What to say instead of dumping an uploaded file's raw text: point at the page preview. */
+function FileContentNote({
+  asset,
+  content,
+  pinned,
+}: {
+  asset: NonNullable<SubmissionDetail["asset"]>;
+  content: string;
+  pinned: number;
+}) {
+  const isImage = asset.kind === "png" || asset.kind === "jpeg";
+  const kind = asset.kind === "pdf" ? "PDF" : asset.kind === "docx" ? "Word document" : "Image";
+  return (
+    <div className="space-y-3">
+      <p className="text-sm leading-relaxed text-foreground-secondary">
+        {isImage ? (
+          <>
+            This is an image, shown above. The visual findings are drawn on the picture itself; its alt text is “
+            {asset.alt_text || "—"}”.
+          </>
+        ) : (
+          <>
+            This {kind} opens above in a page preview that keeps its layout. Every issue is highlighted where it sits and
+            numbered to match its card.{pinned > 0 ? ` ${pinned} open issue${pinned === 1 ? " is" : "s are"} pinned.` : ""}
+          </>
+        )}
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <a href="#doc-viewer" className="btn btn-sm btn-secondary">
+          {isImage ? "Go to the picture" : "Go to the page preview"}
+        </a>
+        {!isImage && (
+          <a className="btn btn-sm btn-ghost" href={`/engine/assets/${asset.id}`} target="_blank" rel="noreferrer">
+            {asset.kind === "docx" ? "Download the file" : "Open the original"}
+          </a>
+        )}
+      </div>
+      {!isImage && content.trim() !== "" && (
+        <details className="group/text">
+          <summary className="flex w-fit cursor-pointer list-none items-center gap-1 text-xs font-medium text-brand hover:underline [&::-webkit-details-marker]:hidden">
+            <ChevronRight className="size-3.5 transition-transform group-open/text:rotate-90" aria-hidden />
+            Show the extracted text
+          </summary>
+          <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-xl border border-border bg-muted/40 p-3 font-serif text-[13px] leading-relaxed text-foreground-secondary">
+            {content}
+          </pre>
+        </details>
+      )}
+    </div>
+  );
+}
 
 function ReviewBar({
   busy,

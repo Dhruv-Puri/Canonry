@@ -94,7 +94,6 @@ function flowIndex(status: string): number {
 const CHANNELS = ["social", "web", "blog", "email", "sales"];
 const HEADLINE = ["Every", "word,"];
 const HEADLINE_INK = ["on", "brand."];
-const TOUR_KEY = "canonry.tour.v1";
 
 export default function HomePage() {
   const router = useRouter();
@@ -106,23 +105,6 @@ export default function HomePage() {
   const [draft, setDraft] = useState("");
   const [channel, setChannel] = useState("social");
   const [busy, setBusy] = useState(false);
-  const [tourOpen, setTourOpen] = useState(false);
-
-  function closeTour() {
-    setTourOpen(false);
-    try {
-      window.localStorage.setItem(TOUR_KEY, "1");
-    } catch {
-      // Ignore storage failures; the current session still knows it was seen.
-    }
-  }
-
-  function finishTour() {
-    closeTour();
-    window.setTimeout(() => {
-      document.getElementById("check")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 220);
-  }
 
   const load = useCallback(async () => {
     try {
@@ -536,13 +518,16 @@ export default function HomePage() {
           <a href="#check" className="btn btn-primary btn-lg shadow-card">
             Try it on your own copy <span aria-hidden className="btn-arrow">→</span>
           </a>
-          <button type="button" onClick={() => setTourOpen(true)} className="btn btn-secondary btn-lg">
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new Event("canonry:open-tour"))}
+            className="btn btn-secondary btn-lg"
+          >
             Take the tour
           </button>
         </Reveal>
       </section>
 
-      <ProductTour open={tourOpen} onClose={closeTour} onFinish={finishTour} />
       <AiLoadingScreen open={busy} title="Checking your draft" />
     </div>
   );
