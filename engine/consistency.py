@@ -189,7 +189,7 @@ class Scanner:
         self.cert_rule = rules("claims.certification")
         self.rule_on = {k: bool(rules(k)) for k in ("claims.statistic", "claims.superlative",
                                                      "claims.certification", "voice.hard_sell")}
-        self.terms = [(t["preferred"], [v.strip() for v in (t["banned_or_check"] or "").split(",") if v.strip()])
+        self.terms = [(t["preferred"], checkers.term_variants(t["banned_or_check"]))
                       for t in conn.execute("SELECT preferred, banned_or_check FROM terms "
                                             "WHERE status = 'active' AND workspace_id = ?", (ws,)).fetchall()]
 
@@ -201,7 +201,7 @@ class Scanner:
             for v in variants:
                 if v.lower() in preferred.lower():
                     continue  # the fix would contain the variant again
-                for m in re.finditer(re.escape(v), text, re.IGNORECASE):
+                for m in checkers.term_pattern(v).finditer(text):
                     out.append({"start": m.start(), "end": m.end(), "what": f'uses "{m.group(0)}"',
                                 "fix": preferred})
         for c in claims.find_claims(text):

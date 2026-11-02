@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional
 
 from PIL import Image
 
+import checkers
 import claims
 import compliance
 import consistency
@@ -70,7 +71,7 @@ def names(conn, ws: str) -> Dict[str, Any]:
         if not preferred or preferred == "-" or not _is_name(preferred):
             continue
         ours.append(preferred)
-        for variant in (v.strip() for v in (t["banned_or_check"] or "").split(",")):
+        for variant in checkers.term_variants(t["banned_or_check"]):
             if variant and _is_name(variant) and variant.lower() not in preferred.lower():
                 retired.append({"name": variant, "term": t})
     logos = conn.execute("SELECT name, variant FROM brand_logos WHERE workspace_id = ? AND active = 1",

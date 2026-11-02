@@ -7,6 +7,7 @@ Every finding carries citations to real rules (or terms) — no citation, no fin
 """
 from __future__ import annotations
 
+import functools
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -84,6 +85,24 @@ def _ci_find(text: str, needle: str) -> Optional[Tuple[int, int]]:
 
 # ---- terminology -----------------------------------------------------------
 
+def term_variants(banned: Optional[str]) -> List[str]:
+    """The phrases in a term's "instead of" list. Commas separate phrases, but not the comma
+    inside a number: "5,000+ teams" is one phrase. (Splitting it made "5" a banned word, so
+    "Setup takes 5 minutes" got a Must fix.)"""
+    return [v.strip() for v in re.split(r",(?!\d{3}(?!\d))", banned or "") if v.strip()]
+
+
+@functools.lru_cache(maxsize=512)  # built once per phrase: a long draft asks thousands of times
+def term_pattern(variant: str) -> "re.Pattern[str]":
+    """Match a phrase as whole words and whole numbers: "#1" is not inside "#10", and
+    "5,000+ teams" is not inside "25,000+ teams"."""
+    left = r"(?<![\w])" if variant[:1].isalnum() else ""
+    right = r"(?![\w])" if variant[-1:].isalnum() else ""
+    if variant[-1:].isdigit():
+        right = r"(?![\w,.]?\d)(?![\w])"  # "#1" must not continue as "#10" or "#1.5"
+    return re.compile(left + re.escape(variant) + right, re.IGNORECASE)
+
+
 def check_terminology(ctx: Ctx, text: str) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     rows = ctx.conn.execute(
@@ -94,12 +113,10 @@ def check_terminology(ctx: Ctx, text: str) -> List[Dict[str, Any]]:
     for t in rows:
         banned = t["banned_or_check"] or ""
         preferred = t["preferred"] or ""
-        for variant in (v.strip() for v in banned.split(",")):
-            if not variant:
-                continue
+        for variant in term_variants(banned):
             # every occurrence, not just the first: a second "Quillmark Insights"
             # must not slip through to approval
-            for m in re.finditer(re.escape(variant), text, re.IGNORECASE):
+            for m in term_pattern(variant).finditer(text):
                 span = (m.start(), m.end(), m.group(0))
                 # citations: parse rule ids and fact ids out of the note
                 cits: List[Dict[str, Any]] = []
