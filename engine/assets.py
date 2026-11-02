@@ -89,12 +89,15 @@ def create_asset(conn, workspace_id: str, submission_id: Optional[str], filename
     palette_json = None
     metadata: Dict[str, Any] = {}
     if kind in ("png", "jpeg"):
-        info = inspect_image(data)
-        width, height, dhash = info.width, info.height, info.dhash
-        palette_json = json.dumps(info.palette)
-        read = ocr.read_bytes(data)
-        if read:
-            read = images.without_logo_text(images._open(data), read, images.logo_templates(conn, workspace_id))
+        with images.PIXEL_WORK:  # decode once; see images.PIXEL_WORK
+            img = images._open(data)
+            info = images.inspect(data, img=img)
+            width, height, dhash = info.width, info.height, info.dhash
+            palette_json = json.dumps(info.palette)
+            read = ocr.read(img)
+            if read:
+                read = images.without_logo_text(img, read, images.logo_templates(conn, workspace_id))
+            del img
         metadata = {"graphic": info.graphic, "format": info.fmt,
                     "ocr": read if read is not None else {"unavailable": True, "lines": []}}
         extracted_text, locator_map = images.image_text(alt_text, read)

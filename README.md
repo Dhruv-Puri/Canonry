@@ -88,7 +88,7 @@ every number now traces to an approved fact, and the router fast-tracked it as l
 | Judging criterion (points) | Evidence |
 |---|---|
 | Core workflow runs end to end (30) | §1 journey; `test_engine.py` drives it through the API; seeded launch post to try it in the browser |
-| Technical depth and reliability (25) | 27 test suites + evaluation gate in CI, and a 184-check browser walk (§7); finding contract enforced on every finding; role scoping and lifecycle locks tested; honest AI degradation |
+| Technical depth and reliability (25) | 28 test suites + evaluation gate in CI, and a 184-check browser walk (§7); finding contract enforced on every finding; role scoping and lifecycle locks tested; honest AI degradation |
 | Progress against the plan (20) | [docs/plan-vs-build.md](docs/plan-vs-build.md): every plan commitment, what changed and why; [docs/changelog.md](docs/changelog.md): milestones M1–M6 with evidence |
 | Three planned improvements (15) | §12 (Round 3 plan); §3 shows the Round 1 improvements delivered |
 | Usability so far (10) | password-free demo personas, plain-language findings, one-click fixes; usability kit (§8) |
@@ -209,7 +209,7 @@ Main technical decisions (full list with reasons in the [decision log](docs/deci
 ## 7. Tests and reliability
 
 ```bash
-.venv/Scripts/python engine/tests/run_tests.py     # 27 suites (fresh DB each) + evaluation gate
+.venv/Scripts/python engine/tests/run_tests.py     # 28 suites (fresh DB each) + evaluation gate
 ```
 
 | Suite (`engine/tests/`) | Proves |
@@ -241,6 +241,7 @@ Main technical decisions (full list with reasons in the [decision log](docs/deci
 | `test_long_draft` | a 50,000-character draft is checked in about a second (it took over two minutes live before the fix) |
 | `test_vision` | image understanding with a faked Gemini: a competitor's brand cites the comparative clause (the logo rule with the pack off), a retired name seen only by the model is Should fix, "India's #1" in the picture is checked like text, a picture that contradicts its caption is Worth a look, the seen alt text is accepted in one click; malformed answers, timeouts and an empty allowance leave exactly the old findings; one card when OCR and the model see the same name; the call counts toward the allowance |
 | `test_suggested_facts` | the knowledge base grows from use: a claim flagged twice is suggested once on Insights, a reviewer adds it as a fact, the same claim is then backed by it and a different number (45% vs 37%) is still caught |
+| `test_large_images` | a 4000 px image gets the same logo verdicts and box as a 1000 px one, text recognition prepares it without two full-size colour copies, and only one upload does pixel work at a time (a 4096 px upload needed ~380 MB on a 512 MB server; now ~160 MB) |
 | `test_slow_ai_lock` | a check waiting on a slow AI model never locks other visitors out (sign-ins and drafts during the first and later AI calls answer at once) |
 
 Image checks use Tesseract for the words in an image. The suites fake it, so they run anywhere; the
@@ -333,7 +334,7 @@ What a judge may run into on the live demo:
 ├── data/                    ← demo brand book: rules, facts, terms (CSV)
 ├── engine/                  ← FastAPI analysis engine (all product logic)
 │   ├── *.py                 ← modules listed in §5
-│   ├── tests/               ← 27 suites + run_tests.py
+│   ├── tests/               ← 28 suites + run_tests.py
 │   ├── evaluation/          ← evaluate.py, labelled set, committed baseline
 │   ├── Dockerfile
 │   └── requirements.txt

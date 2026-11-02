@@ -191,9 +191,10 @@ def run_check(conn: sqlite3.Connection, revision_id: str, actor: Optional[str] =
         image_raw = raw
         if raw:
             try:
-                findings += images.check_image(ctx, raw, asset_row.get("alt_text"),
-                                               asset_id, asset_row.get("filename") or "",
-                                               ocr_result=assets.image_ocr(asset_row))
+                with images.PIXEL_WORK:
+                    findings += images.check_image(ctx, raw, asset_row.get("alt_text"),
+                                                   asset_id, asset_row.get("filename") or "",
+                                                   ocr_result=assets.image_ocr(asset_row))
             except images.ImageError as exc:
                 if os.environ.get("CANON_DEBUG"):
                     print("[image skip]", exc)
