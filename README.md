@@ -147,7 +147,8 @@ flowchart LR
     U["Browser"] -->|"same origin"| W["Web: Next.js 16<br/>screens only"]
     W -->|"/engine/* proxy"| E["Engine: FastAPI"]
     E --> P["Check pipeline"]
-    P --> R["Rule checkers<br/>terms · readability · tone · confidential"]
+    P --> Q["Understand first<br/>format · kind · intent · claims"]
+    Q --> R["Rule checkers<br/>terms · readability · tone · confidential"]
     P --> C["Claim pipeline<br/>patterns · fact retrieval · Claim Memory"]
     P --> G["AI gateway<br/>Gemini → Groq → OpenRouter → Ollama"]
     E --> D[("SQLite (WAL)<br/>Postgres-compatible schema")]
@@ -158,7 +159,9 @@ flowchart LR
 | Engine module (`engine/`) | Responsibility |
 |---|---|
 | `main.py` | HTTP API: sign-in, knowledge base, submissions, review, verify, insights |
-| `pipeline.py` | one check run: rule checks → claims → AI → contract and citation check → store |
+| `pipeline.py` | one check run: understand → rule checks → claims → AI → India pack → merge, fix check, citation check → store |
+| `understand.py` | content profile before any rule runs: format, kind, intent, audience, language, claims, summary; which checks apply; claims read in context (negated, someone else's, quoted) |
+| `consistency.py` | one card per issue (merges duplicates), fixes that never bring back another issue, every rule named in an explanation is cited |
 | `checkers.py` | deterministic checks (terminology, readability, CTA, tone heuristics, confidential leaks) |
 | `claims.py` | claim detection, fact retrieval, verdicts, Verified Claim Memory |
 | `policy.py` | which workspace rule each built-in check enforces (rule bindings) |
@@ -176,6 +179,7 @@ Main technical decisions (full list with reasons in the [decision log](docs/deci
 
 - **One FastAPI engine + Next.js web behind a same-origin proxy** (D35): every rule lives in the engine; the web app only renders. No CORS, cookies stay first-party.
 - **SQLite now, Postgres-compatible schema** (D35): zero-setup for judges; table and column names already match the managed Postgres + pgvector target.
+- **Understand first, then check** (D63–D69): every check starts by reading what the content is, without AI ("A promotional social post for Quillmark Pulse that makes 4 factual claims: a ranking, a customer count, a certification and a price."). That reading decides which checks apply: no call-to-action or hard-sell findings on an internal note, no India-pack warning on a policy, the social length limit only on social posts. A denied or someone else's claim is not flagged. Before findings are stored, duplicates on the same words merge into one card, every suggested fix is re-checked so accepting it cannot bring back another issue, and every rule an explanation names is cited. The profile is shown as `check.profile`.
 - **Rules before AI, honest degradation** (D37): deterministic checks always run; with no AI provider the run is marked `ai_pending`, never silently skipped.
 - **Rule bindings** (D43): checks cite the workspace's own rules, so the engine works with any rulebook, not just the demo's.
 - **Free models only** (D28, D48): Gemini, Groq and OpenRouter free tiers plus local Ollama, ≤ 3 answered calls per 1,000 words; confidential facts are never sent.
@@ -223,6 +227,7 @@ Main technical decisions (full list with reasons in the [decision log](docs/deci
 | `test_logos` | logo found at any size; stretched, tilted, recoloured, busy background, clear space, too small and retired logos flagged; no false logo in a same-typeface headline, noise or a flat banner |
 | `test_docx_fix` | fixes land inside the Word file with its formatting; the approved, stamped Word file verifies; a copied seal on changed or different bytes does not |
 | `test_reliability` | two tabs and double clicks: an old tab cannot undo newer fixes, one click = one revision, one approval = one seal; very long drafts and titles; emoji, Hindi, RTL and HTML text kept exactly |
+| `test_understanding` | the content profile (social post, internal note, press release, policy, PDF, image); checks gated by it; denied, attributed and quoted claims; one card per issue; accepting every fix in turn never brings a fixed issue back; every rule an explanation names is cited |
 | evaluation gate | precision / recall per checker and tier on the frozen split; fails on regression |
 
 Image checks use Tesseract for the words in an image. The suites fake it, so they run anywhere; the
