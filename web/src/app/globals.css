@@ -19,9 +19,9 @@
 :root {
   color-scheme: light;
 
-  --background: #fdfbf7;
+  --background: #f7f1e6; /* a deeper cream than the cards, so cards read as raised surfaces */
   --card: #fffefb;
-  --muted: #f8f3ea;
+  --muted: #f2eadc;
   --sunken: #f3ebdf;
   --sidebar: #f8f3ea;
 
@@ -37,12 +37,12 @@
   --brand-highlight: #c49a74;
   --caramel: #a0673f;
 
-  --border: #efe6d8;
-  --border-strong: #e0d2bd;
+  --border: #e6d9c5;
+  --border-strong: #d4c0a3;
   --input: #9e8770;
   --ring: #8b5e3c;
   --ring-glow: rgba(139, 94, 60, 0.16);
-  --accent: #f3ebdf;
+  --accent: #efe4d3;
 
   --rule-line: rgba(196, 154, 116, 0.1);
   --margin-line: rgba(196, 154, 116, 0.5);
@@ -227,6 +227,7 @@ body {
     border: 1px solid var(--border);
     border-radius: var(--radius-xl);
     background: var(--card);
+    box-shadow: 0 1px 2px rgba(74, 53, 39, 0.05), 0 4px 14px -8px rgba(74, 53, 39, 0.10);
   }
   .surface-interactive {
     transition: transform 400ms var(--ease-out), box-shadow 400ms var(--ease-out), border-color 200ms var(--ease-out);
@@ -884,4 +885,18 @@ body {
   .tour-spot-label {
     animation: none;
   }
+}
+
+/* one walkthrough at a time: the guide steps aside while the product tour is open */
+body.tour-open .guide-panel {
+  display: none;
+}
+body.tour-open .guide-pulse {
+  animation: none;
+  box-shadow: none;
+  outline: none;
+}
+body.tour-open .guide-pulse::before,
+body.tour-open .guide-pulse::after {
+  display: none;
 }

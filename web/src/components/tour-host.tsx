@@ -32,13 +32,22 @@ export function TourHost() {
     }
     // A new browser session starts at the welcome screen, so it gets the tour
     // again; inside one session only a profile switch re-opens it.
-    if (last === null ? wantsGuide() : last !== me.role) setOpen(true);
+    // Only for visitors who asked to be shown around: a returning visitor is never interrupted
+    // (they can still press "Take the tour"). Before, any role switch opened it for everyone.
+    if (wantsGuide() && (last === null || last !== me.role)) setOpen(true);
     try {
       window.sessionStorage.setItem(ROLE_KEY, me.role);
     } catch {
       // ignore
     }
   }, [me]);
+
+  // One walkthrough at a time: while the tour is open, the step-by-step guide and its pointer
+  // step aside (they sat on top of each other, and the guide's next step was hidden behind it).
+  useEffect(() => {
+    document.body.classList.toggle("tour-open", open);
+    return () => document.body.classList.remove("tour-open");
+  }, [open]);
 
   // The home page's "Take the tour" button asks this host to open it.
   useEffect(() => {

@@ -228,7 +228,7 @@ function nextStep(path: string, role: string, mine: Submission[], detail: Submis
           few planted mistakes, so you can press <strong>Check it</strong> straight away.
         </>
       ),
-      target: '[data-guide="new-primary"]',
+      target: '[data-guide="new-primary"], [data-guide="check-it"]',
     };
   }
   if (signed && !draft && !inReview) {
