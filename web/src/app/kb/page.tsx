@@ -70,7 +70,7 @@ export default function KBPage() {
   const [showRetired, setShowRetired] = useState(false);
 
   // dialogs
-  const [editing, setEditing] = useState<{ kind: KBKind; entity: KBEntity | null } | null>(null);
+  const [editing, setEditing] = useState<{ kind: KBKind; entity: KBEntity | null; draft?: Record<string, string> } | null>(null);
   const [historyOf, setHistoryOf] = useState<{ kind: KBKind; entity: KBEntity } | null>(null);
   const [retiring, setRetiring] = useState<{ kind: KBKind; entity: KBEntity } | null>(null);
   const [impact, setImpact] = useState<{ factId: string; items: ImpactItem[] } | null>(null);
@@ -97,6 +97,16 @@ export default function KBPage() {
   }, [load]);
 
   const canEdit = me?.role === "reviewer" || me?.role === "admin";
+
+  // Insights → "Add as approved fact": /kb?fact=<the claim> opens the new-fact form with it filled in
+  useEffect(() => {
+    if (!canEdit) return;
+    const claim = new URLSearchParams(window.location.search).get("fact");
+    if (!claim) return;
+    setTab("facts");
+    setEditing({ kind: "facts", entity: null, draft: { text: claim.slice(0, 500) } });
+    window.history.replaceState(null, "", "/kb");
+  }, [canEdit]);
   // the engine replaces confidential fact text for other roles: list them as one line, not as placeholder rows
   const hidesConfidential = Boolean(me) && !canEdit;
 
@@ -241,6 +251,7 @@ export default function KBPage() {
         <EntityDialog
           kind={editing.kind}
           entity={editing.entity}
+          draft={editing.draft}
           open
           onOpenChange={(o) => !o && setEditing(null)}
           onSaved={(r) => afterWrite(editing.kind, r, editing.entity ? "saved" : "added")}

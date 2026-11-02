@@ -211,7 +211,10 @@ def classify_match(claim_kind: str, snippet: str, facts: List[sqlite3.Row],
     today = date.today()
     if claim_kind == "superlative":
         return {"verdict": None}  # decided by policy, not number-matching
-    shared_nums = [n for n in claim_numbers if _significant(n)]
+    # "37%" is as specific as "2,300": a percentage counts whatever its length
+    # (before, any claim under 100% could never be matched to an approved fact)
+    pct = {m for m in re.findall(r"(\d+(?:\.\d+)?)\s*(?:%|percent\b|per\s+cent\b)", snippet)}
+    shared_nums = [n for n in claim_numbers if _significant(n) or n in pct]
 
     for f in facts:
         fn = _extract_numbers(f["text"])
