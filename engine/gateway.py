@@ -22,7 +22,8 @@ import os
 import sqlite3
 import threading
 import time
-from typing import Any, Dict, List, Optional
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
@@ -34,6 +35,8 @@ TIMEOUT = httpx.Timeout(90.0, connect=10.0)
 # whole check's AI time: the next model or provider gets its turn (slow but good
 # answers measured live took up to ~45 s; a hung call was still silent at 60 s).
 CALL_TIMEOUT_SECONDS = 25.0
+# a normal answer takes ~1 s; a call still running after this gets a second model asked too
+HEDGE_AFTER_SECONDS = 4.0
 AI_DEADLINE_SECONDS = 120.0
 RETRYABLE = {408, 429, 500, 502, 503, 504}
 
@@ -382,6 +385,86 @@ def _log(conn: sqlite3.Connection, task: str, provider: Provider, model: str, pr
     conn.commit()
 
 
+def _attempt(provider: Provider, model: str, messages: List[Dict[str, str]],
+             images: Optional[List[Dict[str, str]]], timeout: httpx.Timeout) -> Tuple[float, Any, Any]:
+    """One HTTP call to one model, run on a worker thread: (started, answer, error)."""
+    started = time.perf_counter()
+    try:
+        with httpx.Client(timeout=timeout, transport=_transport) as client:
+            out = (provider.chat(client, messages, model=model, images=images) if images
+                   else provider.chat(client, messages, model=model))
+        return started, out, None
+    except (ProviderError, httpx.HTTPError) as e:
+        return started, None, e
+
+
+def _race(provider: Provider, models: List[str], messages: List[Dict[str, str]],
+          images: Optional[List[Dict[str, str]]], deadline: Optional[float],
+          conn: sqlite3.Connection, task: str, prompt_version: str) -> Tuple[Optional[Dict[str, Any]], bool, bool]:
+    """Try the models in order. A normal answer takes about a second, but free tiers
+    sometimes stall one call for 10-25 s; when the running call is past
+    HEDGE_AFTER_SECONDS the next model is asked too, and the first answer wins.
+    At most two calls run at once. Returns (answer, a retryable failure was seen,
+    out of time). Logging stays on this thread: SQLite connections are not shared."""
+    queue = list(models)
+    running: Dict[Future, Tuple[str, str]] = {}  # future -> (model, rate-limit key)
+    retryable_seen = False
+    pool = ThreadPoolExecutor(max_workers=2)
+
+    def launch() -> str:
+        """Start the next allowed model: 'started', 'none left' or 'out of time'."""
+        while queue:
+            model = queue.pop(0)
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 3:
+                    queue.clear()
+                    return "out of time"
+                wait_s = min(CALL_TIMEOUT_SECONDS, remaining)
+                timeout = httpx.Timeout(wait_s, connect=min(TIMEOUT.connect, wait_s))
+            else:
+                timeout = TIMEOUT
+            key = f"{provider.name}:{model}"
+            if not _allow_model(key, _rpm_for(provider, model)):
+                continue
+            running[pool.submit(_attempt, provider, model, messages, images, timeout)] = (model, key)
+            return "started"
+        return "none left"
+
+    try:
+        state = launch()
+        if state == "out of time":
+            return None, retryable_seen, True
+        while running:
+            hedge_possible = len(running) < 2 and bool(queue)
+            done, _ = wait(list(running), timeout=HEDGE_AFTER_SECONDS if hedge_possible else None,
+                           return_when=FIRST_COMPLETED)
+            if not done:
+                # the running call is slow: ask the next model as well
+                if launch() == "out of time" and not running:
+                    return None, retryable_seen, True
+                continue
+            for fut in done:
+                model, key = running.pop(fut)
+                started, out, err = fut.result()
+                if out is not None:
+                    _log(conn, task, provider, out["model"], prompt_version, started, ok=True)
+                    for _slow_model, slow_key in running.values():
+                        _cool_model(slow_key)  # it stalled past the hedge: skip it for a while
+                    return out, retryable_seen, False
+                _log(conn, task, provider, model, prompt_version, started, ok=False)
+                if isinstance(err, httpx.TransportError) or getattr(err, "retryable", False):
+                    retryable_seen = True
+                if getattr(err, "status", None) in (429, 503) or isinstance(err, httpx.TimeoutException):
+                    _cool_model(key)  # busy or stalled: let the next model answer
+            if not running and launch() == "out of time":
+                return None, retryable_seen, True
+        return None, retryable_seen, False
+    finally:
+        # a call that lost the race finishes on its own (bounded by its timeout)
+        pool.shutdown(wait=False, cancel_futures=True)
+
+
 def gateway_call(task: str, messages: List[Dict[str, str]], conn: Optional[sqlite3.Connection] = None,
                  budget_ok: bool = True, prompt_version: str = PROMPT_VERSION,
                  deadline: Optional[float] = None,
@@ -401,34 +484,12 @@ def gateway_call(task: str, messages: List[Dict[str, str]], conn: Optional[sqlit
         for provider in providers:
             models = provider.vision_models() if images else provider.models()
             for round_no in range(2):  # one retry after a transient failure
-                retryable_seen = False
-                for model in models:
-                    if deadline is not None:
-                        remaining = deadline - time.monotonic()
-                        if remaining <= 3:
-                            return None
-                        wait = min(CALL_TIMEOUT_SECONDS, remaining)
-                        timeout = httpx.Timeout(wait, connect=min(TIMEOUT.connect, wait))
-                    else:
-                        timeout = TIMEOUT
-                    key = f"{provider.name}:{model}"
-                    if not _allow_model(key, _rpm_for(provider, model)):
-                        continue
-                    started = time.perf_counter()
-                    try:
-                        with httpx.Client(timeout=timeout, transport=_transport) as client:
-                            out = (provider.chat(client, messages, model=model, images=images) if images
-                                   else provider.chat(client, messages, model=model))
-                    except (ProviderError, httpx.HTTPError) as e:
-                        _log(conn, task, provider, model, prompt_version, started, ok=False)
-                        retryable = isinstance(e, httpx.TransportError) or getattr(e, "retryable", False)
-                        if retryable:
-                            retryable_seen = True
-                        if getattr(e, "status", None) in (429, 503) or isinstance(e, httpx.TimeoutException):
-                            _cool_model(key)  # busy or stalled: let the next model answer
-                        continue
-                    _log(conn, task, provider, out["model"], prompt_version, started, ok=True)
+                out, retryable_seen, out_of_time = _race(provider, models, messages, images, deadline,
+                                                         conn, task, prompt_version)
+                if out is not None:
                     return {"text": out["text"], "model": out["model"], "provider": provider.name}
+                if out_of_time:
+                    return None
                 if not retryable_seen:
                     break
                 if round_no == 0:
