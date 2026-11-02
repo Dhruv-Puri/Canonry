@@ -43,6 +43,10 @@
   line against WCAG AA and boxed on the preview.
 - **Logo use**: the brand-kit logo is found at any size (OpenCV ORB + homography) and checked for a
   retired version, stretching, tilting, recolouring, a busy background, crowded clear space and size.
+- **Image understanding**: with Gemini, one call per image says what Canonry sees (brands, ours or a
+  competitor's, retired names, claims drawn into the picture, whether it fits its caption) and suggests alt
+  text accepted in one click; findings cite rules and are never above *Should fix*. Without AI, the rule-based
+  checks above run as before.
 - Brand-palette check and alt-text check.
 - The approved file carries its **signed proof in its own metadata** (PDF, Word, PNG, JPEG); the public
   verify page accepts the file, and a changed file or a copied seal does not verify.
@@ -61,8 +65,9 @@
 - Rules from the CCPA Guidelines (2022) and the ASCI Code; every legal finding cites the exact clause
   with a link; the pack can be switched on and off per workspace.
 - Clause retrieval with embeddings (local, in SQLite on the demo; Postgres + pgvector supported in code).
-- Its own evaluation gate: 100% precision and recall on 32 labelled sentences, with no false alarms on
-  ordinary copy ("toll-free", "feel free", "partner").
+- Tested on **45 real ad lines ASCI upheld complaints against** (quoted from published reports): it first
+  caught 2 of 45; after new leadership, guarantee, cure and offer checks it catches **43 of 45**, with no
+  warning on 10 compliant lines that use the same words. Its own 32-sentence set: 100% precision and recall.
 
 ## 2. Architecture summary
 
@@ -85,9 +90,11 @@ Details: README §5 and [architecture.md](architecture.md); decisions with reaso
 |---|---|---|---|
 | 1 | Documents and images | Done | README §12; suites `test_documents`, `test_image_text`, `test_logos`, `test_docx_fix`, `test_review_r3` |
 | 2 | REST API + signed webhooks + demo publisher | Done (Google Docs add-on, a stretch goal, not built) | README §12; suites `test_api`, `test_publisher` (real HTTP webhooks) |
-| 3 | India compliance pack with retrieval | Done on SQLite; Postgres + pgvector in code, not deployed; labelled set written by the team | README §12; suite `test_compliance` and its evaluation gate |
+| 3 | India compliance pack with retrieval | Done on SQLite; tested on 45 real ASCI cases (43 caught); Postgres + pgvector in code, not deployed | README §12; suite `test_compliance` and its evaluation gate |
 
-Also in Round 3: the "understand first" analysis (`test_understanding`), a first-visit walkthrough,
+Also in Round 3: image understanding with a vision model (`test_vision`), a knowledge base that grows
+from claims writers keep making (`test_suggested_facts`), the "understand first" analysis
+(`test_understanding`), a first-visit walkthrough,
 security fixes (a copied seal verified as genuine; Word zip bombs; webhook address checks; a race that
 could sign twice), and reliability fixes (an intermittent server error on submit; one slow AI call
 locking every other visitor out; two tabs undoing each other's fixes; plain messages when the engine
@@ -95,7 +102,7 @@ is down or waking up).
 
 ## 4. Testing details
 
-- **Automated:** `python engine/tests/run_tests.py` runs **24 suites** on a fresh database each, plus the
+- **Automated:** `python engine/tests/run_tests.py` runs **27 suites** on a fresh database each, plus the
   evaluation gate (precision and recall per checker on a frozen split). The suites never call a real AI
   provider; malformed AI answers and slow models are tested with fake providers. CI runs them on every
   push with a web type-check, a production build, `pip-audit` and `npm audit`.
@@ -113,7 +120,7 @@ is down or waking up).
 
 ## 5. Roadmap
 
-See README §13: managed Postgres + pgvector live; the India pack tested on real ASCI complaint
+See README §13: managed Postgres + pgvector live; the India pack blind-tested on newer ASCI
 decisions; the five-person usability study; a larger, independently labelled evaluation set; signing
 keys that survive restarts; checks where people write (Google Docs add-on, MCP connector); more
 formats and market packs.

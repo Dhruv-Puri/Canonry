@@ -165,12 +165,27 @@ export type SubmissionDetail = {
     ai_reason: AiReason | null;
     /** what the engine understood the content to be before checking it; null on older runs */
     profile?: ContentProfile | null;
+    /** what Canonry sees in an uploaded image (one AI vision call); null when no reading was made */
+    vision?: ImageReading | null;
   } | null;
   me: User;
   /** which lifecycle actions the current status allows (engine workflow rules) */
   allowed: { edit: boolean; submit: boolean; approve: boolean; request_changes: boolean; override: boolean };
   /** today's AI-assisted checks for the signed-in person and the workspace (reset 00:00 UTC) */
   ai_allowance: AiAllowance;
+};
+
+/** engine/vision.py: a model's reading of an image (a judgement, never above "Should fix") */
+export type ImageReading = {
+  description: string;
+  alt_text: string;
+  brands: { name: string; kind: "ours" | "retired" | "competitor" | "unknown"; logo: boolean }[];
+  products: string[];
+  people: { present: boolean; endorsement: boolean };
+  claims: string[];
+  fits_text: { fits: boolean | null; why: string };
+  model?: string;
+  provider?: string;
 };
 
 /** engine/understand.py: what the content is, read before any rule runs */

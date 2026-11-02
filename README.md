@@ -88,7 +88,7 @@ every number now traces to an approved fact, and the router fast-tracked it as l
 | Judging criterion (points) | Evidence |
 |---|---|
 | Core workflow runs end to end (30) | §1 journey; `test_engine.py` drives it through the API; seeded launch post to try it in the browser |
-| Technical depth and reliability (25) | 24 test suites + evaluation gate in CI, and a 184-check browser walk (§7); finding contract enforced on every finding; role scoping and lifecycle locks tested; honest AI degradation |
+| Technical depth and reliability (25) | 27 test suites + evaluation gate in CI, and a 184-check browser walk (§7); finding contract enforced on every finding; role scoping and lifecycle locks tested; honest AI degradation |
 | Progress against the plan (20) | [docs/plan-vs-build.md](docs/plan-vs-build.md): every plan commitment, what changed and why; [docs/changelog.md](docs/changelog.md): milestones M1–M6 with evidence |
 | Three planned improvements (15) | §12 (Round 3 plan); §3 shows the Round 1 improvements delivered |
 | Usability so far (10) | password-free demo personas, plain-language findings, one-click fixes; usability kit (§8) |
@@ -209,7 +209,7 @@ Main technical decisions (full list with reasons in the [decision log](docs/deci
 ## 7. Tests and reliability
 
 ```bash
-.venv/Scripts/python engine/tests/run_tests.py     # 24 suites (fresh DB each) + evaluation gate
+.venv/Scripts/python engine/tests/run_tests.py     # 27 suites (fresh DB each) + evaluation gate
 ```
 
 | Suite (`engine/tests/`) | Proves |
@@ -226,7 +226,7 @@ Main technical decisions (full list with reasons in the [decision log](docs/deci
 | `test_gateway` | AI fallback chain, honest call ledger, no confidential data sent (faked providers, no network) |
 | `test_quota` | daily AI allowance: 5 per person, 50 per workspace, clear reasons when out of tries, failed provider calls never charged |
 | `test_documents` | PDF and Word text extraction with page/line and paragraph locators; stamping PDF, PNG and JPEG |
-| `test_compliance` | India pack: clause retrieval, deterministic verdicts, exact clause citations, no warning on 14 lines of ordinary copy, the admin pack switch, its own evaluation gate (no false alarm at any tier) |
+| `test_compliance` | India pack: clause retrieval, deterministic verdicts, exact clause citations, no warning on 14 lines of ordinary copy, the admin pack switch, its own evaluation gate (no false alarm at any tier), and **45 real ad lines from published ASCI decisions** (at least 90% must get a cited warning; 10 compliant lines with the same words must stay silent) |
 | `test_api` | API keys and scopes (missing, wrong, revoked key; wrong scope), bad JSON, 413 over 2 MB, idempotent replay and conflict, simultaneous retries; webhook URLs inside the network refused (also when a name is re-pointed later), HMAC a receiver can verify, retries on schedule, redirects not followed, rotate and disable |
 | `test_publisher` | the publishing gate on a real server: a post in the demo publisher is checked, waits in review, is published only by the signed webhook and verifies against its seal; bad or stale signatures and `approved` alone never publish |
 | `test_ai_shapes` | 18 malformed AI answers (lists of strings, nulls, numbers) never turn a check into a server error |
@@ -239,6 +239,8 @@ Main technical decisions (full list with reasons in the [decision log](docs/deci
 
 | `test_review_r3` | findings of the Round 3 code review stay fixed: a hostile embedded seal, a Word zip bomb, damaged Word parts, alt text on an image with words, huge logo files, tidying only the edited paragraph, non-Latin file names |
 | `test_long_draft` | a 50,000-character draft is checked in about a second (it took over two minutes live before the fix) |
+| `test_vision` | image understanding with a faked Gemini: a competitor's brand cites the comparative clause (the logo rule with the pack off), a retired name seen only by the model is Should fix, "India's #1" in the picture is checked like text, a picture that contradicts its caption is Worth a look, the seen alt text is accepted in one click; malformed answers, timeouts and an empty allowance leave exactly the old findings; one card when OCR and the model see the same name; the call counts toward the allowance |
+| `test_suggested_facts` | the knowledge base grows from use: a claim flagged twice is suggested once on Insights, a reviewer adds it as a fact, the same claim is then backed by it and a different number (45% vs 37%) is still caught |
 | `test_slow_ai_lock` | a check waiting on a slow AI model never locks other visitors out (sign-ins and drafts during the first and later AI calls answer at once) |
 
 Image checks use Tesseract for the words in an image. The suites fake it, so they run anywhere; the
@@ -313,9 +315,10 @@ What a judge may run into on the live demo:
 - **One draft at a time per item**: if the same draft is open in two tabs, the tab that acts second is told the draft changed and shows the latest version; nothing is merged. Drafts pasted as text are limited to 100,000 characters.
 - **English only**: checks, and the reading of words in images, are English.
 - **Files**: PDF, Word (.docx), PNG and JPEG, up to 4 MB through the web app (Vercel's proxy limit; 10 MB through the API). Scanned PDFs without a text layer are refused rather than guessed at. Canonry edits Word files in place, but not PDFs or the pixels of an image: those are fixed in their source and uploaded as a new version. A Word edit that adds a paragraph, or text inside a Word text box, must also be made in Word.
+- **Image understanding is a model's judgement**: what Canonry "sees" in a picture comes from one AI call, so it can be wrong; its findings are never above *Should fix*. It needs a provider that reads images (Gemini on the live demo; Groq and OpenRouter only with a vision model set), uses the same daily allowance and Gemini's free quota, and is skipped (with the reason shown) when that runs out.
 - **Logo checks** recognise the logos in the brand kit (Quillmark: the current and the retired logo); a logo that is not in the kit cannot be judged. They target flat, designed graphics, not photographs.
 - **Publishing gate**: the demo publisher runs inside the engine (open to anyone, shared, reset with the demo). Webhooks are retried for about 10 hours (8 attempts), then marked failed; while the free engine sleeps nothing is retried. A webhook host is checked before every attempt, but the address is resolved again when connecting, so a DNS answer that changes in that instant is not caught. Signing secrets are stored as plain values in the database (keys only as hashes).
-- **India pack**: rule patterns, not legal advice. The labelled set (32 sentences) was written by the team from the CCPA and ASCI texts, not taken from ASCI complaint decisions, so its 100% precision and recall are an internal check, not a field result. Patterns can still miss rephrased violations or flag ordinary copy; findings are *Likely* or *Consider* except the clear Section 5 and 12(a) cases. Retrieval uses a local hashed-n-gram embedding stored in SQLite; the Postgres + pgvector path (`CANONRY_DATABASE_URL`) exists in code but the live demo and CI do not run it.
+- **India pack**: rule patterns, not legal advice. Two test sets: 32 sentences written by the team (100% precision and recall), and 45 ad lines ASCI upheld complaints against, quoted from published reports (`data/compliance/india_asci_cases.jsonl`). On the real cases the pack first caught **2 of 45**; after adding leadership, guarantee, cure and offer patterns it catches **43 of 45** with no warning on 10 compliant lines. Those patterns were written after reading the cases, so 43/45 is not a blind score. It still misses a No. 1 claim with an out-of-date source (a 2016 survey) and "1 Shot Dandruff Killer". Patterns can still miss rephrased violations or flag ordinary copy; findings are *Likely* or *Consider* except the clear Section 5 and 12(a) cases. Retrieval uses a local hashed-n-gram embedding stored in SQLite; the Postgres + pgvector path (`CANONRY_DATABASE_URL`) exists in code but the live demo and CI do not run it.
 - **Not reachable from the web link**: the Canon Connector (MCP) runs locally; there are no email or Slack notifications, region routing or SLA reminders.
 - **Evidence still to collect**: the five moderated usability sessions (SUS) have not been run; the evaluation set is small (20 samples, 6 frozen) and labelled by the team. CI tests the AI path with faked providers only.
 
@@ -330,7 +333,7 @@ What a judge may run into on the live demo:
 ├── data/                    ← demo brand book: rules, facts, terms (CSV)
 ├── engine/                  ← FastAPI analysis engine (all product logic)
 │   ├── *.py                 ← modules listed in §5
-│   ├── tests/               ← 24 suites + run_tests.py
+│   ├── tests/               ← 27 suites + run_tests.py
 │   ├── evaluation/          ← evaluate.py, labelled set, committed baseline
 │   ├── Dockerfile
 │   └── requirements.txt
@@ -379,6 +382,7 @@ banner"), `data/demo/quillmark_pulse_onepager.pdf` or `data/demo/quillmark_broch
 | Brand colours | Dominant colours compared with the approved palette by ΔE 2000; photographs are recognised and left alone. |
 | Text contrast (WCAG) | Tesseract reads the words in the image (from a copy where each pixel's distance from its background is drawn in black, so faint text is read too); contrast is measured **per line** on the original pixels against 4.5:1, or 3:1 for large text, and the line is **boxed on the preview**. The words in an image are also checked like any copy, so a claim printed in a graphic is caught. |
 | Alt text | Missing, too short, too long, "image of…", file names, keyword stuffing; edited in Canonry. |
+| Image understanding | When an AI provider that reads images is set up (Gemini), one call per checked image says **what Canonry sees in this image**: a description, brands (ours, retired, competitor), claims drawn into the picture, and whether it fits its title and caption. It flags a retired name or logo OCR missed, a competitor's brand (India-pack comparative clause), a "#1" badge (checked like text) and a picture that contradicts its words, never above *Should fix*, and offers the seen description as one-click alt text. Without it, the image checks are exactly the rule-based ones. |
 | Proof of Compliance in the file | The approved PDF, Word, PNG or JPEG carries its signed proof in its own metadata (Word: a custom document property). The public verify page checks an uploaded file: the approved original or its stamped copy verifies; **a changed file, or a real seal copied onto other bytes, does not**. |
 
 Bugs found while finishing it, each fixed with a test that failed first: an intermittent "Internal Server
@@ -424,6 +428,7 @@ switches the pack off (its checks stop) and on.
 | CCPA 2022 and ASCI Code rules | 13 clauses (`data/compliance/india_advertising_pack.json`, version 2022.2): bait offers, surrogate ads, "free" claims, children, disclaimers, substantiation, "up to" claims, prizes, endorsements, material connection, truthful claims, misleading implications, comparisons. A pack is data: a new market is a new file. |
 | Retrieval of the relevant clause (RAG), exact citation | Each sentence retrieves its nearest clauses (768-dimension local embeddings; keyword union for recall); only retrieved clauses' deterministic patterns can produce a finding, which cites source, reference, clause version, text and URL. Numbers are never interpreted by a model. The seal records the pack versions in force. |
 | Definite bar ≥ 95% precision | Gate in `test_compliance`: 32 labelled sentences (20 violations, 12 compliant near-misses): Definite precision 100%, recall 100%, and **no false alarm at any tier**; plus 14 lines of ordinary marketing copy that must stay silent. |
+| Tested on real decisions | 45 ad lines ASCI upheld complaints against, each quoted from a published report ([bestmediainfo, Jun–Jul 2020](https://bestmediainfo.com/2020/10/asci-upholds-257-complaints-of-misleading-ads-in-june-and-july-2020), [bestmediainfo, Apr 2019](https://bestmediainfo.com/2019/06/asci-upholds-complaints-against-114-misleading-advertisements-in-april-2019), [mediabrief](https://mediabrief.com/asci-upheld-complaints-137-false-misleading-ads/)): **2/45 caught before, 43/45 after**, 0 warnings on 10 compliant lines. The work also fixed sentences splitting at "Rs. 999" / "No. 1" / "Dr." (every checker) and clause retrieval hiding a clause whose own pattern matched. |
 | Managed Postgres with pgvector | Written (`CANONRY_DATABASE_URL`, `vector(768)` column, HNSW index) but **not deployed**: the live demo and tests use SQLite, with the same vectors stored as JSON and ranked in Python (see §10). |
 
 Bugs found while testing it, each fixed with a test that failed first: approval-blocking *Definite* "free"
@@ -444,7 +449,7 @@ What comes next, in order, and what each fixes. Nothing below is claimed as buil
 | Next | Why | First step |
 |---|---|---|
 | **Managed Postgres + pgvector live** | The India pack's clause retrieval and all data should survive restarts; the code path exists (`CANONRY_DATABASE_URL`) but the demo runs on SQLite | Point the engine at a free Neon / Supabase database, run the suites against it in CI |
-| **Field-tested India pack** | Its 100% precision/recall is on 32 sentences written by the team | Label real lines from published ASCI complaint decisions; report precision and recall per clause |
+| **Blind-tested India pack** | 43/45 on real ASCI cases, but the patterns were written after reading them | A fresh set from newer ASCI reports, labelled by someone outside the team, scored before any change; flag sources older than the claim allows |
 | **User testing** | No real users have used Canonry yet | Run the prepared 5-person SUS study ([docs/usability-test-kit.md](docs/usability-test-kit.md)) on the live link; fix the top three issues |
 | **Larger evaluation set** | The claim-check evaluation has 20 samples labelled by the team | 200 samples labelled by someone outside the team; hold the 85% recall / 80% precision targets |
 | **Signed approvals that survive restarts** | The free server regenerates its signing key on restart | A persistent key (paid disk or a key-management service) |

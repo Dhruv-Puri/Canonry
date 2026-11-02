@@ -68,8 +68,8 @@ expect(bound.get("claims.statistic") == "CLM-01" and bound.get("claims.superlati
 new_baselines = {r["id"] for r in conn.execute("SELECT id FROM rules WHERE id LIKE 'BASE-%'").fetchall()}
 # Round 3's image/accessibility checks have no Quillmark analogue, so they get
 # their own baseline rules; the original nine checks still use Quillmark ids.
-expect(new_baselines == {"BASE-09", "BASE-10", "BASE-11", "BASE-12"},
-       f"only the four new image/accessibility baselines are added ({sorted(new_baselines)})")
+expect(new_baselines == {"BASE-09", "BASE-10", "BASE-11", "BASE-12", "BASE-14"},
+       f"only the new image/accessibility baselines are added ({sorted(new_baselines)})")
 
 c = TestClient(engine.app, raise_server_exceptions=False)
 c.post("/login", json={"email": "arjun@quillmark"})

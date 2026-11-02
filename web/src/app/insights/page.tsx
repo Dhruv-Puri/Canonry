@@ -108,7 +108,8 @@ export default function InsightsPage() {
             <Card title="Claims with no fact behind them">
               <p className="mb-2 text-xs text-muted-foreground">
                 These phrases keep coming up without an approved fact to support them. One well-written fact can clear
-                every occurrence. Canonry suggests; the brand owner decides.
+                every occurrence: once it is approved, the same claim is checked against it instead of flagged. Canonry
+                suggests; the brand owner writes the fact, its source and when it expires.
               </p>
               {missing.map((m) => (
                 <div key={m.span_text + m.sample_id} className="border-b border-border py-2.5 last:border-0 text-sm">
@@ -118,7 +119,7 @@ export default function InsightsPage() {
                     <Link href={`/submissions/${m.sample_id}`} className="link">{m.sample_title}</Link>
                     {staff && (
                       <>
-                        {" "}· <Link href="/kb" className="link">add or link a fact</Link>
+                        {" "}· <Link href={`/kb?fact=${encodeURIComponent(m.span_text)}`} className="link">Add as approved fact</Link>
                       </>
                     )}
                   </p>

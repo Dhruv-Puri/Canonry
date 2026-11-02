@@ -167,8 +167,10 @@ def _values(conn, ws, entity: str, fields: Dict[str, Any], entity_id: Optional[s
 def _next_rule_id(conn, ws, category: str) -> str:
     ids = [r["id"] for r in conn.execute(
         "SELECT id FROM rules WHERE workspace_id = ? AND category = ?", (ws, category)).fetchall()]
-    prefixes = [i.split("-")[0] for i in ids if RULE_ID.match(i)]
-    prefix = max(set(prefixes), key=prefixes.count) if prefixes else (re.sub(r"[^A-Za-z]", "", category)[:3].upper() or "GEN")
+    # BASE- ids are Canonry's own baseline rules, never the prefix for a team's new rule;
+    # ties go to the alphabetically first prefix so the choice never depends on set order
+    prefixes = [i.split("-")[0] for i in ids if RULE_ID.match(i) and not i.startswith("BASE-")]
+    prefix = min(set(prefixes), key=lambda p: (-prefixes.count(p), p)) if prefixes else (re.sub(r"[^A-Za-z]", "", category)[:3].upper() or "GEN")
     taken = [r["id"] for r in conn.execute("SELECT id FROM rules WHERE workspace_id = ? AND id LIKE ?",
                                            (ws, prefix + "-%")).fetchall()]
     nums = [re.match(rf"^{prefix}-(\d+)", i) for i in taken]

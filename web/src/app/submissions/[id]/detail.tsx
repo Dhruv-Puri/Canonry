@@ -12,6 +12,7 @@ import {
   type AiReason,
   type Finding,
   type FindingLocator,
+  type ImageReading,
   type Revision,
   type SubmissionDetail,
   uploadFile,
@@ -360,6 +361,10 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
             )}
           </div>
         </section>
+      )}
+
+      {d.check?.vision && (d.asset?.kind === "png" || d.asset?.kind === "jpeg") && (
+        <ImageSeen reading={d.check.vision} />
       )}
 
       {d.check?.status === "ai_pending" && (
@@ -1238,11 +1243,18 @@ function FindingCard({
               Remove the flagged phrase
             </button>
           )}
-          {inAltText && (
+          {inAltText && f.suggestion?.operation === "replace" && f.suggestion.replace ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-lg bg-muted/60 px-3 py-1.5 text-sm text-foreground">“{f.suggestion.replace}”</span>
+              <button disabled={disabled} onClick={() => void onAccept()} className="btn btn-sm btn-primary">
+                Use this alt text
+              </button>
+            </div>
+          ) : inAltText ? (
             <p className="text-xs text-muted-foreground">
               Write better alt text below: say what the image shows, in one sentence.
             </p>
-          )}
+          ) : null}
           {/* Secondary paths stay folded away until wanted; open by default when there is no one-click fix. */}
           <details className="group" open={!oneClickFix(f)}>
             <summary className="flex w-fit cursor-pointer list-none items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
@@ -1270,6 +1282,51 @@ function FindingCard({
         </div>
       )}
     </div>
+  );
+}
+
+const BRAND_CHIP: Record<ImageReading["brands"][number]["kind"], string> = {
+  ours: "bg-success-bg text-success-fg",
+  retired: "bg-warning-bg text-warning-fg",
+  competitor: "bg-danger-bg text-danger-fg",
+  unknown: "bg-muted text-foreground-secondary",
+};
+
+/** engine/vision.py: a model's reading of the picture, shown next to "What Canonry understood" */
+function ImageSeen({ reading }: { reading: ImageReading }) {
+  const fits = reading.fits_text?.fits;
+  return (
+    <section aria-label="What Canonry sees in this image" className="surface flex flex-wrap items-start gap-3 p-4">
+      <Sparkles className="mt-0.5 size-4 shrink-0 text-brand" aria-hidden />
+      <div className="min-w-0 flex-1">
+        <p className="eyebrow">What Canonry sees in this image</p>
+        {reading.description && <p className="mt-1 text-sm leading-relaxed text-foreground">{reading.description}</p>}
+        {reading.brands.length > 0 && (
+          <p className="mt-2 flex flex-wrap gap-1.5">
+            {reading.brands.map((b) => (
+              <span key={b.name} className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${BRAND_CHIP[b.kind]}`}>
+                {b.name} · {b.kind === "ours" ? "ours" : b.kind === "retired" ? "retired" : b.kind === "competitor" ? "competitor" : "not sure"}
+              </span>
+            ))}
+          </p>
+        )}
+        {reading.claims.length > 0 && (
+          <p className="mt-2 text-xs text-foreground-secondary">
+            <span className="font-medium text-foreground">Claims in the picture: </span>
+            {reading.claims.map((c) => `“${c}”`).join(", ")}
+          </p>
+        )}
+        {fits !== null && fits !== undefined && (
+          <p className="mt-2 text-xs text-foreground-secondary">
+            <span className="font-medium text-foreground">Matches the title and caption: </span>
+            {fits ? "yes" : `no. ${reading.fits_text.why}`}
+          </p>
+        )}
+        <p className="mt-2 text-xs text-muted-foreground">
+          This is an AI model&apos;s reading of the picture, so its findings are never more than Should fix.
+        </p>
+      </div>
+    </section>
   );
 }
 

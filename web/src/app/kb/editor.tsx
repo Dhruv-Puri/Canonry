@@ -78,15 +78,18 @@ export function EntityDialog({
   onOpenChange,
   onSaved,
   onReload,
+  draft,
 }: {
   kind: KBKind;
   entity: KBEntity | null;
+  /** starting values for a new entity, e.g. the claim Insights suggested */
+  draft?: Record<string, string>;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved: (result: KBWriteResult) => void;
   onReload: () => void;
 }) {
-  const [values, setValues] = useState(() => initialValues(kind, entity));
+  const [values, setValues] = useState(() => ({ ...initialValues(kind, entity), ...(entity ? {} : draft ?? {}) }));
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

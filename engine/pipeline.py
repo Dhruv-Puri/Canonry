@@ -27,6 +27,7 @@ import images
 import knowledge
 import quota
 import understand
+import vision
 from db import _now, gen_id, get_knowledge_version
 
 PROMPT_VERSION = "claims@4"
@@ -135,6 +136,16 @@ def _previous_ai_profile(conn: sqlite3.Connection, revision_id: str) -> Dict[str
     return {k: prev[k] for k in ("kind", "intent") if k in prev}
 
 
+def _previous_vision(conn: sqlite3.Connection, revision_id: str) -> Optional[Dict[str, Any]]:
+    """The image reading stored with the previous revision's check (resolve re-checks make no AI call)."""
+    row = conn.execute("SELECT vision_json FROM check_runs WHERE revision_id = ? ORDER BY started_at DESC LIMIT 1",
+                       (revision_id,)).fetchone()
+    try:
+        return json.loads(row["vision_json"]) if row and row["vision_json"] else None
+    except (TypeError, ValueError):
+        return None
+
+
 def run_check(conn: sqlite3.Connection, revision_id: str, actor: Optional[str] = None,
               reuse_ai_from: Optional[str] = None) -> Dict[str, Any]:
     """Check one revision. `actor` (an email) is charged one AI try if a provider answers.
@@ -172,9 +183,12 @@ def run_check(conn: sqlite3.Connection, revision_id: str, actor: Optional[str] =
     findings += checkers.check_confidential(ctx, text)
 
     # image checkers work on the uploaded pixels, not the alt text
+    image_raw: Optional[bytes] = None
+    asset_row: Dict[str, Any] = {}
     if asset_id and source_kind == "image":
         raw = assets.asset_bytes(conn, asset_id)
         asset_row = assets.get_asset(conn, asset_id) or {}
+        image_raw = raw
         if raw:
             try:
                 findings += images.check_image(ctx, raw, asset_row.get("alt_text"),
@@ -252,9 +266,11 @@ def run_check(conn: sqlite3.Connection, revision_id: str, actor: Optional[str] =
     # --- AI: implicit claims + tone (one batched call each, strict JSON) ----
     ai_deadline = gateway.ai_deadline()
 
+    vision_calls = 0  # the image call has its own place: it never uses up the text checks' budget
+
     def budget_left() -> bool:
         return time.monotonic() < ai_deadline and gateway.call_budget_ok(
-            words, gateway.successful_calls(conn) - ai_calls_before)
+            words, gateway.successful_calls(conn) - ai_calls_before - vision_calls)
 
     # why the AI checks did not (fully) run; None = they ran. Checked in order: a
     # provider exists, then the daily allowance (quota.py), then each call's answer
@@ -280,8 +296,17 @@ def run_check(conn: sqlite3.Connection, revision_id: str, actor: Optional[str] =
                 ai_reason = "provider_unavailable"
 
     ai_profile: Dict[str, Any] = {}  # the AI's reading, from the claim-extraction call (no extra call)
+    seen: Optional[Dict[str, Any]] = None  # what the image shows (vision.py), one call per checked image
 
     def ai_checks() -> None:
+        nonlocal seen, vision_calls
+        if use_ai and image_raw and gateway.vision_available():
+            before = gateway.successful_calls(conn)
+            seen = vision.ask(conn, ws, image_raw, sub["title"] or "", asset_row.get("alt_text"),
+                              time.monotonic() < ai_deadline, ai_deadline)
+            vision_calls = gateway.successful_calls(conn) - before
+            if seen is None:
+                missed()
         implicit = claims.ai_implicit_claims(text, budget_left(), conn, deadline=ai_deadline,
                                              profile_out=ai_profile) if use_ai else None
         if use_ai and implicit is None:
@@ -374,6 +399,16 @@ def run_check(conn: sqlite3.Connection, revision_id: str, actor: Optional[str] =
             f["provenance"]["profile"] = ctx.why("india_pack")
             findings.append(f)
 
+    # what the picture shows: a resolve re-check reuses the last reading (no call)
+    if reuse_ai_from and image_raw:
+        seen = _previous_vision(conn, reuse_ai_from)
+    if seen:
+        try:
+            findings = consistency.merge_seen(findings, vision.findings(ctx, seen, asset_id, facts))
+            vision.suggest_alt_text(findings, seen, consistency.Scanner(conn, ws, facts, ctx.rule))
+        except Exception:  # noqa: BLE001 - a surprising reading must never cost the rule findings
+            traceback.print_exc()
+
     # claims are more specific: drop terminology/redundant findings whose span
     # is fully covered by a claims finding (keeps exactly one row per issue)
     claims_spans = [f["span"] for f in findings if f["checker"] == "claims"]
@@ -438,7 +473,8 @@ def run_check(conn: sqlite3.Connection, revision_id: str, actor: Optional[str] =
             discarded += 1
             continue
         f["status"] = decided.get(("key", f["location_key"]),
-                                   decided.get((f["checker"], f["category"], f["span"]["text"]), "open"))
+                                   decided.get((f["checker"], f["category"], f["span"]["text"]), "open")
+                                   if span_text else "open")
         if not contract.conforms(f):
             discarded += 1
             if os.environ.get("CANON_DEBUG"):
@@ -472,9 +508,9 @@ def run_check(conn: sqlite3.Connection, revision_id: str, actor: Optional[str] =
     status = "ai_pending" if ai_pending else "done"
     conn.execute(
         "UPDATE check_runs SET finished_at = ?, ai_calls = ?, discarded = ?, status = ?, ai_reason = ?, "
-        "profile_json = ? WHERE id = ?",
+        "profile_json = ?, vision_json = ? WHERE id = ?",
         (_now(), calls_after - ai_calls_before, discarded, status, ai_reason,
-         json.dumps(profile, ensure_ascii=False), run_id),
+         json.dumps(profile, ensure_ascii=False), json.dumps(seen, ensure_ascii=False) if seen else None, run_id),
     )
     conn.commit()
     return {"run_id": run_id, "findings": kept, "discarded": discarded, "ai_pending": ai_pending,

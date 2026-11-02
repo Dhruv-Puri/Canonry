@@ -71,6 +71,10 @@ _CHECKS = (
           "Every published image needs short, useful alt text.", "medium",
           "Add alt text: 'Quillmark Pulse dashboard showing weekly active teams'.",
           "image.png, or 'image of a dashboard'. "),
+    Check("image.fits_text", "BASE-14", "Brand",
+          "An image never contradicts the title or caption it is published with.", "low",
+          "A dashboard screenshot captioned 'The new Pulse dashboard'.",
+          "A beach photo captioned 'The new Pulse dashboard'."),
 )
 
 CHECKS: Dict[str, Check] = {c.key: c for c in _CHECKS}

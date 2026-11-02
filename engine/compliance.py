@@ -173,14 +173,29 @@ def _candidate_clauses(conn, workspace_id: str, sentence: str, all_clauses: List
         # Trigger vocabulary is the clause's own shortlist: "guaranteed" lives in
         # the substantiation trigger, not in the legal prose, and must still be able
         # to retrieve the clause that governs it.
+        # words of the trigger patterns, without regex escapes ("\bcures?\b" is "cures", not "bcures")
         trigger_words = {w for t in clause.get("triggers", [])
-                         for w in re.findall(r"[a-z]{4,}", (t.get("pattern") or "").lower())}
+                         for w in re.findall(r"[a-z]{4,}", re.sub(r"\\[A-Za-z]", " ", t.get("pattern") or "").lower())}
         trigger_overlap = sum(1 for w in words if w in trigger_words)
         if overlap >= 3 or trigger_overlap >= 1:
             keyword_hits.append((overlap + trigger_overlap, clause))
     keyword_hits.sort(key=lambda item: item[0], reverse=True)
     for _score, clause in keyword_hits[:3]:
         out.append(dict(clause, retrieval_score=None))
+        seen.add(clause["id"])
+    # retrieval ranks the clauses; it must never hide one whose own trigger matches
+    # ("The No.1 Housing Company in Punjab." shares no words with the clause text)
+    for clause in all_clauses:
+        if clause["id"] in seen:
+            continue
+        for trigger in clause.get("triggers", []):
+            try:
+                if trigger.get("pattern") and re.search(trigger["pattern"], sentence, re.IGNORECASE):
+                    out.append(dict(clause, retrieval_score=None))
+                    seen.add(clause["id"])
+                    break
+            except re.error:
+                continue
     return out
 
 
