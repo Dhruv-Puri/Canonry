@@ -261,7 +261,17 @@ def phase_journey(browser: Browser) -> None:
     settle(cp)
     check("Changes requested" in body_text(cp) and "Please add the trial link" in body_text(cp),
           "the creator sees the request and the comment")
-    cp.get_by_role("button", name=re.compile("Send for review|Submit for review")).click()
+    # the writer makes the requested change in the text, it is checked again, then sent again
+    cp.get_by_role("button", name=re.compile("Edit the text")).first.click()
+    editor = cp.get_by_label("Edit the text")
+    editor.fill(editor.input_value().rstrip() + " Start a trial at quillmark.co/pulse.")
+    cp.get_by_role("button", name=re.compile("Save and check again")).click()
+    settle(cp)
+    cp.get_by_role("button", name=re.compile("Send for review|Submit for review")).first.wait_for(timeout=60_000)
+    _, d = engine_json(cp, f"/submissions/{sid}")
+    check(d["latest_revision"]["content"].endswith("quillmark.co/pulse.") and len(d["revisions"]) >= 2,
+          "the creator edits the text as asked; it is a new, checked revision")
+    cp.get_by_role("button", name=re.compile("Send for review|Submit for review")).first.click()
     settle(cp)
     rp.reload()
     settle(rp)
