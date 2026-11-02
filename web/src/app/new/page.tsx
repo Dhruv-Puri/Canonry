@@ -13,6 +13,18 @@ const SAMPLE_POST =
   "Meet Quillmark Pulse — India's most trusted analytics platform. " +
   "Plans start from ₹1,299/month. Sign up at quillmark.co/pulse.";
 
+const MISTAKES_POST =
+  "Meet Quillmark Insights 2.0 — India's #1 analytics platform, trusted by " +
+  "5,000+ teams and fully ISO 27001 certified. Plans start at just ₹999/month!";
+
+function words(text: string): number {
+  const t = text.trim();
+  return t ? t.split(/\s+/).length : 0;
+}
+function exclamations(text: string): number {
+  return (text.match(/!/g) ?? []).length;
+}
+
 export default function NewSubmissionPage() {
   const router = useRouter();
   const { me } = useIdentity();
@@ -20,10 +32,7 @@ export default function NewSubmissionPage() {
   const [title, setTitle] = useState("Launch post — Pulse 2.0");
   const [channel, setChannel] = useState("social");
   const [source, setSource] = useState("ai-assisted");
-  const [content, setContent] = useState(
-    "Meet Quillmark Insights 2.0 — India's #1 analytics platform, trusted by " +
-      "5,000+ teams and fully ISO 27001 certified. Plans start at just ₹999/month!"
-  );
+  const [content, setContent] = useState(MISTAKES_POST);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<"text" | "file">("text");
@@ -88,11 +97,12 @@ export default function NewSubmissionPage() {
   return (
     <div className="mx-auto max-w-2xl space-y-5">
       <div>
-        <p className="eyebrow">{isAgency ? "Agency submission" : "New submission"}</p>
-        <h1 className="page-title mt-1.5">{isAgency ? "Submit client work" : "Submit content"}</h1>
+        <p className="eyebrow">{isAgency ? "Agency submission" : "New check"}</p>
+        <h1 className="page-title mt-1.5">{isAgency ? "Submit client work" : "Check your content"}</h1>
         <p className="page-lede">
-          Checks run on save — no separate “run check” step to forget.
-          {isAgency ? " This goes to the client’s review queue under your agency source." : ""}
+          Paste text or upload a file. Canonry checks it against Quillmark&apos;s brand rules and approved facts as
+          soon as you submit, and tells you what to fix.
+          {isAgency ? " It then goes to the client’s review queue under your agency source." : ""}
         </p>
       </div>
 
@@ -128,28 +138,28 @@ export default function NewSubmissionPage() {
           </Field>
           <Field label="Channel">
             <select
-              className="field h-[38px] px-2 capitalize"
+              className="field h-[38px] px-2"
               value={channel}
               onChange={(e) => setChannel(e.target.value)}
             >
-              {["social", "web", "blog", "email", "sales"].map((c) => (
-                <option key={c} value={c}>{c}</option>
+              {[["social", "Social post"], ["web", "Web page"], ["blog", "Blog"], ["email", "Email"], ["sales", "Sales material"]].map(([v, l]) => (
+                <option key={v} value={v}>{l}</option>
               ))}
             </select>
           </Field>
-          <Field label="Source">
+          <Field label="Written by">
             {isAgency ? (
-              <p className="field flex h-[38px] items-center px-3 text-sm capitalize text-muted-foreground">
-                agency
+              <p className="field flex h-[38px] items-center px-3 text-sm text-muted-foreground">
+                Agency
               </p>
             ) : (
               <select
-                className="field h-[38px] px-2 capitalize"
+                className="field h-[38px] px-2"
                 value={source}
                 onChange={(e) => setSource(e.target.value)}
               >
-                {["in-house", "ai-assisted"].map((c) => (
-                  <option key={c} value={c}>{c}</option>
+                {[["in-house", "Our team"], ["ai-assisted", "With AI help"]].map(([v, l]) => (
+                  <option key={v} value={v}>{l}</option>
                 ))}
               </select>
             )}
@@ -158,28 +168,49 @@ export default function NewSubmissionPage() {
 
         {mode === "text" ? (
           <>
+            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Start from">
+              <span className="mr-1 text-xs text-muted-foreground">Start from:</span>
+              {([
+                ["mistakes", "Sample with mistakes", MISTAKES_POST],
+                ["clean", "Clean sample", SAMPLE_POST],
+                ["blank", "Blank", ""],
+              ] as const).map(([id, label, text]) => (
+                <button
+                  key={id}
+                  type="button"
+                  aria-pressed={content === text}
+                  onClick={() => setContent(text)}
+                  className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                    content === text ? "border-foreground bg-foreground text-background" : "border-border text-foreground-secondary hover:border-border-strong"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <Field label="Content">
               <textarea
                 rows={7}
                 className="field p-3 font-serif text-base leading-relaxed"
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
+                placeholder="Paste or write your post, email or page copy here."
               />
             </Field>
+            <p className="-mt-2 text-xs text-muted-foreground" aria-live="polite">
+              {words(content)} word{words(content) === 1 ? "" : "s"}
+              {exclamations(content) > 0 && ` · ${exclamations(content)} exclamation mark${exclamations(content) === 1 ? "" : "s"}`}
+              {content === MISTAKES_POST && " · this sample has a few planted mistakes for you to find and fix"}
+            </p>
 
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-end">
               <button
-                onClick={() => setContent(SAMPLE_POST)}
-                className="link text-xs"
-              >
-                Use a clean sample post instead
-              </button>
-              <button
+                data-guide="check-it"
                 onClick={() => void submit()}
                 disabled={busy || !content.trim() || !title.trim()}
                 className="btn btn-primary"
               >
-                {busy ? "Checking…" : <>Submit for check <span aria-hidden className="btn-arrow">→</span></>}
+                {busy ? "Checking…" : <>Check it <span aria-hidden className="btn-arrow">→</span></>}
               </button>
             </div>
           </>
@@ -220,11 +251,7 @@ export default function NewSubmissionPage() {
         {error && <p className="text-sm text-danger-fg" role="alert">{error}</p>}
       </div>
 
-      <p className="text-xs leading-relaxed text-muted-foreground">
-        The prefilled text deliberately breaks a few Quillmark rules — an outdated product name,
-        a contradicted count, an unsupported superlative and an old price — so you can see the
-        finding → fix → review → approve loop in one pass.
-      </p>
+
 
       <AiLoadingScreen open={busy || uploading} title={mode === "file" ? "Reading and checking your file" : "Checking your submission"} />
     </div>
