@@ -10,14 +10,13 @@
 
 | Improvement | Status | Evidence |
 |---|---|---|
-| 1. Documents and images | ✅ built and tested locally; deploy pending | README §12 "Improvement 1 — delivered"; suites `test_documents`, `test_image_text`, `test_logos`, `test_docx_fix`; local browser walk-through 14/14 |
-| 2. Publishing gate: REST API + webhooks | 🔧 built (commit `6bf69fc`); live check pending | `engine/api.py`, `engine/webhooks.py`, `cms/`, `web/src/app/admin/api/page.tsx` |
-| 3. India compliance pack with retrieval | 🔧 built (commit `6bf69fc`); live check pending | `engine/compliance.py`, `data/compliance/`, `test_compliance` (precision 1.0, recall 1.0 on 32 labelled samples) |
+| 1. Documents and images | ✅ delivered and live | README §12; suites `test_documents`, `test_image_text`, `test_logos`, `test_docx_fix`, `test_vision`, `test_large_images`; live: a 4000×3000 photo and real Gemini image understanding checked on 3 Nov |
+| 2. Publishing gate: REST API + webhooks | ✅ delivered and live | `test_api`, `test_publisher` (real HTTP webhooks), `test_api_gate`; the demo publisher at `/engine/cms` on the live site |
+| 3. India compliance pack with retrieval | ✅ delivered on SQLite and live; Postgres + pgvector written, not deployed | `test_compliance`: 32 labelled sentences (precision and recall 1.0) and 45 real ASCI cases (43 caught, 0 false alarms on 10 controls) |
 
-**Live deployment, 1 Nov:** the web app on Vercel runs the Round 3 code, but the engine on Render
-still ran the Round 2 build (33 endpoints, no upload route), so uploads on the live site answered
-"Method Not Allowed". Render must deploy `main`; the check is `GET /openapi.json` listing
-`/submissions/upload`.
+**Final checks, 3 Nov:** 32 suites + evaluation gate pass; the browser run passes 185/185 on a local
+production build; the first-visit walkthrough (27/27) and the writer's sent back → edit → approved loop
+(16/16) pass locally and on the live site with real AI.
 
 ### Bugs found by testing in Round 3 (each fixed with a test that failed first)
 
@@ -33,6 +32,13 @@ still ran the Round 2 build (33 endpoints, no upload route), so uploads on the l
 | Uploads over ~4.5 MB | Vercel's error page surfaced as a JSON parse error | size checked before sending; readable messages | browser walk-through |
 | PDF and Word findings could not be disputed | no way to resolve them | per-file-type actions on each finding | browser walk-through |
 | Two new suites not in the runner; one crashed | CI would not catch regressions | added to `run_tests.py`; demo mode and the right key scope | `run_tests.py`: 18/18 |
+| Banned term matched inside numbers | "Setup takes 5 minutes", "Pulse 2.5", "₹1,599" were Must fix; "#10" matched "#1" | whole-phrase matching; commas inside numbers kept | `test_term_matching` |
+| Role switch forgot the visitor's email | My work showed nothing after switching role | `PATCH /me` returns the email; the web merges it | `test_creator_work` |
+| Reviewer's request hidden on a sent-back draft | with real AI, "1 issue to handle" replaced "Make the change the reviewer asked for" | the request always leads; Canonry's issues are linked beside it | browser creator flow (failed live, then 16/16) |
+| A stalled free AI model held up the check | the same check took 3 s or 28 s; one burst took 58 s | a second model is asked after 4 s; calls stop at 15 s; a stall is not retried | `test_gateway` |
+| Two walkthroughs on top of each other | the role tour and the guide both opened; the tour returned on every role switch | one at a time; the tour only for a first visit or a new role | browser walkthrough 27/27 |
+| Signed-out visitors saw the app menu | the public verify page showed Home, Write, My work to a stranger | no app menu without an account | browser check of /verify at 1280 and 390 px |
+| Audio test crashed, API-gate test unregistered | CI did not run them | `test_api_gate` registered; `test_media` checks the module, skips the unwired upload path | `run_tests.py`: 32 suites |
 
 ---
 
