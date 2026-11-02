@@ -315,6 +315,26 @@ gateway.HEDGE_AFTER_SECONDS = saved_hedge
 gateway.reset_limits()
 time.sleep(2.0)  # let the stalled call finish before the next section
 
+print("== a stall is not retried")
+# live, 3 Nov: two models stalled in one check, and the retry round asked
+# another stalled model, so the check took 58 s
+stalls = {"calls": 0}
+
+
+def stall_handler(request: httpx.Request) -> httpx.Response:
+    stalls["calls"] += 1
+    raise httpx.ReadTimeout("model stalled", request=request)
+
+
+gateway.reset_limits()
+gateway.configure(env={"GEMINI_API_KEY": "test", "CANONRY_GEMINI_FALLBACK_MODELS": "gemini-3.5-flash-lite"},
+                  transport=httpx.MockTransport(stall_handler))
+ans = gateway.gateway_call("tone_check", [{"role": "user", "content": "hello"}])
+expect(ans is None and stalls["calls"] == 2,
+       f"each stalled model is asked once, with no second round ({stalls['calls']} calls)")
+expect(gateway.CALL_TIMEOUT_SECONDS <= 15, "a stalled call is cut off within 15 s")
+gateway.reset_limits()
+
 print("== env file")
 import tempfile  # noqa: E402
 env_file = os.path.join(tempfile.mkdtemp(), "keys.env")

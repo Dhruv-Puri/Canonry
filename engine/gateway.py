@@ -34,7 +34,7 @@ TIMEOUT = httpx.Timeout(90.0, connect=10.0)
 # One call may wait at most this long, so a stalled free model cannot use up a
 # whole check's AI time: the next model or provider gets its turn (slow but good
 # answers measured live took up to ~45 s; a hung call was still silent at 60 s).
-CALL_TIMEOUT_SECONDS = 25.0
+CALL_TIMEOUT_SECONDS = 15.0  # the slowest answer seen live took 11 s; a stall is cut off here
 # a normal answer takes ~1 s; a call still running after this gets a second model asked too
 HEDGE_AFTER_SECONDS = 4.0
 AI_DEADLINE_SECONDS = 120.0
@@ -453,7 +453,9 @@ def _race(provider: Provider, models: List[str], messages: List[Dict[str, str]],
                         _cool_model(slow_key)  # it stalled past the hedge: skip it for a while
                     return out, retryable_seen, False
                 _log(conn, task, provider, model, prompt_version, started, ok=False)
-                if isinstance(err, httpx.TransportError) or getattr(err, "retryable", False):
+                # a dropped connection is worth one more round; a stall is not (the model is set aside)
+                stalled = isinstance(err, httpx.TimeoutException)
+                if (isinstance(err, httpx.TransportError) and not stalled) or getattr(err, "retryable", False):
                     retryable_seen = True
                 if getattr(err, "status", None) in (429, 503) or isinstance(err, httpx.TimeoutException):
                     _cool_model(key)  # busy or stalled: let the next model answer
