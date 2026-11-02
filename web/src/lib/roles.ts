@@ -37,30 +37,30 @@ export function navLinksFor(role: string | null | undefined): { href: string; la
     return [
       { href: "/admin", label: "Overview" },
       { href: "/review", label: "Review queue" },
-      { href: "/kb", label: "Brand rules" },
-      { href: "/insights", label: "Reports" },
+      { href: "/kb", label: "Knowledge base" },
+      { href: "/insights", label: "Insights" },
       { href: "/admin/api", label: "API & webhooks" },
     ];
   }
   if (role === "reviewer") {
     return [
       { href: "/review", label: "Review queue" },
-      { href: "/kb", label: "Brand rules" },
-      { href: "/insights", label: "Reports" },
+      { href: "/kb", label: "Knowledge base" },
+      { href: "/insights", label: "Insights" },
     ];
   }
   if (role === "agency") {
     return [
       { href: "/agency", label: "My work" },
-      { href: "/new", label: "New check" },
-      { href: "/kb", label: "Brand rules" },
+      { href: "/new", label: "Submit" },
+      { href: "/kb", label: "Knowledge base" },
     ];
   }
   return [
-    { href: "/", label: "My work" },
-    { href: "/new", label: "New check" },
-    { href: "/kb", label: "Brand rules" },
-    { href: "/insights", label: "Reports" },
+    { href: "/", label: "Home" },
+    { href: "/new", label: "Write" },
+    { href: "/kb", label: "Knowledge base" },
+    { href: "/insights", label: "Insights" },
   ];
 }
 

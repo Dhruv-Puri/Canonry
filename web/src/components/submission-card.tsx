@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import type { Submission } from "@/lib/api";
 import { RiskBadge, StatusBadge } from "@/components/fx";
+import { plural } from "@/lib/format";
 
 function when(iso: string): string {
   const date = new Date(iso);
@@ -14,15 +15,35 @@ function when(iso: string): string {
   });
 }
 
+/**
+ * What happens next, in words, for the person looking at the card.
+ * `act` is true when the next step is theirs (shown as the call to action).
+ */
+export function nextStep(s: Submission, viewer: "reviewer" | "writer"): { text: string; act: boolean } {
+  const open = s.open_findings ?? 0;
+  const signed = s.status === "Signed" || s.status === "Approved" || s.status === "Exempt-approved";
+  if (signed) return { text: "Signed. View the approval", act: false };
+  if (viewer === "reviewer") {
+    if (s.status === "In review") return { text: "Review", act: true };
+    return { text: "Waiting for writer", act: false };
+  }
+  if (s.status === "In review") return { text: "Waiting for reviewer", act: false };
+  if (s.status === "Changes requested") return { text: "Make the requested changes", act: true };
+  if (open > 0) return { text: `Fix ${plural(open, "issue")}`, act: true };
+  if (s.status === "Checked") return { text: "Send for review", act: true };
+  return { text: "Open", act: true };
+}
+
 /** One submission, presented the same way wherever a role needs to act on it. */
 export function SubmissionCard({
   submission,
-  action = "Open",
+  viewer = "writer",
 }: {
   submission: Submission;
-  action?: string;
+  viewer?: "reviewer" | "writer";
 }) {
   const open = submission.open_findings ?? 0;
+  const step = nextStep(submission, viewer);
 
   return (
     <Link
@@ -44,11 +65,15 @@ export function SubmissionCard({
       )}
       <div className="mt-auto flex items-end justify-between gap-3 pt-6">
         <p className="text-sm text-muted-foreground">
-          <span className="text-2xl font-bold tabular-nums text-foreground">{open}</span> open finding
+          <span className="text-2xl font-bold tabular-nums text-foreground">{open}</span> open issue
           {open === 1 ? "" : "s"}
         </p>
-        <span className="inline-flex shrink-0 items-center gap-1.5 text-sm font-semibold text-brand">
-          {action} <ArrowRight className="size-4" aria-hidden />
+        <span
+          className={`inline-flex shrink-0 items-center gap-1.5 text-sm font-semibold ${
+            step.act ? "text-brand" : "text-muted-foreground"
+          }`}
+        >
+          {step.text} {step.act && <ArrowRight className="size-4" aria-hidden />}
         </span>
       </div>
     </Link>

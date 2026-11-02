@@ -27,7 +27,6 @@ import { RiskBadge, StatusBadge } from "@/components/fx";
 import { EmptyIllustration } from "@/components/brand";
 import { AiLoadingScreen } from "@/components/ai-loading";
 import { ProductTour } from "@/components/tour";
-import { StartHere } from "@/components/start-here";
 import { HeroDemo } from "@/components/hero-demo";
 import { CountUp, Reveal } from "@/components/motion";
 import { Tilt } from "@/components/effects";
@@ -181,31 +180,183 @@ export default function HomePage() {
   }
 
   const firstName = me ? me.name.split(" ")[0] : null;
-  const mine = (subs ?? []).filter((x) => !me || !x.created_by || x.created_by === me.email);
   const awaiting = subs?.filter((s) => s.status === "In review").length ?? 0;
   const signed = subs?.filter((s) => flowIndex(s.status) === 3).length ?? 0;
   const catMax = Math.max(1, ...cats.map((c) => c.c));
 
   return (
     <div className="space-y-28">
-      {/* ---------------- workspace header + start here ---------------- */}
-      <section className="space-y-6 pt-2">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div className="max-w-2xl">
-            <p className="eyebrow">Quillmark Analytics · brand checks</p>
-            <h1 className="page-title mt-1">{firstName ? `Hi ${firstName}, welcome to Canonry` : "Welcome to Canonry"}</h1>
-            <p className="mt-2 text-foreground-secondary">
-              Canonry reads marketing content against Quillmark&apos;s brand rules and approved facts, explains every
-              issue it finds, and leaves the final decision to a person.
-            </p>
-          </div>
-          <Link href="/new" className="btn btn-primary">
-            New check <span aria-hidden className="btn-arrow">→</span>
-          </Link>
+      {/* ---------------- hero ---------------- */}
+      <section className="relative grid items-center gap-14 pt-6 lg:grid-cols-[1.05fr_1fr]">
+        <div aria-hidden className="pointer-events-none absolute -inset-x-40 -top-40 bottom-0 -z-10">
+          <div className="aurora left-[2%] top-[8%] size-[420px] bg-[#f7e2b5]" />
+          <div className="aurora right-[4%] top-[20%] size-[380px] bg-[#f3cfb4]" style={{ animationDelay: "-6s" }} />
+          <div className="aurora left-[35%] top-[45%] size-[340px] bg-[#e9d9c0]" style={{ animationDelay: "-11s" }} />
         </div>
-        <StartHere subs={subs} mine={mine} />
+
+        <div>
+          <p className="animate-rise inline-flex items-center gap-2 rounded-full border border-border-strong bg-card/80 py-1 pl-1 pr-3 text-[13px] font-medium text-foreground-secondary shadow-sm backdrop-blur">
+            <span className="rounded-full bg-primary px-2 py-0.5 text-[11px] font-semibold text-primary-foreground">New</span>
+            {firstName ? `Hi ${firstName}, ` : ""}brand review for Quillmark
+          </p>
+          <h1 className="display mt-6" aria-label="Every word, on brand.">
+            <span aria-hidden>
+              {HEADLINE.map((w, i) => (
+                <span key={w} className="word mr-[0.22em]" style={{ "--i": i } as React.CSSProperties}>
+                  {w}
+                </span>
+              ))}
+              <br />
+              {HEADLINE_INK.map((w, i) => (
+                // Reveal and shimmer are separate animations, so they live on separate spans.
+                <span key={w} className="word mr-[0.22em]" style={{ "--i": i + HEADLINE.length } as React.CSSProperties}>
+                  <span className="ink-gradient ink-shimmer pb-[0.08em]">{w}</span>
+                </span>
+              ))}
+            </span>
+          </h1>
+          <p
+            className="animate-rise mt-6 max-w-md text-lg leading-relaxed text-foreground-secondary"
+            style={{ "--rise-delay": "420ms" } as React.CSSProperties}
+          >
+            Canonry reads your draft against Quillmark’s approved rules, terms and facts, points to the source of
+            every issue, and leaves the decision with you.
+          </p>
+          <div className="animate-rise mt-8 flex flex-wrap gap-3" style={{ "--rise-delay": "520ms" } as React.CSSProperties}>
+            <a href="#check" className="btn btn-primary btn-lg shadow-card">
+              Check a draft <span aria-hidden className="btn-arrow">→</span>
+            </a>
+            <a href="#how" className="btn btn-secondary btn-lg">
+              How it works
+            </a>
+          </div>
+          <ul
+            className="animate-rise mt-8 flex flex-wrap gap-x-5 gap-y-2 text-sm text-foreground-secondary"
+            style={{ "--rise-delay": "620ms" } as React.CSSProperties}
+          >
+            {["Every issue cites its source", "A person makes the call", "Approvals are signed"].map((t) => (
+              <li key={t} className="inline-flex items-center gap-1.5">
+                <span className="grid size-4 place-items-center rounded-full bg-success-bg text-success-fg">
+                  <Check className="size-2.5" strokeWidth={3.5} />
+                </span>
+                {t}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="animate-rise" style={{ "--rise-delay": "300ms" } as React.CSSProperties}>
+          <Tilt>
+            <HeroDemo />
+          </Tilt>
+        </div>
       </section>
 
+      {/* ---------------- what it catches ---------------- */}
+      <section aria-label="What Canonry catches" className="-mt-10">
+        <p className="mb-4 text-center text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+          What it catches before you publish
+        </p>
+        <div className="marquee overflow-hidden">
+          <ul className="marquee-track gap-3 py-1">
+            {[...CATCHES, ...CATCHES].map(({ icon: Icon, text }, i) => (
+              <li
+                key={i}
+                aria-hidden={i >= CATCHES.length}
+                className="inline-flex shrink-0 items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-medium text-foreground-secondary shadow-sm"
+              >
+                <Icon className="size-4 text-brand" strokeWidth={2} />
+                {text}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </section>
+
+      {/* ---------------- quick check ---------------- */}
+      <Reveal as="section">
+        <div
+          id="check"
+          className="relative scroll-mt-28 overflow-hidden rounded-[36px] border border-border bg-gradient-to-b from-muted via-background to-background p-6 sm:p-12"
+        >
+          <div aria-hidden className="dot-grid pointer-events-none absolute inset-0 opacity-50 [mask-image:radial-gradient(ellipse_at_top,#000_20%,transparent_70%)]" />
+          <div className="relative mx-auto max-w-3xl">
+            <h2 className="text-center text-4xl font-bold tracking-tight sm:text-5xl">
+              Paste it. <span className="ink-gradient">Check it.</span>
+            </h2>
+            <p className="mt-3 text-center text-lg text-foreground-secondary">
+              Results in a second, every issue with its source.
+            </p>
+
+            <form
+              className="paper mt-10"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void check();
+              }}
+            >
+              <label htmlFor="composer" className="sr-only">
+                Draft to check
+              </label>
+              <textarea
+                id="composer"
+                rows={4}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void check();
+                }}
+                placeholder="Start writing, or paste a post…"
+                className="block w-full resize-none bg-transparent pb-2 pl-14 pr-5 pt-[14px] font-serif text-[17px] leading-[28px] text-foreground outline-none"
+              />
+              <div className="flex flex-wrap items-center gap-2 rounded-b-[17px] border-t border-border bg-muted/60 py-3 pl-14 pr-3">
+                <label className="sr-only" htmlFor="composer-channel">
+                  Channel
+                </label>
+                <select
+                  id="composer-channel"
+                  value={channel}
+                  onChange={(e) => setChannel(e.target.value)}
+                  className="h-9 cursor-pointer rounded-full border border-border-strong bg-card px-3 text-xs font-medium capitalize text-foreground-secondary"
+                >
+                  {CHANNELS.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+                <span className="hidden text-xs text-muted-foreground sm:inline">Ctrl + Enter</span>
+                <button type="submit" data-guide="check-sample" disabled={busy || !draft.trim()} className="btn btn-primary ml-auto">
+                  {busy ? "Checking…" : <>Check draft <span aria-hidden className="btn-arrow">→</span></>}
+                </button>
+              </div>
+            </form>
+
+            <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+              {STARTERS.map(({ icon: Icon, label, text, channel: c }, i) => (
+                <button
+                  key={label}
+                  type="button"
+                  data-guide={i === 0 ? "starter" : undefined}
+                  onClick={() => {
+                    setDraft(text);
+                    setChannel(c);
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-border-strong bg-card px-3.5 py-1.5 text-[13px] font-medium text-foreground-secondary transition-all hover:-translate-y-0.5 hover:border-brand-highlight hover:text-foreground hover:shadow-card"
+                >
+                  <Icon className="size-3.5" strokeWidth={2} />
+                  {label}
+                </button>
+              ))}
+            </div>
+            {error && (
+              <p className="mt-4 rounded-xl border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger-fg" role="alert">
+                {error}
+              </p>
+            )}
+          </div>
+        </div>
+      </Reveal>
 
       {/* ---------------- bento: chart + numbers ---------------- */}
       {ws && (
@@ -292,7 +443,7 @@ export default function HomePage() {
         )}
 
         {subs && subs.length > 0 && (
-          <ul className="grid gap-4 md:grid-cols-2">
+          <ul className="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-2">
             {subs.map((s, i) => {
               const step = flowIndex(s.status);
               return (
@@ -306,8 +457,8 @@ export default function HomePage() {
                       <RiskBadge risk={s.risk} />
                       <span className="ml-auto text-xs capitalize text-muted-foreground">{s.channel}</span>
                     </div>
-                    <p className="mt-4 text-lg font-bold tracking-tight text-foreground">{s.title}</p>
-                    <p className="mt-1.5 line-clamp-2 font-serif text-[15px] leading-relaxed text-foreground-secondary">
+                    <p className="mt-4 text-lg font-bold tracking-tight text-foreground [overflow-wrap:anywhere]">{s.title}</p>
+                    <p className="mt-1.5 line-clamp-2 font-serif text-[15px] leading-relaxed text-foreground-secondary [overflow-wrap:anywhere]">
                       {s.content}
                     </p>
 

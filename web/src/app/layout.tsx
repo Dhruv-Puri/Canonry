@@ -5,6 +5,7 @@ import { SiteNav } from "@/components/site-nav";
 import { BrandMark } from "@/components/brand";
 import { Spotlight } from "@/components/effects";
 import { IdentityGate } from "@/components/identity";
+import { GuidePanel, GuideProvider } from "@/components/guide";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -40,6 +41,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <Spotlight />
         {/* the gate reads the URL (public routes skip sign-in), so it streams in */}
         <Suspense fallback={<div className="min-h-dvh" aria-busy="true" />}>
+        <GuideProvider>
         <IdentityGate>
         <Suspense fallback={<div className="h-[68px]" />}>
           <SiteNav />
@@ -53,7 +55,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             <span className="ml-auto">Every decision stays with a person.</span>
           </div>
         </footer>
+        <GuidePanel />
         </IdentityGate>
+        </GuideProvider>
         </Suspense>
       </body>
     </html>

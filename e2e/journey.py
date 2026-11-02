@@ -68,6 +68,8 @@ def watch(page: Page, label: str) -> list[str]:
 def new_context(browser: Browser, width: int = 1280, height: int = 860) -> BrowserContext:
     ctx = browser.new_context(viewport={"width": width, "height": height}, base_url=BASE)
     ctx.set_default_timeout(30_000)
+    # a returning visitor: no walkthrough guide in the way (the guide has its own walk)
+    ctx.add_init_script("try { localStorage.setItem('canonry.firstTime', 'no'); localStorage.setItem('canonry.guide', 'off'); } catch (e) {}")
     return ctx
 
 
@@ -75,10 +77,10 @@ def guest(ctx: BrowserContext, role: str) -> Page:
     """Pick a role on the welcome screen and Continue as guest (sign-in is async)."""
     page = ctx.new_page()
     page.goto("/")
-    page.get_by_role("button", name=re.compile("Continue as guest|Start the demo|Continue as ")).wait_for()
+    page.get_by_role("button", name=re.compile("Continue as guest")).wait_for()
     label = {"creator": "Creator", "reviewer": "Reviewer", "agency": "Agency partner", "admin": "Brand admin"}[role]
     page.locator("label", has_text=label).first.click()
-    page.get_by_role("button", name=re.compile("Continue as guest|Start the demo|Continue as ")).click()
+    page.get_by_role("button", name=re.compile("Continue as guest")).click()
     # the button turns into "Opening Canonry…" first; signed in once the app's main nav exists
     page.locator("nav[aria-label=Main]").first.wait_for(state="attached", timeout=60_000)
     page.wait_for_load_state("networkidle")
@@ -121,16 +123,16 @@ def submit_text(page: Page, title: str, content: str, double: bool = False) -> s
     page.goto("/new")
     page.get_by_label("Title").fill(title)
     page.get_by_label("Content").fill(content)
-    btn = page.get_by_role("button", name=re.compile("Submit for check"))
+    btn = page.get_by_role("button", name=re.compile("Check it|Submit for check"))
     btn.dblclick() if double else btn.click()
     page.wait_for_url(re.compile(r"/submissions/sub_"), timeout=120_000)
     settle(page)
-    page.get_by_role("heading", name=re.compile("Findings")).wait_for()
+    page.get_by_role("heading", name=re.compile("Issues|Findings")).wait_for()
     return page.url.rsplit("/", 1)[-1]
 
 
 def open_findings(page: Page) -> int:
-    m = re.search(r"Findings \((\d+) open\)", body_text(page))
+    m = re.search(r"(?:Issues|Findings) \((\d+) open\)", body_text(page))
     return int(m.group(1)) if m else -1
 
 
@@ -205,7 +207,9 @@ def phase_journey(browser: Browser) -> None:
     cp = guest(cctx, "creator")
     errs = watch(cp, "creator")
     shot(cp, "j01-creator-home")
-    check("Launch post" in body_text(cp) or "submission" in body_text(cp).lower(), "creator home lists work")
+    # a new guest's home shows only their own work: empty, with "Check the sample"
+    check("Your submissions" in body_text(cp) or "Launch post" in body_text(cp),
+          "creator home shows their own work (or how to start)")
     sid = submit_text(cp, f"E2E launch post {RUN}", LAUNCH, double=True)
     shot(cp, "j02-findings")
     n0 = open_findings(cp)
@@ -230,7 +234,7 @@ def phase_journey(browser: Browser) -> None:
     check(cp.get_by_text(re.compile(r"Changes from rev \d+ to rev \d+")).count() > 0, "compare shows a word diff")
     shot(cp, "j04-compare")
     cp.get_by_role("button", name=re.compile("Viewing changes")).click()
-    cp.get_by_role("button", name=re.compile("Submit for review")).dblclick()
+    cp.get_by_role("button", name=re.compile("Send for review|Submit for review")).dblclick()
     settle(cp)
     check("In review" in body_text(cp), "submitted for review")
     check(not cp.get_by_text("can't be changed").count(), "double-clicking Submit for review shows no error")
@@ -253,14 +257,14 @@ def phase_journey(browser: Browser) -> None:
     settle(cp)
     check("Changes requested" in body_text(cp) and "Please add the trial link" in body_text(cp),
           "the creator sees the request and the comment")
-    cp.get_by_role("button", name=re.compile("Submit for review")).click()
+    cp.get_by_role("button", name=re.compile("Send for review|Submit for review")).click()
     settle(cp)
     rp.reload()
     settle(rp)
     shot(rp, "j07-reviewer-decision")
     rp.get_by_role("button", name=re.compile("Approve")).dblclick()
     settle(rp)
-    rp.get_by_text("Proof of Compliance signed").wait_for(timeout=30_000)
+    rp.get_by_text(re.compile("Approved and signed|Proof of Compliance signed")).first.wait_for(timeout=30_000)
     _, d = engine_json(rp, f"/submissions/{sid}")
     check(len([a for a in d["approvals"] if a["action"] == "approve"]) == 1,
           "double-clicking Approve signed once")
@@ -273,7 +277,7 @@ def phase_journey(browser: Browser) -> None:
     pp = pctx.new_page()
     errs += watch(pp, "verify")
     pp.goto(f"/verify/{poc}")
-    pp.get_by_text("Genuine seal").wait_for()
+    pp.get_by_text(re.compile("Genuine (seal|signature)")).wait_for()
     pp.get_by_label("Published text").fill(approved)
     pp.get_by_role("button", name="Check this text").click()
     pp.get_by_text("Verified: this is the approved content").wait_for()
@@ -290,7 +294,7 @@ def phase_journey(browser: Browser) -> None:
 
     print("\n== journey: override on another item, file upload and file verify")
     sid2 = submit_text(cp, "E2E override", "Quillmark Pulse is India's #1 analytics platform.")
-    cp.get_by_role("button", name=re.compile("Submit for review")).click()
+    cp.get_by_role("button", name=re.compile("Send for review|Submit for review")).click()
     settle(cp)
     rp.goto(f"/submissions/{sid2}")
     settle(rp)
@@ -325,7 +329,7 @@ def phase_journey(browser: Browser) -> None:
     shot(cp, "j14-docx-findings")
     sid3 = cp.url.rsplit("/", 1)[-1]
     resolve_all(cp, sid3)  # everything settled, so it can be approved and stamped
-    cp.get_by_role("button", name=re.compile("Submit for review")).click()
+    cp.get_by_role("button", name=re.compile("Send for review|Submit for review")).click()
     settle(cp)
     rp.goto(f"/submissions/{sid3}")
     settle(rp)
@@ -335,7 +339,7 @@ def phase_journey(browser: Browser) -> None:
     ok = check(bool(d3.get("poc")), "the Word file was approved and stamped")
     if ok:
         with rp.expect_download() as dl:
-            rp.get_by_role("link", name="Download stamped file").click()
+            rp.get_by_role("link", name=re.compile("Download the approved file|Download stamped file")).click()
         stamped = OUT / "stamped.docx"
         dl.value.save_as(str(stamped))
         pp.goto(f"/verify/{d3['poc']['id']}")
@@ -386,7 +390,12 @@ def phase_journey(browser: Browser) -> None:
         return [r.status, await r.json()]; }""", word)
     check(st == 200, f"admin added a banned term ({st})")
     sid4 = submit_text(cp, "E2E kb effect", f"Quillmark Pulse is {word} for teams. Start at quillmark.co/pulse.")
-    check(word in body_text(cp) and open_findings(cp) >= 1, "a new draft is flagged for the newly banned term")
+    for _ in range(20):  # the count fills in a moment after the heading appears
+        if open_findings(cp) >= 1:
+            break
+        cp.wait_for_timeout(500)
+    check(word in body_text(cp) and open_findings(cp) >= 1,
+          f"a new draft is flagged for the newly banned term (word shown: {word in body_text(cp)}, open: {open_findings(cp)})")
     tid = res.get("entity", {}).get("id")
     st, rr = dp.evaluate("""async ([id, v]) => { const r = await fetch('/engine/kb/terms/' + id + '/retire',
         {method:'POST', headers:{'Content-Type':'application/json'},
@@ -417,15 +426,15 @@ def phase_reliability(browser: Browser) -> None:
     errs = watch(page, "reliability")
     page.goto("/new")
     page.get_by_label("Content").fill("   \n  ")
-    check(page.get_by_role("button", name=re.compile("Submit for check")).is_disabled(),
+    check(page.get_by_role("button", name=re.compile("Check it|Submit for check")).is_disabled(),
           "whitespace-only content cannot be submitted")
     page.get_by_label("Content").fill("hello")
     page.get_by_label("Title").fill("   ")
-    check(page.get_by_role("button", name=re.compile("Submit for check")).is_disabled(),
+    check(page.get_by_role("button", name=re.compile("Check it|Submit for check")).is_disabled(),
           "a blank title cannot be submitted")
     page.get_by_label("Title").fill("x")
     page.get_by_label("Content").fill("x" * 120_000)
-    page.get_by_role("button", name=re.compile("Submit for check")).click()
+    page.get_by_role("button", name=re.compile("Check it|Submit for check")).click()
     page.locator("main").get_by_role("alert").wait_for()
     check("too long" in page.locator("main").get_by_role("alert").inner_text(), "a 120,000-character draft is refused in plain words")
     shot(page, "r01-too-long", full=False)
@@ -505,7 +514,7 @@ def phase_reliability(browser: Browser) -> None:
     ctx.clear_cookies()
     page.get_by_role("button", name="Re-check").click()
     try:
-        page.get_by_role("button", name=re.compile("Continue as guest|Start the demo|Continue as ")).wait_for(timeout=20_000)
+        page.get_by_role("button", name=re.compile("Continue as guest")).wait_for(timeout=20_000)
         check(True, "an expired session returns to the welcome screen")
     except PWTimeout:
         check(False, "an expired session returns to the welcome screen")
@@ -521,6 +530,8 @@ LAYOUT_JS = """() => {
   const out = {overflow: document.documentElement.scrollWidth - vw, wide: [], small: [], unlabeled: [], noalt: []};
   for (const el of document.querySelectorAll('body *')) {
     const r = el.getBoundingClientRect();
+    // decorative background (aria-hidden glows) may bleed past the edge; content may not
+    if (el.closest('[aria-hidden="true"]')) continue;
     if (r.width && r.right > vw + 1 && getComputedStyle(el).position !== 'fixed') {
       let p = el.parentElement, clipped = false;
       while (p) { const o = getComputedStyle(p).overflowX; if (o === 'auto' || o === 'scroll' || o === 'hidden') { clipped = true; break; } p = p.parentElement; }
@@ -579,7 +590,7 @@ def phase_layout(browser: Browser) -> None:
     ctx = new_context(browser, 390, 844)
     page = ctx.new_page()
     page.goto("/")
-    page.get_by_role("button", name=re.compile("Continue as guest|Start the demo|Continue as ")).wait_for()
+    page.get_by_role("button", name=re.compile("Continue as guest")).wait_for()
     shot(page, "l-welcome-390")
     info = page.evaluate(LAYOUT_JS)
     check(info["overflow"] <= 0, f"welcome@390: no sideways overflow ({info['overflow']}px)")
@@ -605,11 +616,12 @@ def phase_offline(browser: Browser) -> None:
                  "/verify/poc_x"]:
         page.goto(path)
         settle(page)
-        page.wait_for_timeout(1500)
+        # the identity gate keeps retrying for 45 s and says "Waking up…" after 3 s
+        page.wait_for_timeout(4500)
         t = body_text(page).strip()
         name = "o-" + (re.sub(r"[^a-z0-9]+", "_", path).strip("_") or "home")
         shot(page, name)
-        plain = bool(re.search(r"can.t be reached|can.t reach|unavailable|try again", t, re.I))
+        plain = bool(re.search(r"can.t be reached|can.t reach|unavailable|try again|waking up", t, re.I))
         raw = bool(re.search(r"Unexpected token|Internal Server Error|Engine error|is not valid JSON|Failed to fetch", t))
         check(plain and not raw and not blank_or_crashed(page), f"{path}: plain 'unavailable' message ({t[:80]!r})")
     page_errors = [e for e in errs if "page error" in e]

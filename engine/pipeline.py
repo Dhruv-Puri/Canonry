@@ -19,12 +19,14 @@ import assets
 import checkers
 import claims
 import compliance
+import consistency
 import contract
 import documents
 import gateway
 import images
 import knowledge
 import quota
+import understand
 from db import _now, gen_id, get_knowledge_version
 
 PROMPT_VERSION = "claims@4"
@@ -95,6 +97,44 @@ def _ai_reason_of(conn: sqlite3.Connection, revision_id: str) -> Optional[str]:
     return row["ai_reason"]
 
 
+def _names(conn: sqlite3.Connection, ws: str) -> List[str]:
+    """Product and company names the workspace's terms know (current and retired)."""
+    names: List[str] = []
+    for t in conn.execute("SELECT preferred, banned_or_check FROM terms WHERE workspace_id = ? AND status = 'active'",
+                          (ws,)).fetchall():
+        for n in [t["preferred"] or ""] + (t["banned_or_check"] or "").split(","):
+            n = n.strip()
+            if len(n.split()) >= 2 and all(w[:1].isupper() for w in n.split()):
+                names.append(n)
+    return names
+
+
+def _asset_meta(conn: sqlite3.Connection, asset_id: Optional[str], source_kind: str,
+                locator_map: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """What the profile needs to know about an uploaded file."""
+    meta: Dict[str, Any] = {}
+    if source_kind == "image":
+        meta["image_words"] = sum(1 for b in locator_map or [] if b.get("region") == images.IMAGE_TEXT_REGION)
+    if asset_id:
+        row = assets.get_asset(conn, asset_id) or {}
+        meta.update({k: row.get(k) for k in ("filename", "page_count", "alt_text") if row.get(k) is not None})
+    return meta
+
+
+def _previous_ai_profile(conn: sqlite3.Connection, revision_id: str) -> Dict[str, Any]:
+    """The AI's reading of the previous revision (a resolve re-check makes no AI call).
+    Its summary counted the old claims, so only kind and intent carry over."""
+    row = conn.execute("SELECT profile_json FROM check_runs WHERE revision_id = ? ORDER BY started_at DESC LIMIT 1",
+                       (revision_id,)).fetchone()
+    try:
+        prev = json.loads(row["profile_json"]) if row and row["profile_json"] else {}
+    except (TypeError, ValueError):
+        return {}
+    if prev.get("decided_by") != "rules+ai":
+        return {}
+    return {k: prev[k] for k in ("kind", "intent") if k in prev}
+
+
 def run_check(conn: sqlite3.Connection, revision_id: str, actor: Optional[str] = None,
               reuse_ai_from: Optional[str] = None) -> Dict[str, Any]:
     """Check one revision. `actor` (an email) is charged one AI try if a provider answers.
@@ -113,6 +153,10 @@ def run_check(conn: sqlite3.Connection, revision_id: str, actor: Optional[str] =
     words = len(text.split())
     kv_bumped = get_knowledge_version(conn)
     ctx = checkers.Ctx(conn, revision_id, sub["channel"], sub["source_type"], kv_bumped, ws=ws)
+    # understand first: what this content is decides which checks apply and how
+    profile = understand.profile(text, sub["channel"], source_kind,
+                                 _asset_meta(conn, asset_id, source_kind, locator_map), names=_names(conn, ws))
+    ctx.profile = profile
 
     run_id = gen_id("run")
     conn.execute(
@@ -235,8 +279,11 @@ def run_check(conn: sqlite3.Connection, revision_id: str, actor: Optional[str] =
             else:
                 ai_reason = "provider_unavailable"
 
+    ai_profile: Dict[str, Any] = {}  # the AI's reading, from the claim-extraction call (no extra call)
+
     def ai_checks() -> None:
-        implicit = claims.ai_implicit_claims(text, budget_left(), conn, deadline=ai_deadline) if use_ai else None
+        implicit = claims.ai_implicit_claims(text, budget_left(), conn, deadline=ai_deadline,
+                                             profile_out=ai_profile) if use_ai else None
         if use_ai and implicit is None:
             missed()
         if implicit:
@@ -265,7 +312,7 @@ def run_check(conn: sqlite3.Connection, revision_id: str, actor: Optional[str] =
                                    "knowledge_version": kv_bumped},
                 })
 
-        tone_rule = ctx.rule("voice.tone")
+        tone_rule = ctx.rule("voice.tone") if ctx.applies("voice.tone") else None
         if use_ai and tone_rule:
             tone_out = gateway.gateway_call(
                 "tone_check",
@@ -305,7 +352,7 @@ def run_check(conn: sqlite3.Connection, revision_id: str, actor: Optional[str] =
                             "suggestion": {"replace": t.get("fix"), "operation": "replace"} if t.get("fix") else None,
                             "title": "Tone: judgement call",
                             "provenance": {"model": tone_out["model"], "prompt_version": TONE_PROMPT_VERSION,
-                                           "knowledge_version": kv_bumped},
+                                           "knowledge_version": kv_bumped, "profile": ctx.why("voice.tone")},
                         })
 
     if use_ai:
@@ -322,7 +369,10 @@ def run_check(conn: sqlite3.Connection, revision_id: str, actor: Optional[str] =
     # India pack: deterministic triggers over the retrieved clause candidates. It
     # runs after claims so a legal risk cites its own clause even where a brand
     # claim already answered the factual question.
-    findings += compliance.check(ctx, text)
+    if ctx.applies("india_pack"):
+        for f in compliance.check(ctx, text):
+            f["provenance"]["profile"] = ctx.why("india_pack")
+            findings.append(f)
 
     # claims are more specific: drop terminology/redundant findings whose span
     # is fully covered by a claims finding (keeps exactly one row per issue)
@@ -342,6 +392,17 @@ def run_check(conn: sqlite3.Connection, revision_id: str, actor: Optional[str] =
             s <= f["span"]["start"] and e >= f["span"]["end"] for s, e in all_claim_spans
         )
     ]
+
+    # read in context: a denied or someone else's claim is not ours; a quoted one is lowered
+    findings = understand.apply_context(findings, text)
+    # one coherent set: one card per issue, fixes that agree, citations that match the words
+    findings = consistency.merge_duplicates(findings)
+    consistency.safe_fixes(consistency.Scanner(conn, ws, facts, ctx.rule), findings, text)
+    consistency.cite_what_you_name(conn, ws, findings)
+
+    if reuse_ai_from:
+        ai_profile.update(_previous_ai_profile(conn, reuse_ai_from))
+    profile = understand.refine_with_ai(profile, ai_profile or None)
 
     # a finding the creator disputed (or a reviewer overrode) stays decided on
     # later revisions while its span is unchanged
@@ -410,10 +471,12 @@ def run_check(conn: sqlite3.Connection, revision_id: str, actor: Optional[str] =
     ai_pending = ai_reason is not None
     status = "ai_pending" if ai_pending else "done"
     conn.execute(
-        "UPDATE check_runs SET finished_at = ?, ai_calls = ?, discarded = ?, status = ?, ai_reason = ? WHERE id = ?",
-        (_now(), calls_after - ai_calls_before, discarded, status, ai_reason, run_id),
+        "UPDATE check_runs SET finished_at = ?, ai_calls = ?, discarded = ?, status = ?, ai_reason = ?, "
+        "profile_json = ? WHERE id = ?",
+        (_now(), calls_after - ai_calls_before, discarded, status, ai_reason,
+         json.dumps(profile, ensure_ascii=False), run_id),
     )
     conn.commit()
     return {"run_id": run_id, "findings": kept, "discarded": discarded, "ai_pending": ai_pending,
-            "ai_reason": ai_reason,
+            "ai_reason": ai_reason, "profile": profile,
             "knowledge_version": kv_bumped, "ai_calls": calls_after - ai_calls_before}

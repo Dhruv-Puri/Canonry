@@ -127,6 +127,7 @@ function ProfileMenu({ inline = false }: { inline?: boolean }) {
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
         aria-haspopup="menu"
+        data-guide="account"
         className="flex items-center gap-2 rounded-full py-1 pl-1 pr-3 transition-colors hover:bg-accent"
       >
         <span className="grid size-8 place-items-center rounded-full bg-gradient-to-br from-brand to-primary text-xs font-bold text-primary-foreground">

@@ -11,6 +11,7 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 import policy
+import understand
 from contract import CONTRACT_VERSION
 
 
@@ -27,6 +28,18 @@ class Ctx:
         self.kv = kv
         self.ws = ws or self._workspace()
         self._rules: Dict[str, Optional[str]] = {}
+        # what the content is (understand.profile); None = every check applies
+        self.profile: Optional[Dict[str, Any]] = None
+
+    def applies(self, check_key: str) -> bool:
+        """Does this check apply to this kind of content? (understand.decide)"""
+        return understand.applies(self.profile, check_key)[0]
+
+    def why(self, check_key: str) -> Optional[str]:
+        """The profile decision behind a finding, for its provenance."""
+        if not self.profile:
+            return None
+        return understand.applies(self.profile, check_key)[1] or None
 
     def _workspace(self) -> Optional[str]:
         row = self.conn.execute(
@@ -179,47 +192,60 @@ def check_confidential(ctx: Ctx, text: str) -> List[Dict[str, Any]]:
     return out
 
 
+def _noted(ctx: Ctx, finding: Dict[str, Any], check_key: str) -> Dict[str, Any]:
+    """Record which profile decision let this check run (provenance)."""
+    why = ctx.why(check_key)
+    if why:
+        finding["provenance"]["profile"] = why
+    return finding
+
+
 def check_readability(ctx: Ctx, text: str) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     # the same sentence splitter the confidential checker uses: a full stop ends
     # a sentence only before whitespace, so "4.2 crore" stays one sentence
     sentences = [(s, e, body) for s, e, body in _sentences(text) if len(body.split()) > 5]
-    long_ones = [x for x in sentences if len(x[2].split()) > 22]
+    limit = understand.sentence_limit(ctx.profile)  # 22 words; looser for a policy or an internal note
+    long_ones = [x for x in sentences if len(x[2].split()) > limit]
     rule = ctx.rule("voice.sentence_length")
     if long_ones and rule:
         pos, end, s = long_ones[0]
-        out.append(_f(
+        out.append(_noted(ctx, _f(
             ctx, "readability", "readability", (pos, end, s), "definite", "low",
             [{"type": "rule", "id": rule}],
             f"Sentence is {len(s.split())} words; voice rule {rule} asks for an average under 20 words per sentence.",
-        ))
+        ), "voice.sentence_length"))
     words = len(text.split())
     rule = ctx.rule("social.length")
-    if ctx.channel == "social" and words > 200 and rule:
+    is_social = ctx.applies("social.length") if ctx.profile else ctx.channel == "social"
+    if is_social and words > 200 and rule:
         first_span = next(iter(_sentences(text)), None)
         first = first_span[2] if first_span else text[:80].strip()
         pos = first_span[0] if first_span else text.find(first)
-        out.append(_f(
+        out.append(_noted(ctx, _f(
             ctx, "readability", "readability", (pos, pos + len(first), first),
             "definite", "low", [{"type": "rule", "id": rule}],
             f"Social posts are limited to 200 words; this draft is {words} (rule {rule}).",
-        ))
-    # a social post that talks pricing is a sales post: it should end with a CTA
+        ), "social.length"))
+    # a promotional social post or ad that talks pricing is a sales post: it
+    # should end with a CTA (an internal note quoting a price is not)
     is_sales = re.search(r"₹|/\s*(?:month|mo|year)\b|\bplans?\b|\bpricing\b", text, re.IGNORECASE)
-    has_cta = re.search(r"https?://|\b(?:sign up|try|book|start (?:a|your)|learn more|register|contact|get started)\b",
-                        text, re.IGNORECASE)
+    has_cta = ctx.profile["has_cta"] if ctx.profile else re.search(
+        r"https?://|\b(?:sign up|try|book|start (?:a|your)|learn more|register|contact|get started)\b",
+        text, re.IGNORECASE)
     rule = ctx.rule("messaging.cta")
-    if ctx.channel == "social" and is_sales and not has_cta and rule:
+    is_selling = ctx.applies("messaging.cta") if ctx.profile else ctx.channel == "social"
+    if is_selling and is_sales and not has_cta and rule:
         last = list(_sentences(text))
         s, e = (last[-1][0], last[-1][1]) if last else (0, len(text))
         while s < e and text[s].isspace():
             s += 1
-        out.append(_f(
+        out.append(_noted(ctx, _f(
             ctx, "readability", "missing_cta", (s, e, text[s:e]),
             "consider", "low", [{"type": "rule", "id": rule}],
             f"Sales posts end with a clear call to action (rule {rule}); no link or CTA found. Add one in your own words.",
             title="No call to action",
-        ))
+        ), "messaging.cta"))
     return out
 
 
@@ -232,28 +258,34 @@ HARDSELL = [
 EXCL = re.compile(r"!")
 
 
+def hard_sell_fix(phrase: str) -> Optional[str]:
+    """"just ₹999" -> "₹999": drop the pushy word, keep the fact. None = no
+    deterministic fix (the writer rephrases)."""
+    if phrase.lower().startswith("just"):
+        return re.sub(r"^just\s+", "", phrase, flags=re.IGNORECASE)
+    return None
+
+
 def check_tone_rules(ctx: Ctx, text: str) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
-    rule = ctx.rule("voice.exclamation")
+    rule = ctx.rule("voice.exclamation") if ctx.applies("voice.exclamation") else None
     if len(EXCL.findall(text)) > 1 and rule:
-        out.append(_f(
+        out.append(_noted(ctx, _f(
             ctx, "tone", "tone", (0, 0, ""), "consider", "medium",
             [{"type": "rule", "id": rule}],
             f"More than one exclamation mark in the post (voice rule {rule} allows at most one).",
             title="Tone: too many exclamation marks",
-        ))
-    rule = ctx.rule("voice.hard_sell")
+        ), "voice.exclamation"))
+    rule = ctx.rule("voice.hard_sell") if ctx.applies("voice.hard_sell") else None
     for pat in HARDSELL if rule else ():
         m = re.search(pat, text, re.IGNORECASE)
         if m:
             phrase = text[m.start():m.end()]
-            # "just ₹999" -> "₹999": drop the pushy word, keep the fact
-            fix = re.sub(r"^just\s+", "", phrase, flags=re.IGNORECASE) if phrase.lower().startswith("just") else None
-            out.append(_f(
+            out.append(_noted(ctx, _f(
                 ctx, "tone", "tone", (m.start(), m.end(), phrase), "consider", "medium",
                 [{"type": "rule", "id": rule}],
                 f'"{phrase}" reads as a hard sell (voice rule {rule}: confident, never pushy).',
-                fix, title="Tone: hard-sell phrasing",
-            ))
+                hard_sell_fix(phrase), title="Tone: hard-sell phrasing",
+            ), "voice.hard_sell"))
             break
     return out

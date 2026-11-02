@@ -32,7 +32,7 @@ type VerifyResult = {
 
 const HEADLINE: Record<string, { title: string; cls: string }> = {
   genuine: {
-    title: "Genuine seal: this approval is on record",
+    title: "Genuine signature: this approval is on record",
     cls: "bg-success-bg border-success-border text-success-fg",
   },
   verified: {
@@ -165,7 +165,7 @@ export function VerifyClient({ pocId }: { pocId: string }) {
                 <div className={`rounded-lg border px-3 py-2 text-sm ${fileResult.status === "verified" ? "border-success-border bg-success-bg text-success-fg" : "border-danger-border bg-danger-bg text-danger-fg"}`}>
                   <strong>{fileResult.status === "verified" ? "Matches the signed record" : "Does not verify"}</strong>
                   {fileResult.reason ? ` — ${fileResult.reason}` : ""}
-                  {fileResult.stamped ? " · carries an embedded seal" : ""}
+                  {fileResult.stamped ? " · carries an embedded signature" : ""}
                 </div>
               )}
             </div>
@@ -210,7 +210,7 @@ export function VerifyClient({ pocId }: { pocId: string }) {
           )}
 
           <p className="text-center text-xs text-muted-foreground">
-            The seal covers the SHA-256 fingerprint of the approved text, the approver&apos;s role and the
+            The signature covers the SHA-256 fingerprint of the approved text, the approver&apos;s role and the
             knowledge version at decision time. Back to{" "}
             <Link href="/" className="link">
               Canonry

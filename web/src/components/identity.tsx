@@ -1,11 +1,13 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
-import { ArrowRight, Check, ChevronRight } from "lucide-react";
-import { api, ApiError, ENGINE_UNREACHABLE, SIGNED_OUT_EVENT, type AuthMode, type User } from "@/lib/api";
+import { ArrowRight, Check, ChevronRight, Sparkles } from "lucide-react";
+import { hasVisited, rememberFirstTime, useGuide } from "@/components/guide";
+import { api, ApiError, SIGNED_OUT_EVENT, type AuthMode, type User } from "@/lib/api";
 import { ROLES, type Role } from "@/lib/roles";
 import { BrandMark } from "@/components/brand";
+import { EngineDown, EngineLoading, GIVE_UP_MS, isWaking, RETRY_MS } from "@/components/engine-status";
 
 type Identity = {
   me: User | null;
@@ -36,8 +38,11 @@ export function IdentityGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
   const [me, setMe] = useState<User | null>(null);
-  const [demoMode, setDemoMode] = useState(false);
+  const [auth, setAuth] = useState<AuthMode | null>(null);
   const [state, setState] = useState<"loading" | "in" | "out" | "down">("loading");
+  const [elapsed, setElapsed] = useState(0);
+  // each boot gets a number; answers that arrive for an older boot (before "Try again") are ignored
+  const bootRef = useRef(0);
 
   const refresh = useCallback(async () => {
     try {
@@ -55,16 +60,69 @@ export function IdentityGate({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  /**
+   * First load. A free-tier engine can take 20–30 s to wake: keep asking (quietly
+   * for 3 s, then with a "waking up" card) and only give up after 45 s.
+   */
+  const boot = useCallback(async () => {
+    const id = ++bootRef.current;
+    const started = Date.now();
+    const current = () => bootRef.current === id;
+    setState("loading");
+    setElapsed(0);
+    const ask = async <T,>(path: string): Promise<T> => {
+      for (;;) {
+        try {
+          return await api<T>(path);
+        } catch (e) {
+          if (!isWaking(e) || Date.now() - started > GIVE_UP_MS || !current()) throw e;
+          await new Promise((r) => setTimeout(r, RETRY_MS));
+          if (!current()) throw e;
+        }
+      }
+    };
+    let user: User | null = null;
+    try {
+      user = await ask<User>("/me");
+    } catch (e) {
+      if (!current()) return;
+      if (!(e instanceof ApiError && e.status === 401)) {
+        setState("down");
+        return;
+      }
+    }
+    // the engine has answered, so this is quick; the welcome screen needs it
+    const mode = await ask<AuthMode>("/auth-mode").catch(() => null);
+    if (!current()) return;
+    setAuth(mode);
+    setMe(user);
+    setState(user ? "in" : "out");
+  }, []);
+
   useEffect(() => {
-    void api<AuthMode>("/auth-mode").then((mode) => setDemoMode(mode.demo_mode)).catch(() => setDemoMode(false));
-    void refresh();
+    void boot();
     const onOut = () => {
       setMe(null);
       setState("out");
     };
     window.addEventListener(SIGNED_OUT_EVENT, onOut);
-    return () => window.removeEventListener(SIGNED_OUT_EVENT, onOut);
-  }, [refresh]);
+    return () => {
+      bootRef.current++;
+      window.removeEventListener(SIGNED_OUT_EVENT, onOut);
+    };
+  }, [boot]);
+
+  // the counter on the waking card; past 45 s the "not answering" screen takes over
+  useEffect(() => {
+    if (state !== "loading") return;
+    const started = Date.now();
+    const t = window.setInterval(() => {
+      const ms = Date.now() - started;
+      setElapsed(ms);
+      if (ms > GIVE_UP_MS + RETRY_MS) setState((s) => (s === "loading" ? "down" : s));
+    }, 1000);
+    return () => window.clearInterval(t);
+  }, [state]);
 
   const update = useCallback(async (patch: { name?: string; role?: Role }) => {
     setMe(await api<User>("/me", { method: "PATCH", json: patch }));
@@ -76,33 +134,17 @@ export function IdentityGate({ children }: { children: React.ReactNode }) {
     setState("out");
   }, []);
 
-  if (state === "loading") return <div className="min-h-dvh" aria-busy="true" />;
-  if (state === "down" && !isPublic) return <EngineDown onRetry={() => { setState("loading"); void refresh(); }} />;
+  if (state === "loading") return <EngineLoading elapsedMs={elapsed} />;
+  if (state === "down" && !isPublic) return <EngineDown onRetry={() => void boot()} />;
   if (state === "out" && !isPublic) return <Welcome onJoined={(u) => { setMe(u); setState("in"); }} />;
   // remount everything when the person or their role changes, so every view
   // reloads with what the new role may see
   return (
-    <IdentityContext.Provider value={{ me, demoMode, refresh, update, leave }}>
+    <IdentityContext.Provider value={{ me, demoMode: auth?.demo_mode ?? false, refresh, update, leave }}>
       <div key={`${me?.id}:${me?.role}`} className="contents">
         {children}
       </div>
     </IdentityContext.Provider>
-  );
-}
-
-/** Shown when the engine does not answer at all; one button tries again. */
-function EngineDown({ onRetry }: { onRetry: () => void }) {
-  return (
-    <main className="grid min-h-dvh place-items-center px-5">
-      <div role="alert" className="surface max-w-md p-8 text-center">
-        <BrandMark className="mx-auto size-9" />
-        <h1 className="mt-4 text-xl font-bold tracking-tight text-foreground">Canonry is not answering</h1>
-        <p className="mt-2 text-sm leading-relaxed text-foreground-secondary">{ENGINE_UNREACHABLE}</p>
-        <button type="button" onClick={onRetry} className="btn btn-primary mt-6">
-          Try again
-        </button>
-      </div>
-    </main>
   );
 }
 
@@ -135,6 +177,12 @@ const BENEFITS = [
 
 function GuestWelcome({ onJoined }: { onJoined: (u: User) => void }) {
   const [role, setRole] = useState<Role>("creator");
+  // first visit in this browser: offer the walkthrough; a returning visitor sees Canonry as before
+  const [guided, setGuided] = useState(false);
+  const { start: startGuide } = useGuide();
+  useEffect(() => {
+    setGuided(!hasVisited());
+  }, []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -143,7 +191,10 @@ function GuestWelcome({ onJoined }: { onJoined: (u: User) => void }) {
     setError(null);
     try {
       // the role is shown under the name in the top bar and can change, so the name stays "Guest"
-      onJoined(await api<User>("/join", { method: "POST", json: { name: "Guest", role } }));
+      const user = await api<User>("/join", { method: "POST", json: { name: "Guest", role } });
+      rememberFirstTime(guided);
+      if (guided) startGuide();
+      onJoined(user);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setBusy(false);
@@ -184,28 +235,10 @@ function GuestWelcome({ onJoined }: { onJoined: (u: User) => void }) {
             if (!busy) void start();
           }}
         >
-          <h2 className="text-2xl font-bold tracking-tight text-foreground">Try Canonry</h2>
-          <p className="mt-1.5 text-foreground-secondary">
-            No account needed. You start as a <strong className="text-foreground">{ROLES.find((r) => r.id === role)?.label ?? "Creator"}</strong>
-            {role === "creator" ? " (someone who writes marketing content)" : ""}, and a short checklist walks you
-            through the rest.
-          </p>
+          <h2 className="text-2xl font-bold tracking-tight text-foreground">Continue as a guest</h2>
+          <p className="mt-1.5 text-foreground-secondary">Pick a role to start. No account needed.</p>
 
-          <button type="submit" disabled={busy} className="btn btn-primary btn-lg mt-6 w-full">
-            {busy ? "Opening Canonry…" : (
-              <>
-                {role === "creator" ? "Start the demo" : `Continue as ${ROLES.find((r) => r.id === role)?.label}`}
-                <ArrowRight className="btn-arrow size-4" aria-hidden />
-              </>
-            )}
-          </button>
-
-          <details className="group/roles mt-5">
-            <summary className="flex w-fit cursor-pointer list-none items-center gap-1 text-sm font-medium text-brand hover:underline [&::-webkit-details-marker]:hidden">
-              <ChevronRight className="size-4 transition-transform group-open/roles:rotate-90" aria-hidden />
-              Or choose a different role
-            </summary>
-          <fieldset className="mt-3 space-y-2.5">
+          <fieldset className="mt-6 space-y-2.5">
             <legend className="sr-only">Role</legend>
             {ROLES.map(({ id, label, short, icon: Icon }) => {
               const on = role === id;
@@ -229,16 +262,32 @@ function GuestWelcome({ onJoined }: { onJoined: (u: User) => void }) {
               );
             })}
           </fieldset>
-          </details>
+
+          <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-2xl border border-border p-3.5 has-[:checked]:border-brand has-[:checked]:bg-brand/[0.05]">
+            <input
+              type="checkbox"
+              checked={guided}
+              onChange={(e) => setGuided(e.target.checked)}
+              className="mt-0.5 size-4 accent-[var(--brand)]"
+            />
+            <span>
+              <span className="block text-sm font-semibold text-foreground">Show me around (first time here)</span>
+              <span className="block text-xs text-muted-foreground">
+                A short guide points at each next step while you try a check, a fix and an approval.
+              </span>
+            </span>
+          </label>
 
           {error && (
             <p role="alert" className="mt-4 rounded-xl border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger-fg">
               {error}
             </p>
           )}
-          <p className="mt-5 text-xs leading-relaxed text-muted-foreground">
-            Switch roles any time from the menu at the top right. This is a shared demo workspace, so please don&apos;t
-            enter real brand material.
+          <button type="submit" disabled={busy} className="btn btn-primary btn-lg mt-6 w-full">
+            {busy ? "Opening Canonry…" : <>Continue as guest <ArrowRight className="btn-arrow size-4" aria-hidden /></>}
+          </button>
+          <p className="mt-4 text-center text-xs leading-relaxed text-muted-foreground">
+            Switch roles anytime from the top bar. This is a shared demo workspace, so please don&apos;t enter real brand material.
           </p>
         </form>
       </div>

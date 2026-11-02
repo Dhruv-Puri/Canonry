@@ -98,7 +98,7 @@ export function NextStep({
 
 export function VerifyLink({ pocId }: { pocId: string }) {
   return (
-    <Link href={`/verify/${pocId}`} className="btn btn-primary">
+    <Link href={`/verify/${pocId}`} data-guide="verify" className="btn btn-primary">
       Verify the approval <span aria-hidden className="btn-arrow">→</span>
     </Link>
   );
