@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { ArrowRight, Check, ChevronRight, Sparkles } from "lucide-react";
-import { rememberFirstTime, useGuide } from "@/components/guide";
+import { hasVisited, rememberFirstTime, useGuide } from "@/components/guide";
 import { api, ApiError, SIGNED_OUT_EVENT, type AuthMode, type User } from "@/lib/api";
 import { ROLES, type Role } from "@/lib/roles";
 import { BrandMark } from "@/components/brand";
@@ -177,20 +177,23 @@ const BENEFITS = [
 
 function GuestWelcome({ onJoined }: { onJoined: (u: User) => void }) {
   const [role, setRole] = useState<Role>("creator");
+  // first visit in this browser: offer the walkthrough; a returning visitor sees Canonry as before
+  const [guided, setGuided] = useState(false);
+  const { start: startGuide } = useGuide();
+  useEffect(() => {
+    setGuided(!hasVisited());
+  }, []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [stage, setStage] = useState<"ask" | "roles">("ask");
-  const { start: startGuide } = useGuide();
-
-  async function start(first: boolean, as: Role) {
+  async function start() {
     setBusy(true);
     setError(null);
     try {
-      rememberFirstTime(first);
       // the role is shown under the name in the top bar and can change, so the name stays "Guest"
-      const user = await api<User>("/join", { method: "POST", json: { name: "Guest", role: as } });
-      if (first) startGuide();
+      const user = await api<User>("/join", { method: "POST", json: { name: "Guest", role } });
+      rememberFirstTime(guided);
+      if (guided) startGuide();
       onJoined(user);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -225,103 +228,68 @@ function GuestWelcome({ onJoined }: { onJoined: (u: User) => void }) {
           </div>
         </section>
 
-        <div className="p-8 sm:p-10">
-          {stage === "ask" ? (
-            <>
-              <h2 className="text-2xl font-bold tracking-tight text-foreground">Welcome to Canonry</h2>
-              <p className="mt-1.5 text-foreground-secondary">Is this your first time here?</p>
-              <div className="mt-6 grid gap-3">
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void start(true, "creator")}
-                  className="group flex items-center gap-4 rounded-2xl border border-brand bg-brand/[0.06] p-4 text-left transition-colors hover:bg-brand/10 disabled:opacity-60"
+        <form
+          className="p-8 sm:p-10"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!busy) void start();
+          }}
+        >
+          <h2 className="text-2xl font-bold tracking-tight text-foreground">Continue as a guest</h2>
+          <p className="mt-1.5 text-foreground-secondary">Pick a role to start. No account needed.</p>
+
+          <fieldset className="mt-6 space-y-2.5">
+            <legend className="sr-only">Role</legend>
+            {ROLES.map(({ id, label, short, icon: Icon }) => {
+              const on = role === id;
+              return (
+                <label
+                  key={id}
+                  className={`flex cursor-pointer items-center gap-3 rounded-2xl border p-3.5 transition-all has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-brand ${
+                    on ? "border-brand bg-muted ring-2 ring-[var(--ring-glow)]" : "border-border hover:border-border-strong hover:bg-muted/50"
+                  }`}
                 >
-                  <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground">
-                    <Sparkles className="size-5" aria-hidden />
+                  <input type="radio" name="role" value={id} checked={on} onChange={() => setRole(id)} className="sr-only" />
+                  <span className={`grid size-10 shrink-0 place-items-center rounded-xl ${on ? "bg-primary text-primary-foreground" : "bg-muted text-brand"}`}>
+                    <Icon className="size-5" strokeWidth={1.9} aria-hidden />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block font-semibold text-foreground">
-                      {busy ? "Opening Canonry…" : "Yes, it's my first time"}
-                    </span>
-                    <span className="block text-sm text-muted-foreground">
-                      A friendly guide walks you through one check, step by step. About two minutes.
-                    </span>
+                    <span className="block font-semibold text-foreground">{label}</span>
+                    <span className="block text-sm leading-snug text-muted-foreground">{short}</span>
                   </span>
-                  <ArrowRight className="size-4 text-brand transition-transform group-hover:translate-x-0.5" aria-hidden />
-                </button>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => setStage("roles")}
-                  className="group flex items-center gap-4 rounded-2xl border border-border p-4 text-left transition-colors hover:border-border-strong hover:bg-muted/50 disabled:opacity-60"
-                >
-                  <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-muted text-brand">
-                    <Check className="size-5" aria-hidden />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block font-semibold text-foreground">No, I know my way around</span>
-                    <span className="block text-sm text-muted-foreground">Pick your role and go straight to work.</span>
-                  </span>
-                  <ArrowRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" aria-hidden />
-                </button>
-              </div>
-            </>
-          ) : (
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (!busy) void start(false, role);
-              }}
-            >
-              <button type="button" onClick={() => setStage("ask")} className="text-sm text-muted-foreground hover:text-foreground">
-                ← Back
-              </button>
-              <h2 className="mt-2 text-2xl font-bold tracking-tight text-foreground">Choose your role</h2>
-              <p className="mt-1.5 text-foreground-secondary">Each role sees only its own work. You can switch later.</p>
-              <fieldset className="mt-5 space-y-2.5">
-                <legend className="sr-only">Role</legend>
-                {ROLES.map(({ id, label, short, icon: Icon }) => {
-                  const on = role === id;
-                  return (
-                    <label
-                      key={id}
-                      className={`flex cursor-pointer items-center gap-3 rounded-2xl border p-3.5 transition-all has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-brand ${
-                        on ? "border-brand bg-muted ring-2 ring-[var(--ring-glow)]" : "border-border hover:border-border-strong hover:bg-muted/50"
-                      }`}
-                    >
-                      <input type="radio" name="role" value={id} checked={on} onChange={() => setRole(id)} className="sr-only" />
-                      <span className={`grid size-10 shrink-0 place-items-center rounded-xl ${on ? "bg-primary text-primary-foreground" : "bg-muted text-brand"}`}>
-                        <Icon className="size-5" strokeWidth={1.9} aria-hidden />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block font-semibold text-foreground">{label}</span>
-                        <span className="block text-sm leading-snug text-muted-foreground">{short}</span>
-                      </span>
-                      {on && <Check className="size-4 shrink-0 text-brand" strokeWidth={3} aria-hidden />}
-                    </label>
-                  );
-                })}
-              </fieldset>
-              <button type="submit" disabled={busy} className="btn btn-primary btn-lg mt-6 w-full">
-                {busy ? "Opening Canonry…" : (
-                  <>
-                    Continue as {ROLES.find((r) => r.id === role)?.label}
-                    <ArrowRight className="btn-arrow size-4" aria-hidden />
-                  </>
-                )}
-              </button>
-            </form>
-          )}
+                  {on && <Check className="size-4 shrink-0 text-brand" strokeWidth={3} aria-hidden />}
+                </label>
+              );
+            })}
+          </fieldset>
+
+          <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-2xl border border-border p-3.5 has-[:checked]:border-brand has-[:checked]:bg-brand/[0.05]">
+            <input
+              type="checkbox"
+              checked={guided}
+              onChange={(e) => setGuided(e.target.checked)}
+              className="mt-0.5 size-4 accent-[var(--brand)]"
+            />
+            <span>
+              <span className="block text-sm font-semibold text-foreground">Show me around (first time here)</span>
+              <span className="block text-xs text-muted-foreground">
+                A short guide points at each next step while you try a check, a fix and an approval.
+              </span>
+            </span>
+          </label>
+
           {error && (
             <p role="alert" className="mt-4 rounded-xl border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger-fg">
               {error}
             </p>
           )}
-          <p className="mt-6 text-xs leading-relaxed text-muted-foreground">
-            No account needed. This is a shared demo workspace, so please don&apos;t enter real brand material.
+          <button type="submit" disabled={busy} className="btn btn-primary btn-lg mt-6 w-full">
+            {busy ? "Opening Canonry…" : <>Continue as guest <ArrowRight className="btn-arrow size-4" aria-hidden /></>}
+          </button>
+          <p className="mt-4 text-center text-xs leading-relaxed text-muted-foreground">
+            Switch roles anytime from the top bar. This is a shared demo workspace, so please don&apos;t enter real brand material.
           </p>
-        </div>
+        </form>
       </div>
     </main>
   );

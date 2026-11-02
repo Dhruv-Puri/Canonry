@@ -17,7 +17,7 @@ const mark = (d: string) => ({ "--d": d }) as React.CSSProperties;
 export function HeroDemo() {
   return (
     <div aria-hidden className="relative mx-auto w-full max-w-[540px] select-none py-6">
-      <div className="glow pointer-events-none absolute -inset-12 -z-10 rounded-[56px] blur-2xl" />
+      <div aria-hidden className="glow pointer-events-none absolute -inset-12 -z-10 rounded-[56px] blur-2xl" />
 
       {/* the draft */}
       <div className="animate-float relative flex min-h-[340px] flex-col overflow-hidden rounded-[30px] border border-border bg-card shadow-float">

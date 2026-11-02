@@ -128,7 +128,7 @@ export default function KBPage() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="eyebrow">Source of truth</p>
-          <h1 className="page-title mt-1.5">Brand rules</h1>
+          <h1 className="page-title mt-1.5">Knowledge base</h1>
           <p className="page-lede max-w-2xl">
             The rules, facts and terms every check cites. Changes are versioned: earlier issues and signed approvals
             keep showing the version they were checked against.

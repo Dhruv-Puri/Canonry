@@ -68,6 +68,8 @@ def watch(page: Page, label: str) -> list[str]:
 def new_context(browser: Browser, width: int = 1280, height: int = 860) -> BrowserContext:
     ctx = browser.new_context(viewport={"width": width, "height": height}, base_url=BASE)
     ctx.set_default_timeout(30_000)
+    # a returning visitor: no walkthrough guide in the way (the guide has its own walk)
+    ctx.add_init_script("try { localStorage.setItem('canonry.firstTime', 'no'); localStorage.setItem('canonry.guide', 'off'); } catch (e) {}")
     return ctx
 
 
@@ -75,11 +77,10 @@ def guest(ctx: BrowserContext, role: str) -> Page:
     """Pick a role on the welcome screen and Continue as guest (sign-in is async)."""
     page = ctx.new_page()
     page.goto("/")
-    # the welcome asks "first time?"; this walk is an experienced visitor who picks a role (no guide)
-    page.get_by_role("button", name=re.compile("know my way around")).click()
+    page.get_by_role("button", name=re.compile("Continue as guest")).wait_for()
     label = {"creator": "Creator", "reviewer": "Reviewer", "agency": "Agency partner", "admin": "Brand admin"}[role]
     page.locator("label", has_text=label).first.click()
-    page.get_by_role("button", name=re.compile("Continue as ")).click()
+    page.get_by_role("button", name=re.compile("Continue as guest")).click()
     # the button turns into "Opening Canonry…" first; signed in once the app's main nav exists
     page.locator("nav[aria-label=Main]").first.wait_for(state="attached", timeout=60_000)
     page.wait_for_load_state("networkidle")
@@ -207,7 +208,7 @@ def phase_journey(browser: Browser) -> None:
     errs = watch(cp, "creator")
     shot(cp, "j01-creator-home")
     # a new guest's home shows only their own work: empty, with "Check the sample"
-    check("My work" in body_text(cp) and ("Nothing checked yet" in body_text(cp) or "To fix" in body_text(cp)),
+    check("Your submissions" in body_text(cp) or "Launch post" in body_text(cp),
           "creator home shows their own work (or how to start)")
     sid = submit_text(cp, f"E2E launch post {RUN}", LAUNCH, double=True)
     shot(cp, "j02-findings")
@@ -389,7 +390,12 @@ def phase_journey(browser: Browser) -> None:
         return [r.status, await r.json()]; }""", word)
     check(st == 200, f"admin added a banned term ({st})")
     sid4 = submit_text(cp, "E2E kb effect", f"Quillmark Pulse is {word} for teams. Start at quillmark.co/pulse.")
-    check(word in body_text(cp) and open_findings(cp) >= 1, "a new draft is flagged for the newly banned term")
+    for _ in range(20):  # the count fills in a moment after the heading appears
+        if open_findings(cp) >= 1:
+            break
+        cp.wait_for_timeout(500)
+    check(word in body_text(cp) and open_findings(cp) >= 1,
+          f"a new draft is flagged for the newly banned term (word shown: {word in body_text(cp)}, open: {open_findings(cp)})")
     tid = res.get("entity", {}).get("id")
     st, rr = dp.evaluate("""async ([id, v]) => { const r = await fetch('/engine/kb/terms/' + id + '/retire',
         {method:'POST', headers:{'Content-Type':'application/json'},
@@ -508,7 +514,7 @@ def phase_reliability(browser: Browser) -> None:
     ctx.clear_cookies()
     page.get_by_role("button", name="Re-check").click()
     try:
-        page.get_by_role("button", name=re.compile("first time|know my way around")).first.wait_for(timeout=20_000)
+        page.get_by_role("button", name=re.compile("Continue as guest")).wait_for(timeout=20_000)
         check(True, "an expired session returns to the welcome screen")
     except PWTimeout:
         check(False, "an expired session returns to the welcome screen")
@@ -524,6 +530,8 @@ LAYOUT_JS = """() => {
   const out = {overflow: document.documentElement.scrollWidth - vw, wide: [], small: [], unlabeled: [], noalt: []};
   for (const el of document.querySelectorAll('body *')) {
     const r = el.getBoundingClientRect();
+    // decorative background (aria-hidden glows) may bleed past the edge; content may not
+    if (el.closest('[aria-hidden="true"]')) continue;
     if (r.width && r.right > vw + 1 && getComputedStyle(el).position !== 'fixed') {
       let p = el.parentElement, clipped = false;
       while (p) { const o = getComputedStyle(p).overflowX; if (o === 'auto' || o === 'scroll' || o === 'hidden') { clipped = true; break; } p = p.parentElement; }
@@ -582,7 +590,7 @@ def phase_layout(browser: Browser) -> None:
     ctx = new_context(browser, 390, 844)
     page = ctx.new_page()
     page.goto("/")
-    page.get_by_role("button", name=re.compile("first time|know my way around")).first.wait_for()
+    page.get_by_role("button", name=re.compile("Continue as guest")).wait_for()
     shot(page, "l-welcome-390")
     info = page.evaluate(LAYOUT_JS)
     check(info["overflow"] <= 0, f"welcome@390: no sideways overflow ({info['overflow']}px)")

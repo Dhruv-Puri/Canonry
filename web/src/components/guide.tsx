@@ -42,6 +42,11 @@ export function rememberSent(sid: string) {
   write(SENT_KEY, sid);
 }
 
+/** True once this browser has been through the welcome screen before. */
+export function hasVisited(): boolean {
+  return read(FIRST_KEY) !== null;
+}
+
 /** Called by the welcome screen with the visitor's answer. */
 export function rememberFirstTime(first: boolean) {
   write(FIRST_KEY, first ? "yes" : "no");
@@ -137,11 +142,11 @@ function nextStep(path: string, role: string, mine: Submission[], detail: Submis
         title: "Now play the reviewer",
         body: (
           <>
-            A person always makes the final call. Open the menu at the top right and choose{" "}
-            <strong>View as Reviewer</strong>.
+            A person always makes the final call. Open the menu at the top right (on a phone, the menu
+            button) and choose <strong>Reviewer</strong>.
           </>
         ),
-        target: '[data-guide="account"]',
+        target: '[data-guide="account"], [aria-label="Open menu"]',
       };
     }
     const blocking = open.filter(
@@ -219,10 +224,11 @@ function nextStep(path: string, role: string, mine: Submission[], detail: Submis
       title: "Now play the reviewer",
       body: (
         <>
-          Your draft is waiting for a reviewer. Open the menu at the top right and choose <strong>View as Reviewer</strong>.
+          Your draft is waiting for a reviewer. Open the menu at the top right (on a phone, the menu button) and choose{" "}
+          <strong>Reviewer</strong>.
         </>
       ),
-      target: '[data-guide="account"]',
+      target: '[data-guide="account"], [aria-label="Open menu"]',
     };
   }
   if (draft) {
@@ -239,15 +245,20 @@ function nextStep(path: string, role: string, mine: Submission[], detail: Submis
     title: "Let's check your first post",
     body: (
       <>
-        Canonry reads marketing content against the brand&apos;s rules and facts. Press <strong>Check the sample</strong>{" "}
-        to try it on a post with a few planted mistakes.
+        Canonry reads marketing content against the brand&apos;s rules and facts. Pick a sample under the box (
+        <strong>Launch post with issues</strong> has a few planted mistakes), then press <strong>Check draft</strong>.
       </>
     ),
-    target: '[data-guide="check-sample"]',
+    target: '[data-guide="check-sample"]:not(:disabled), [data-guide="starter"]',
   };
 }
 
-/** The panel itself: bottom-right on desktop, above the tab bar on phones. */
+function firstVisible(selector: string): HTMLElement | null {
+  const all = Array.from(document.querySelectorAll<HTMLElement>(selector));
+  return all.find((el) => el.getClientRects().length > 0 && getComputedStyle(el).visibility !== "hidden") ?? null;
+}
+
+/** The panel itself: floating bottom-right beside the page; a bottom sheet on phones. */
 export function GuidePanel() {
   const { on, stop } = useGuide();
   const { me } = useIdentity();
@@ -296,7 +307,7 @@ export function GuidePanel() {
     const target = step.target;
     let marked: HTMLElement | null = null;
     const mark = () => {
-      const el = document.querySelector<HTMLElement>(target);
+      const el = firstVisible(target);
       if (el === marked) return;
       marked?.classList.remove("guide-pulse");
       el?.classList.add("guide-pulse");
@@ -314,7 +325,7 @@ export function GuidePanel() {
   const finished = path.startsWith("/verify");
 
   function showMe() {
-    const el = step?.target ? document.querySelector<HTMLElement>(step.target) : null;
+    const el = step?.target ? firstVisible(step.target) : null;
     el?.scrollIntoView({ behavior: "smooth", block: "center" });
     el?.focus({ preventScroll: true });
   }
@@ -323,10 +334,10 @@ export function GuidePanel() {
     <aside
       aria-label="Guide"
       aria-live="polite"
-      className="guide-panel fixed inset-x-3 bottom-[76px] z-50 rounded-2xl border border-brand/30 bg-card p-4 shadow-float md:inset-x-auto md:bottom-4 md:left-3 md:w-[208px] md:p-3 md:shadow-card"
+      className="guide-panel fixed inset-x-3 bottom-3 z-50 rounded-2xl border border-brand/30 bg-card p-4 shadow-float md:inset-x-auto md:bottom-6 md:right-6 md:w-[340px]"
     >
       <div className="flex items-start gap-3">
-        <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-brand/10 text-brand md:hidden">
+        <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-brand/10 text-brand">
           {finished ? <PartyPopper className="size-5" aria-hidden /> : <Compass className="size-5" aria-hidden />}
         </span>
         <div className="min-w-0 flex-1">
