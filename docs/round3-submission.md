@@ -6,6 +6,7 @@
 | | |
 |---|---|
 | **Live link** | https://canonry-sigma.vercel.app (tick *Show me around* on a first visit, then *Continue as guest*). Engine health: https://canonry-engine.onrender.com/health. Free tier: the first visit after idle can take about 50 s; the page says so while it wakes up. |
+| **Demo accounts** | Shared on purpose so you can try every role without signing up; a real deployment uses production mode (one-use invitations, own passwords, fixed roles, agencies isolated). See README, "Demo accounts". |
 | **Repository** | https://github.com/Dhruv-Puri/Canonry (public; branch `main`) |
 | **Final PDF** | [to attach] |
 
@@ -102,7 +103,7 @@ is down or waking up).
 
 ## 4. Testing details
 
-- **Automated:** `python engine/tests/run_tests.py` runs **28 suites** on a fresh database each, plus the
+- **Automated:** `python engine/tests/run_tests.py` runs **30 suites** on a fresh database each, plus the
   evaluation gate (precision and recall per checker on a frozen split). The suites never call a real AI
   provider; malformed AI answers and slow models are tested with fake providers. CI runs them on every
   push with a web type-check, a production build, `pip-audit` and `npm audit`.

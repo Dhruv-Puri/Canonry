@@ -133,7 +133,7 @@ export default function AdminOverviewPage() {
         <Stat label="Active facts" value={activeFacts} />
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-[1.35fr_1fr]">
+      <div className="grid items-start gap-5 lg:grid-cols-[1.35fr_1fr]">
         <Reveal className="surface p-6">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>

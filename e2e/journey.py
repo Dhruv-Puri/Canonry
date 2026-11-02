@@ -468,7 +468,12 @@ def phase_reliability(browser: Browser) -> None:
         page.get_by_role("tab", name=re.compile("PDF, Word or image")).click()
         page.get_by_label("Title").fill(f"E2E bad {name}")
         page.locator("input[type=file]").set_input_files(files=[{"name": name, "mimeType": mime, "buffer": data}])
-        page.get_by_role("button", name=re.compile("Upload and check")).click()
+        page.wait_for_timeout(600)
+        # an empty, unknown or oversized file is refused the moment it is chosen (the button stays off);
+        # anything else is refused by the engine after "Upload and check"
+        button = page.get_by_role("button", name=re.compile("Upload and check"))
+        if button.is_enabled():
+            button.click()
         try:
             page.locator("main").get_by_role("alert").wait_for(timeout=60_000)
             msg = page.locator("main").get_by_role("alert").inner_text()

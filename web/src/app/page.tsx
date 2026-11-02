@@ -481,7 +481,7 @@ export default function HomePage() {
 
         {ws && ws.vague_rules.length > 0 && (
           <p className="text-sm text-muted-foreground">
-            {ws.vague_rules.length} rule(s) may be unclear.{" "}
+            {ws.vague_rules.length === 1 ? "1 rule may be unclear." : `${ws.vague_rules.length} rules may be unclear.`}{" "}
             <Link href="/insights" className="link">
               See Insights
             </Link>

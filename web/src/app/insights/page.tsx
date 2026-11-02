@@ -225,14 +225,14 @@ export default function InsightsPage() {
                         p.available ? "bg-success-bg text-success-fg" : "border border-border-strong bg-card text-muted-foreground"
                       }`}
                     >
-                      AI provider · {p.provider} {p.available ? `(${p.model})` : "(no key)"}
+                      AI provider · {p.provider} {p.available ? `(${p.model})` : "(not set up)"}
                     </span>
                   ))}
                 </div>
               )}
               <Card title="Issues by checker">
                 {Object.values(ins.by_checker).map((b) => (
-                  <Row key={b.checker} left={b.checker} right={`${plural(b.c, "issue")} · ${b.definite} must fix`} />
+                  <Row key={b.checker} left={b.checker.charAt(0).toUpperCase() + b.checker.slice(1)} right={`${plural(b.c, "issue")} · ${b.definite} must fix`} />
                 ))}
                 {Object.keys(ins.by_checker).length === 0 && <Muted text="No checks have run yet." />}
               </Card>
@@ -287,8 +287,9 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
 function Row({ left, right }: { left: string; right: string }) {
   return (
     <div className="flex items-baseline justify-between gap-3 border-b border-border py-2 last:border-0 text-sm">
-      <span>{left}</span>
-      <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{right}</span>
+      <span className="min-w-0">{left}</span>
+      {/* may wrap on a phone instead of running off the card */}
+      <span className="text-right text-xs text-muted-foreground tabular-nums">{right}</span>
     </div>
   );
 }

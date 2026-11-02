@@ -17,6 +17,7 @@ key at all.
 | | |
 |---|---|
 | **Live demo** | **<https://canonry-sigma.vercel.app>** — choose a role, *Continue as guest* (engine: <https://canonry-engine.onrender.com/health>; free tier, the first visit after idle can take ~50 s). Deploy your own: [docs/deployment.md](docs/deployment.md) |
+| **Demo accounts** | **Shared on purpose.** The live demo runs in *demo mode* so judges can try every role without signing up: all visitors use one sample workspace (Quillmark) and can switch between Creator, Reviewer, Agency partner and Brand admin from the top bar. That is a demo choice, not how Canonry runs for a real brand. In **production mode** (`CANONRY_DEMO_MODE=false`, see [docs/deployment.md](docs/deployment.md)) there are no guest or shared accounts: each person joins with a one-use invitation and signs in with their own password (12+ characters), the invitation fixes their role, agency partners see only their own agency's work and never confidential facts, and a writer cannot approve their own draft. The engine enforces all of this (`engine/access.py`, `engine/workflow.py`); `test_identity` and `test_access` cover it. |
 | **Run locally** | [Quick start](#4-quick-start) (about 5 minutes, no accounts, no keys) |
 | **Source** | <https://github.com/Dhruv-Puri/Canonry> |
 | **Round 2 PDF** | [docs/Canonry_Round2_Build_vaidvansh6.pdf](docs/Canonry_Round2_Build_vaidvansh6.pdf): links, completed features, technology, changes from the plan, Round 3 improvements (Part A), then the Round 1 plan as submitted (Part B) |
@@ -40,7 +41,7 @@ flowchart LR
 2. The engine first **reads what the content is** (format, kind, purpose, audience, the claims it makes) and runs only the checks that fit it, then returns **findings**. Each has the exact text span, a plain explanation, a **citation** to the real rule or fact behind it, a **confidence tier** (Definite / Likely / Consider, shown as *Must fix* / *Should fix* / *Worth a look*) and, where possible, a one-click minimal fix. The page says what Canonry understood and which checks ran, and why.
 3. The creator **accepts**, **edits** or **disputes** (with a reason) each finding. Every change creates a new revision that is re-checked automatically; a word-level diff shows what changed.
 4. **Submit for review**: a router assigns risk and the reviewer level. A narrow, logged exemption lane can auto-approve clean email digests.
-5. A **reviewer** approves, requests changes, or overrides a single finding with a reason. High-severity findings block approval until resolved or explicitly overridden: the AI never decides.
+5. A **reviewer** approves, requests changes, or overrides a single finding with a reason. The writer sees the verdict on **My work** (sent back with the reviewer's words, with a reviewer, or approved), can **edit the text** of a draft that is with them (or upload a new version of a file), and sends it again. High-severity findings block approval until resolved or explicitly overridden: the AI never decides.
 6. Approval signs a **Proof of Compliance**: SHA-256 of the approved text, approver role, knowledge version and time, signed with Ed25519. Approved content is then locked.
 7. Anyone can open `/verify/<id>` without signing in and paste the published text: **Verified** (exact approved text) or **Modified**.
 
@@ -88,7 +89,7 @@ every number now traces to an approved fact, and the router fast-tracked it as l
 | Judging criterion (points) | Evidence |
 |---|---|
 | Core workflow runs end to end (30) | §1 journey; `test_engine.py` drives it through the API; seeded launch post to try it in the browser |
-| Technical depth and reliability (25) | 28 test suites + evaluation gate in CI, and a 184-check browser walk (§7); finding contract enforced on every finding; role scoping and lifecycle locks tested; honest AI degradation |
+| Technical depth and reliability (25) | 30 test suites + evaluation gate in CI, and a 184-check browser walk (§7); finding contract enforced on every finding; role scoping and lifecycle locks tested; honest AI degradation |
 | Progress against the plan (20) | [docs/plan-vs-build.md](docs/plan-vs-build.md): every plan commitment, what changed and why; [docs/changelog.md](docs/changelog.md): milestones M1–M6 with evidence |
 | Three planned improvements (15) | §12 (Round 3 plan); §3 shows the Round 1 improvements delivered |
 | Usability so far (10) | password-free demo personas, plain-language findings, one-click fixes; usability kit (§8) |
@@ -209,7 +210,7 @@ Main technical decisions (full list with reasons in the [decision log](docs/deci
 ## 7. Tests and reliability
 
 ```bash
-.venv/Scripts/python engine/tests/run_tests.py     # 28 suites (fresh DB each) + evaluation gate
+.venv/Scripts/python engine/tests/run_tests.py     # 30 suites (fresh DB each) + evaluation gate
 ```
 
 | Suite (`engine/tests/`) | Proves |
@@ -242,6 +243,8 @@ Main technical decisions (full list with reasons in the [decision log](docs/deci
 | `test_vision` | image understanding with a faked Gemini: a competitor's brand cites the comparative clause (the logo rule with the pack off), a retired name seen only by the model is Should fix, "India's #1" in the picture is checked like text, a picture that contradicts its caption is Worth a look, the seen alt text is accepted in one click; malformed answers, timeouts and an empty allowance leave exactly the old findings; one card when OCR and the model see the same name; the call counts toward the allowance |
 | `test_suggested_facts` | the knowledge base grows from use: a claim flagged twice is suggested once on Insights, a reviewer adds it as a fact, the same claim is then backed by it and a different number (45% vs 37%) is still caught |
 | `test_large_images` | a 4000 px image gets the same logo verdicts and box as a 1000 px one, text recognition prepares it without two full-size colour copies, and only one upload does pixel work at a time (a 4096 px upload needed ~380 MB on a 512 MB server; now ~160 MB) |
+| `test_term_matching` | banned terms match whole phrases: "5,000+ teams" is one phrase, so "Setup takes 5 minutes", "Pulse 2.5" and "₹1,599" are no longer flagged, and "#10" is not the banned "#1" (found by the browser run on 3 Nov) |
+| `test_creator_work` | a writer sees who sent a draft back and why, edits its text into a new checked revision, cannot edit while it is in review or after approval, and sees the approval |
 | `test_slow_ai_lock` | a check waiting on a slow AI model never locks other visitors out (sign-ins and drafts during the first and later AI calls answer at once) |
 
 Image checks use Tesseract for the words in an image. The suites fake it, so they run anywhere; the
@@ -334,7 +337,7 @@ What a judge may run into on the live demo:
 ├── data/                    ← demo brand book: rules, facts, terms (CSV)
 ├── engine/                  ← FastAPI analysis engine (all product logic)
 │   ├── *.py                 ← modules listed in §5
-│   ├── tests/               ← 28 suites + run_tests.py
+│   ├── tests/               ← 30 suites + run_tests.py
 │   ├── evaluation/          ← evaluate.py, labelled set, committed baseline
 │   ├── Dockerfile
 │   └── requirements.txt
