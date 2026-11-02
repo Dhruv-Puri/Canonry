@@ -237,8 +237,12 @@ def check(ctx, text: str) -> List[Dict[str, Any]]:
         return []
     findings: List[Dict[str, Any]] = []
     sentences = list(checkers._sentences(text))
+    # a long draft repeats sentences; retrieval for one sentence is the same each time
+    candidate_cache: Dict[str, List[Dict[str, Any]]] = {}
     for index, (s_start, s_end, sentence) in enumerate(sentences):
-        candidates = _candidate_clauses(ctx.conn, ctx.ws, sentence, clauses)
+        if sentence not in candidate_cache:
+            candidate_cache[sentence] = _candidate_clauses(ctx.conn, ctx.ws, sentence, clauses)
+        candidates = candidate_cache[sentence]
         best_by_issue: Dict[Tuple[str, str], Dict[str, Any]] = {}
         # a qualifier often follows in the next sentence ("Win a prize? See full
         # terms at ..."), so exemptions look one sentence ahead
