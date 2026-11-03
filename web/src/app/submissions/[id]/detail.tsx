@@ -27,6 +27,8 @@ import { rememberSent } from "@/components/guide";
 import { markIssueHandled } from "@/components/start-here";
 import { ROLE_LABEL, roleHome } from "@/lib/roles";
 import { useIdentity } from "@/components/identity";
+import { toast } from "@/components/toast";
+import { plural } from "@/lib/format";
 
 export function SubmissionDetailClient({ sid }: { sid: string }) {
   const [d, setD] = useState<SubmissionDetail | null>(null);
@@ -74,12 +76,19 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
   const prevRev: Revision | null =
     d && revListIndex > 0 ? (d.revisions[revListIndex - 1] ?? null) : null;
 
-  async function act(fn: () => Promise<unknown>) {
+  // the browser tab names the draft, like any document app
+  const docTitle = d?.submission.title;
+  useEffect(() => {
+    if (docTitle) document.title = `${docTitle} · Canonry`;
+  }, [docTitle]);
+
+  async function act(fn: () => Promise<unknown>, done?: string) {
     setBusy(true);
     setError(null);
     try {
       await fn();
       await load();
+      if (done) toast(done);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
       // someone (or another tab) changed it first: show what is true now, keep the message
@@ -102,7 +111,7 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
       await act(async () => {
         await api(`/submissions/${sid}/edit`, { method: "POST", json: { content: draftText } });
         setEditing(false);
-      });
+      }, "Saved as a new version and checked again.");
     } finally {
       setChecking(false);
     }
@@ -111,7 +120,8 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
   async function uploadVersion(file: File) {
     setChecking(true);
     try {
-      await act(() => uploadFile(`/submissions/${sid}/upload?filename=${encodeURIComponent(file.name)}`, file));
+      await act(() => uploadFile(`/submissions/${sid}/upload?filename=${encodeURIComponent(file.name)}`, file),
+        "New version uploaded and checked.");
     } finally {
       setChecking(false);
     }
@@ -121,6 +131,7 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
     setChecking(true);
     setBusy(true);
     setError(null);
+    let accepted = 0;
     try {
       for (let round = 0; round < 20; round++) {
         const cur = await api<SubmissionDetail>(`/submissions/${sid}`);
@@ -135,6 +146,7 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
           json: { revision_id: cur.latest_revision.id, finding_id: next.id, action: "accept" },
         });
         markIssueHandled();
+        accepted++;
       }
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
@@ -142,6 +154,7 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
       await load();
       setBusy(false);
       setChecking(false);
+      if (accepted) toast(`${plural(accepted, "suggested fix", "suggested fixes")} applied and checked again.`);
     }
   }
 
@@ -149,13 +162,13 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
     await act(async () => {
       await api(`/submissions/${sid}/submit-review`, { method: "POST" });
       rememberSent(sid); // the guide points the reviewer at this draft
-    });
+    }, "Sent to a reviewer. You'll see their decision on My work.");
   }
 
   async function recheck() {
     setChecking(true);
     try {
-      await act(() => api(`/submissions/${sid}/recheck`, { method: "POST" }));
+      await act(() => api(`/submissions/${sid}/recheck`, { method: "POST" }), "Checked again with the current rules and facts.");
     } finally {
       setChecking(false);
     }
@@ -171,6 +184,13 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
       });
       if (r.poc_id) setPocId(r.poc_id);
       await load();
+      toast(
+        action === "approve"
+          ? "Approval signed. Anyone can now verify the published copy."
+          : action === "request_changes"
+            ? "Returned to the writer with your comment."
+            : "Override recorded with your reason.",
+      );
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
       if (e instanceof ApiError && e.status === 409) await load();
@@ -227,7 +247,7 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
     <div className="space-y-5">
       <Link
         href={backHref}
-        className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+        className="tap inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
       >
         ← {backLabel}
       </Link>
@@ -435,7 +455,7 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
           <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
           <span>
             <AiSkipped reason={d.check.ai_reason} allowance={d.ai_allowance} />{" "}
-            <Link href="/insights" className="underline underline-offset-2 hover:text-foreground">
+            <Link href="/insights" className="tap underline underline-offset-2 hover:text-foreground">
               AI status
             </Link>
           </span>
@@ -593,7 +613,8 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
                 api(`/submissions/${sid}/resolve`, {
                   method: "POST",
                   json: { revision_id: rev?.id, finding_id: f.id, action: "accept" },
-                }).then(markIssueHandled)
+                }).then(markIssueHandled),
+                "Fix applied and the draft checked again.",
               )
             }
             onEdit={(replacement) =>
@@ -601,7 +622,8 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
                 api(`/submissions/${sid}/resolve`, {
                   method: "POST",
                   json: { revision_id: rev?.id, finding_id: f.id, action: "edit", replacement },
-                }).then(markIssueHandled)
+                }).then(markIssueHandled),
+                "Your wording is in and the draft checked again.",
               )
             }
             onDispute={(reason) =>
@@ -609,7 +631,8 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
                 api(`/submissions/${sid}/resolve`, {
                   method: "POST",
                   json: { revision_id: rev?.id, finding_id: f.id, action: "dispute", reason },
-                }).then(markIssueHandled)
+                }).then(markIssueHandled),
+                "Dispute recorded. The reviewer will see your reason.",
               )
             }
           />
@@ -1041,10 +1064,10 @@ function ContentWithSpans({ content, findings, numbers }: {
     <p className="whitespace-pre-wrap font-serif text-[17px] leading-[28px] [overflow-wrap:anywhere]">
       {pieces.map((p, i) =>
         p.covering.length ? (
-          <mark key={i} className={`${HIGHLIGHT[topTier(p.covering)]} text-foreground`}>
+          <mark key={i} data-fids={p.covering.map((f) => f.id).join(" ")} className={`${HIGHLIGHT[topTier(p.covering)]} text-foreground`}>
             <a
               href={`#finding-${p.covering[0].id}`}
-              className="rounded-sm no-underline"
+              className="tap rounded-sm no-underline"
               title={p.covering.map((f) => `${CATEGORY_LABEL[f.category] ?? f.category} · ${TIER_LABEL[f.tier]}`).join("\n")}
             >
               {p.text}
@@ -1067,6 +1090,14 @@ function ContentWithSpans({ content, findings, numbers }: {
       )}
     </p>
   );
+}
+
+/** Light up the words a finding is about while its card is hovered or focused (as Grammarly does). */
+function linkWords(findingId: string, on: boolean) {
+  if (typeof document === "undefined") return;
+  document
+    .querySelectorAll<HTMLElement>(`mark[data-fids~="${CSS.escape(findingId)}"]`)
+    .forEach((m) => m.classList.toggle("mark-linked", on));
 }
 
 /** What changed between the previous revision and the one on screen (plan Must: revision diff). */
@@ -1253,6 +1284,10 @@ function FindingCard({
   return (
     <div
       id={`finding-${f.id}`}
+      onMouseEnter={() => linkWords(f.id, true)}
+      onMouseLeave={() => linkWords(f.id, false)}
+      onFocus={() => linkWords(f.id, true)}
+      onBlur={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && linkWords(f.id, false)}
       className={`finding scroll-mt-28 rounded-xl border bg-card p-5 transition-[border-color,box-shadow] duration-150 ${
         open && f.severity === "high"
           ? "border-danger-border border-l-[3px]"

@@ -558,7 +558,9 @@ LAYOUT_JS = """() => {
     }
   }
   for (const el of document.querySelectorAll('button, a[href], select, input:not([type=hidden]), summary')) {
-    const r = el.getBoundingClientRect();
+    // a checkbox or radio inside its <label> is clicked through the whole label (WCAG 2.5.8 counts that)
+    const box = (el.type === 'checkbox' || el.type === 'radio') && el.closest('label') ? el.closest('label') : el;
+    const r = box.getBoundingClientRect();
     if (!r.width || getComputedStyle(el).visibility === 'hidden') continue;
     if (el.classList.contains('sr-only')) continue;
     if (r.height < 24 || r.width < 24) out.small.push((el.innerText || el.getAttribute('aria-label') || el.tagName).trim().slice(0, 40) + ` ${Math.round(r.width)}x${Math.round(r.height)}`);

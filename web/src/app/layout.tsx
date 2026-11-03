@@ -7,6 +7,7 @@ import { Spotlight } from "@/components/effects";
 import { IdentityGate } from "@/components/identity";
 import { GuidePanel, GuideProvider } from "@/components/guide";
 import { TourHost } from "@/components/tour-host";
+import { Toaster } from "@/components/toast";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -26,7 +27,7 @@ const serif = Source_Serif_4({
 });
 
 export const metadata: Metadata = {
-  title: "Canonry — brand-governance review workspace",
+  title: { default: "Canonry — brand-governance review workspace", template: "%s · Canonry" },
   description:
     "Marketing content goes in, gets checked against approved rules, terms and facts, and issues come back explained with citations for a human to decide.",
 };
@@ -58,6 +59,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         </footer>
         <GuidePanel />
         <TourHost />
+        <Toaster />
         </IdentityGate>
         </GuideProvider>
         </Suspense>

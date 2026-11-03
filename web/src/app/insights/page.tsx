@@ -116,7 +116,7 @@ export default function InsightsPage() {
                   <p className="font-serif italic">“{m.span_text}”</p>
                   <p className="text-xs text-muted-foreground">
                     {plural(m.occurrences, "submission")} · e.g.{" "}
-                    <Link href={`/submissions/${m.sample_id}`} className="link">{m.sample_title}</Link>
+                    <Link href={`/submissions/${m.sample_id}`} className="link inline-block max-w-[16rem] truncate align-bottom" title={m.sample_title}>{m.sample_title}</Link>
                     {staff && !isRanking(m.span_text) && (
                       <>
                         {" "}· <Link href={`/kb?fact=${encodeURIComponent(m.span_text)}`} className="link">Add as approved fact</Link>

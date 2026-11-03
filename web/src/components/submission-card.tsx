@@ -82,6 +82,67 @@ export function SubmissionCard({
   );
 }
 
+/** How long it has been waiting, the way a queue reads it ("12 min", "3 h", "2 d"). */
+function waiting(iso: string): string {
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return "";
+  const min = Math.max(0, Math.round((Date.now() - t) / 60000));
+  if (min < 1) return "just now";
+  if (min < 60) return `${min} min`;
+  const h = Math.round(min / 60);
+  return h < 48 ? `${h} h` : `${Math.round(h / 24)} d`;
+}
+
+/**
+ * One queue item as a scannable row (Linear / Stripe style): on a desktop the columns line up
+ * under the list header; on a phone the same element stacks like a compact card.
+ */
+export function SubmissionRow({ submission }: { submission: Submission }) {
+  const open = submission.open_findings ?? 0;
+  const step = nextStep(submission, "reviewer");
+  const age = waiting(submission.created_at) || when(submission.created_at);
+  return (
+    <Link
+      href={`/submissions/${submission.id}`}
+      className="group grid gap-x-6 gap-y-2 px-5 py-4 transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 md:grid-cols-[minmax(0,1fr)_8.5rem_6.5rem_8rem] md:items-center"
+    >
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusBadge status={submission.status} />
+          <RiskBadge risk={submission.risk} />
+        </div>
+        <p className="mt-1.5 truncate text-[15px] font-semibold text-foreground group-hover:underline group-hover:underline-offset-2">
+          {submission.title}
+        </p>
+        {submission.router_note && (
+          <p className="mt-0.5 line-clamp-1 text-[13px] text-muted-foreground" title={submission.router_note}>
+            {submission.router_note}
+          </p>
+        )}
+      </div>
+      <div className="flex items-center gap-4 md:contents">
+      <p className="text-xs text-muted-foreground">
+        <span className="capitalize">{submission.channel}</span>
+        <span className="md:block">
+          <span className="md:hidden"> · </span>
+          {age === "just now" ? age : submission.status === "In review" ? `waiting ${age}` : `${age} ago`}
+        </span>
+      </p>
+      <p className="text-sm text-muted-foreground">
+        <span className={`font-bold tabular-nums ${open ? "text-foreground" : ""}`}>{open}</span> open
+      </p>
+      <span
+        className={`ml-auto inline-flex items-center gap-1.5 text-sm font-semibold md:ml-0 md:justify-end ${
+          step.act ? "text-brand" : "text-muted-foreground"
+        }`}
+      >
+        {step.text} {step.act && <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" aria-hidden />}
+      </span>
+      </div>
+    </Link>
+  );
+}
+
 /** What the reviewer decided, in words the writer can act on. Nothing until there is a verdict. */
 function Verdict({ submission }: { submission: Submission }) {
   const r = submission.last_review;

@@ -6,8 +6,7 @@ import { ArrowRight, BookMarked, LineChart, ShieldCheck } from "lucide-react";
 import { api, type Submission } from "@/lib/api";
 import { EmptyIllustration } from "@/components/brand";
 import { useIdentity } from "@/components/identity";
-import { Reveal } from "@/components/motion";
-import { SubmissionCard } from "@/components/submission-card";
+import { SubmissionRow } from "@/components/submission-card";
 import { canReview } from "@/lib/roles";
 
 type Filter = "queue" | "changes" | "signed" | "all";
@@ -153,13 +152,24 @@ export default function ReviewQueuePage() {
       )}
 
       {subs && visible.length > 0 && (
-        <ul className="grid gap-4 md:grid-cols-2">
-          {visible.map((s, i) => (
-            <Reveal as="li" key={s.id} delay={(i % 2) * 80}>
-              <SubmissionCard submission={s} viewer="reviewer" />
-            </Reveal>
-          ))}
-        </ul>
+        <div className="surface overflow-hidden p-0">
+          <div
+            aria-hidden
+            className="hidden border-b border-border bg-muted/40 px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground md:grid md:grid-cols-[minmax(0,1fr)_8.5rem_6.5rem_8rem] md:gap-x-6"
+          >
+            <span>Submission</span>
+            <span>Channel · age</span>
+            <span>Issues</span>
+            <span className="text-right">Next</span>
+          </div>
+          <ul className="divide-y divide-border">
+            {visible.map((s) => (
+              <li key={s.id}>
+                <SubmissionRow submission={s} />
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   );
