@@ -124,6 +124,19 @@ try:
            f"at least 90% of real upheld ASCI ad lines get a cited warning ({len(caught)}/{len(upheld)})")
     expect(not loud, f"no warning on compliant lines that use the same words ({loud})")
 
+    # blind test (data/compliance/india_asci_blind.jsonl): claims from three ASCI monthly releases the pack
+    # had not seen. "dev" was used to write the 2022.3 patterns; "heldout" was scored once, after they froze.
+    blind = [json.loads(line) for line in open(os.path.join(compliance.DATA_DIR, "india_asci_blind.jsonl"), encoding="utf-8")
+             if line.strip() and not line.startswith("#")]
+    score = {}
+    for r in blind:
+        refs = {c["ref"] for f in compliance.check(ctx, r["text"]) for c in f["citations"]}
+        hit, total = score.get(r["set"], (0, 0))
+        score[r["set"]] = (hit + bool(refs & set(r["accept"])), total + 1)
+    print(f"      blind ASCI sets: dev {score['dev'][0]}/{score['dev'][1]}, held-out {score['heldout'][0]}/{score['heldout'][1]}")
+    expect(score["dev"][0] >= 125 and score["heldout"][0] >= 35,
+           f"no regression on the blind ASCI sets (dev {score['dev']}, held-out {score['heldout']})")
+
     # the public API response carries the same contract-v2 citation
     key = api.create_key(conn, ws, "compliance-test", ["check", "read"], "test")["key"]
     conn.commit()

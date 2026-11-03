@@ -1,7 +1,7 @@
 {
   "id": "in_advertising",
   "name": "India advertising compliance",
-  "version": "2022.2",
+  "version": "2022.3",
   "source": "CCPA Guidelines for Prevention of Misleading Advertisements and Endorsements for Misleading Advertisements, 2022; ASCI Code for Self-Regulation in Advertising",
   "description": "Consumer-protection and self-regulation rules for advertising in India. Deterministic triggers decide a finding; retrieved clause text supplies the legal basis and the exact reference.",
   "url": "https://consumeraffairs.nic.in/sites/default/files/Guidelines%20for%20Prevention%20of%20Misleading%20Advertisements%20and%20Endorsements%20for%20Misleading%20Advertisements%2C%202022.pdf",
@@ -216,6 +216,111 @@
           "tier": "likely",
           "severity": "high",
           "why": "An absolute promise of results (a guarantee, a cure, a near-100% figure, results in a fixed short time) must be backed by evidence the advertiser can produce."
+        },
+        {
+          "pattern": "\\b(?:freedom|relief|riddance|rid)\\s+(?:from|of)\\s+(?:all\\s+types?\\s+of\\s+)?(?:[a-z]+\\s+)?(?:infertility|sterility|piles|obesity|diabetes|migraine|arthritis|asthma|cancer|thyroid|hypothyroid|psoriasis|acne|hair\\s*fall|baldness|dandruff|alcohol|addiction|fistula|fissure|sciatica|hepatitis|ailments?|illness(?:es)?|diseases?|dark\\s+circles|pimples|hypertension|hyper\\s+tension|sugar|blood\\s+pressure)\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "A health outcome is an objective claim: it needs clinical substantiation."
+        },
+        {
+          "pattern": "\\b(?:permanent|complete|lifetime)\\s+(?:relief|riddance|cure|solution)\\b|\\bwithout\\s+(?:any\\s+)?(?:operation|surgery)\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "A permanent or no-surgery health outcome needs clinical substantiation."
+        },
+        {
+          "pattern": "\\b(?:can\\s+be|is|are|gets?|been)\\s+(?:completely\\s+|permanently\\s+)?cured\\b|\\bcuring\\s+(?:of\\s+)?(?:infertility|sterility|piles|obesity|diabetes|migraine|arthritis|asthma|cancer|thyroid|hypothyroid|psoriasis|acne|hair\\s*fall|baldness|dandruff|alcohol|addiction|fistula|fissure|sciatica|hepatitis|ailments?|illness(?:es)?|diseases?|dark\\s+circles|pimples|hypertension|hyper\\s+tension|sugar|blood\\s+pressure)\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "A cure claim needs clinical substantiation."
+        },
+        {
+          "pattern": "\\bquit\\b[^.]{0,30}\\b(?:alcohol|smoking|drinking|tobacco|addiction)\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "A claim to end an addiction needs clinical substantiation."
+        },
+        {
+          "pattern": "\\b(?:boosts?|increases?|improves?|strengthens?)\\s+(?:your\\s+|the\\s+)?immunity\\b|\\bimmunity\\s+booster\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "An immunity claim needs clinical substantiation."
+        },
+        {
+          "pattern": "\\b(?:beat|defeat|win\\s+over)\\s+cancer\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "A cancer outcome claim needs clinical substantiation."
+        },
+        {
+          "pattern": "\\bfulfil+\\w*\\s+(?:your\\s+|the\\s+)?dream\\s+of\\s+(?:becoming\\s+a\\s+mother|having\\s+(?:a\\s+)?(?:child|baby))\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "A fertility outcome is an objective claim: it needs clinical substantiation."
+        },
+        {
+          "pattern": "\\bpainless\\s+(?:[a-z]+\\s+)?(?:delivery|treatment|surgery|procedure)\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "A 'painless' treatment claim needs clinical substantiation."
+        },
+        {
+          "pattern": "\\b(?:remove|lose|burn|reduce)\\s+(?:belly\\s+)?fat\\s+(?:forever|permanently)\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "A permanent fat-loss claim needs clinical substantiation."
+        },
+        {
+          "pattern": "\\bprevents?\\s+(?:premature\\s+)?(?:greying|graying|hair\\s*fall|ageing|aging|wrinkles|cancer|diabetes|sterility)\\b|\\beliminates?\\s+(?:dandruff|acne|pimples)\\b|\\btreatment\\s+for\\s+prevention\\s+of\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "A prevention or elimination claim needs substantiation."
+        },
+        {
+          "pattern": "\\b(?:regain|restore)\\s+(?:your\\s+)?(?:strength|stamina|energy|height)\\b|\\bin\\s+(?:just\\s+|only\\s+)?(?:one|a\\s+single|\\d+)\\s+(?:sessions?|sittings?)\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "A result promised in a fixed time or session needs substantiation."
+        },
+        {
+          "pattern": "\\b(?:useful|effective|helpful)\\s+(?:in|for)\\b[^.]{0,80}\\b(?:diabetes|cancer|asthma|arthritis|thyroid|psoriasis|migraine)\\b|\\bcontrols?\\s+(?:blood\\s+)?sugar\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "A claim to treat medical conditions needs clinical substantiation."
+        },
+        {
+          "pattern": "\\b100\\s?(?:%|percent|per\\s+cent)\\s+(?:protected|protection|organic|natural|herbal|visa|sure(?:[-\\s]shot)?|guarantee)\\b|\\bsure[-\\s]?shot\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "An absolute (100%) claim needs substantiation."
+        },
+        {
+          "pattern": "\\b(?:completely|totally|purely)\\s+(?:herbal|natural|organic|safe)\\b|\\bcomplete\\s+protection\\s+from\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "An absolute claim needs substantiation."
+        },
+        {
+          "pattern": "\\b(?:approved|recommended)\\s+by\\s+(?:the\\s+)?(?:doctors|dermatologists|dentists|experts|indian\\s+medical\\s+association|ima)\\b|\\bpreferred\\s+by\\s+(?:most|\\d+%?\\s+of)\\s+(?:doctors|dentists|dermatologists|experts)\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "A professional endorsement needs evidence that the professionals endorse it."
         }
       ],
       "exempt_if": [
@@ -397,6 +502,76 @@
           "tier": "likely",
           "severity": "medium",
           "why": "A leadership or superlative claim (No. 1, best, largest, first, most trusted) needs current comparative data and its source, stated with the claim; ASCI upholds complaints against these more than any other kind."
+        },
+        {
+          "pattern": "\\b(?:first|1st|top|trusted)\\s+choice\\s+(?:of|for)\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "A 'first choice of' claim needs survey data behind it, stated in the ad."
+        },
+        {
+          "pattern": "\\bundisputed\\s+(?:leader|no\\.?\\s?1|number\\s+one|champion)s?\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "A leadership claim needs market data behind it, stated in the ad."
+        },
+        {
+          "pattern": "(?<!\\bour )(?<!\\byour )\\b(?:most|highest)\\s+(?:[a-z]+\\s+)?(?:favou?rite|reputed|preferred|powerful|selling|successful)\\b(?![^.]{0,25}\\byet\\b)",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "A superlative ('most', 'highest') needs comparative data behind it, stated in the ad."
+        },
+        {
+          "pattern": "\\b(?:(?-i:[A-Z])[a-z]+|world|country)['’]s\\s+(?:most\\s+)?(?:favou?rite|best|biggest|largest|leading|first|1st|top|no\\.?\\s?1)\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "A national or world ranking needs data and a source, stated in the ad."
+        },
+        {
+          "pattern": "\\b(?:selected\\s+as\\s+|ranked\\s+)?rank(?:ed)?\\s+(?:no\\.?\\s?)?(?:1|one)\\b|\\b(?:on\\s+)?(?:first|1st)\\s+position\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "A ranking needs its data and source, stated in the ad."
+        },
+        {
+          "pattern": "\\bpioneers?\\s+(?:of|in)\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "A claim to be first or a pioneer needs evidence, stated in the ad."
+        },
+        {
+          "pattern": "\\b(?:first|1st)\\b[^.]{0,40}\\bin\\s+the\\s+world\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "A 'first in the world' claim needs evidence, stated in the ad."
+        },
+        {
+          "pattern": "\\baward[-\\s]winner\\b|\\b\\d+\\+?\\s+awards\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "An awards claim should name the award and who gave it."
+        },
+        {
+          "pattern": "\\bworld[-\\s]famous\\b|\\brecord[-\\s]holder\\b",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "A fame or record claim needs evidence, stated in the ad."
+        },
+        {
+          "pattern": "(?:^|\\bthe\\s+)only\\s+(?:[\\w-]+\\s+){0,3}(?:institute|centre|center|clinic|hospital|brand|company|school|college|lab)\\b[^.]{0,40}\\b(?:of|in)\\s+",
+          "category": "unsubstantiated_claim",
+          "tier": "likely",
+          "severity": "medium",
+          "why": "A claim to be the only one of its kind needs evidence, stated in the ad."
         }
       ],
       "exempt_if": [
@@ -440,6 +615,13 @@
           "tier": "likely",
           "severity": "medium",
           "why": "A named or implied competitor comparison must be factual, substantiated and like-for-like; state the source or remove it."
+        },
+        {
+          "pattern": "\\b\\d+(?:\\.\\d+)?\\s?(?:%|x|times)\\s+(?:more|faster|better|extra|stronger|longer)\\b(?![^.]{0,60}\\bthan\\b)",
+          "category": "comparative_advertising",
+          "tier": "consider",
+          "severity": "medium",
+          "why": "A measured comparison ('25% faster', '2x more') needs the basis of comparison stated in the ad."
         }
       ]
     }

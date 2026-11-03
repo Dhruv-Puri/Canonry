@@ -23,6 +23,30 @@ key at all.
 | **Final PDF (Round 3)** | [docs/Canonry_Round3_Final_vaidvansh6.pdf](docs/Canonry_Round3_Final_vaidvansh6.pdf): problem, users, solution, workflow, technology, the three improvements, testing and reliability, privacy, security, accessibility and responsible design, limitations, roadmap, contributions |
 | **Earlier PDFs** | [Round 2 build](docs/Canonry_Round2_Build_vaidvansh6.pdf) (with the Round 1 plan as submitted, Part B) |
 
+
+### Judge's tour: the best path in about 5 minutes
+
+On <https://canonry-sigma.vercel.app> (the first visit after idle can take ~50 s while the free server wakes):
+
+1. **Creator.** Pick *Creator*, *Continue as guest*. Go to **Write**, keep *Sample with mistakes*, press **Check it**.
+   Canonry first says what it understood, then lists cited issues: a renamed product, a customer count that
+   contradicts the approved fact, an expired ISO certificate, a superseded price. Hover a card to see its words light up.
+2. **Fix and send.** Press **Accept all suggested fixes**, then **Send for review**.
+3. **Reviewer.** Top-right menu → switch to **Reviewer** → **Review queue** → open the draft → **Approve & sign**.
+4. **Anyone verifies.** Press **Verify the approval**, paste the approved text: *Verified*. Change one character: *Modified*.
+5. **Sent back.** Write another draft and send it; as Reviewer press **Request changes** with a comment; switch back to
+   Creator → **My work** shows the verdict and the reviewer's words → **Edit the text** → send again.
+6. **Files and images** (Improvement 1). **Write → PDF, Word or image**: upload
+   [social_launch.png](https://github.com/Dhruv-Puri/Canonry/raw/main/data/demo/social_launch.png) (retired logo, low
+   contrast, the model's reading of the picture) or
+   [quillmark_brochure.docx](https://github.com/Dhruv-Puri/Canonry/raw/main/data/demo/quillmark_brochure.docx)
+   (fixes land inside the Word file).
+7. **India pack** (Improvement 3). Check *"Guaranteed results in 30 days. Get a free 14-day trial at just ₹999 per month."*:
+   *Must fix*, citing CCPA Guidelines 2022, Section 12(a).
+8. **Publishing gate** (Improvement 2). Open <https://canonry-sigma.vercel.app/engine/cms>, write a post, **Send to
+   Canonry**; approve it as Reviewer; the publisher page publishes it only after the signed webhook arrives.
+   As **Brand admin**, **API & webhooks** shows the keys, endpoints and every delivery.
+
 ---
 
 ## 1. The core workflow (runs end to end)
