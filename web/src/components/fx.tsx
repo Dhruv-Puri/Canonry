@@ -38,7 +38,7 @@ const DOT: Record<Tone, string> = {
   neutral: "bg-muted-foreground",
 };
 
-export function LevelBadge({ tier, severity }: { tier?: string; severity?: string }) {
+export function LevelBadge({ tier }: { tier?: string }) {
   const tone: Tone = tier === "definite" ? "danger" : tier === "likely" ? "warning" : "neutral";
   const Icon = tier === "definite" ? CircleAlert : tier === "likely" ? TriangleAlert : Info;
   return (

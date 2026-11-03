@@ -7,15 +7,15 @@ import type { ReactNode } from "react";
 /** The four stages every piece of content goes through, in plain words. */
 const STAGES = ["Checked", "Fix issues", "In review", "Approved"] as const;
 
-export function stageOf(status: string, open: number): number {
+export function stageOf(status: string): number {
   if (["Signed", "Approved", "Exempt-approved"].includes(status)) return 3;
   if (status === "In review") return 2;
   return 1; // with the creator: checked, now fixing
 }
 
 /** A compact stepper so a newcomer always knows where this draft is. */
-export function JourneySteps({ status, open }: { status: string; open: number }) {
-  const current = stageOf(status, open);
+export function JourneySteps({ status }: { status: string }) {
+  const current = stageOf(status);
   const done = (i: number) => i < current || (i === 3 && current === 3);
   return (
     <ol aria-label="Progress" className="flex flex-wrap items-center gap-x-1 gap-y-2 text-xs">

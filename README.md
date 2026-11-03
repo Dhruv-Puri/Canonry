@@ -90,7 +90,10 @@ who explains it in one plain sentence and a small drawing of the window; it open
 again unless asked. The **walkthrough** is a panel that says the one next thing to do and rings the button:
 creators and agencies go draft → fix → send → (as reviewer) approve → verify, the agency ending at its
 scorecard; admins go overview → rulebook → turning repeated claims into facts → the publishing gate.
-Both can be started any time from the profile menu (*Show me the tour*, *Start the walkthrough*).
+Both can be started any time from the profile menu (*Show me the tour*, *Start the walkthrough*). A
+**Walkthrough** switch in the top bar turns the panel on or off for the current role only (each role
+remembers its own choice), and the panel can be dragged anywhere on screen; it keeps its place across
+pages, and a double-click on its top strip puts it back.
 
 ### What it looks like
 
@@ -197,7 +200,8 @@ independently labelled evaluation set and the usability study were not done; bot
 **Also added in Round 3, beyond the three:** understand-first checks (D63–D69), image understanding
 with a vision model (D70), a knowledge base that grows from use (D74), the writer's **My work** with
 text editing (D76), the fixes for slow free AI models (D79), a quick tour and walkthrough for every role
-(D82), a distinct look and main screen per role (D83), and the agency's client scorecard (D84).
+(D82, D86), a distinct look and main screen per role (D83), the agency's client scorecard (D84), and a
+welcome screen that fits one laptop screen (D85).
 
 ## 3. Architecture
 
@@ -249,7 +253,7 @@ Main technical decisions (full list with reasons in the [decision log](docs/deci
 ## 4. Tests and reliability
 
 ```bash
-.venv/Scripts/python engine/tests/run_tests.py     # 33 suites (fresh DB each) + evaluation gate
+.venv/Scripts/python engine/tests/run_tests.py     # 32 suites (fresh DB each) + evaluation gate
 ```
 
 | Suite (`engine/tests/`) | Proves |
@@ -443,7 +447,7 @@ assistance disclosed above. Demo brand data is fictional.
 | Live demonstration | the live link: every role, no sign-up (*Demo accounts* above); [docs/tutorial.md](docs/tutorial.md) |
 | Report: problem, users, solution, workflow, technology, impact | [Final PDF](docs/Canonry_Round3_Final_vaidvansh6.pdf); §1, §3, §9 |
 | The three promised improvements | [§2](#2-the-three-round-3-improvements) (each: promised → delivered, bugs found) |
-| Testing, reliability improvements, changes during development | [§4](#4-tests-and-reliability); [docs/progress.md](docs/progress.md) (bugs found and fixed); [docs/decision-log.md](docs/decision-log.md) (D1–D84, dated, with reasons); [docs/plan-vs-build.md](docs/plan-vs-build.md) |
+| Testing, reliability improvements, changes during development | [§4](#4-tests-and-reliability); [docs/progress.md](docs/progress.md) (bugs found and fixed); [docs/decision-log.md](docs/decision-log.md) (D1–D86, dated, with reasons); [docs/plan-vs-build.md](docs/plan-vs-build.md) |
 | Privacy, security, accessibility, responsible design | Final PDF; [docs/design.md](docs/design.md); [docs/disclosure-log.md](docs/disclosure-log.md) |
 | Known limitations and roadmap | [§6](#6-known-limitations), [§7](#7-roadmap) |
 | Participants and contributions | [§8](#8-team-and-contributions) |
@@ -453,7 +457,7 @@ assistance disclosed above. Demo brand data is fictional.
 |---|---|
 | Completeness of the product (25) | the whole journey for four roles: write or upload → understood → checked → fixed → reviewed → sent back or approved → signed → verified, plus the publishing gate and the knowledge base (§1, §12) |
 | The three improvements delivered (20) | §2: documents and images, the publishing gate, the India pack, each with suites and live checks |
-| Reliability under normal use (20) | 33 suites + evaluation gate in CI; a 185-check browser run of hostile input, double clicks, two tabs, refresh, expired sessions and phone layouts; fixes for slow free AI models (§4) |
+| Reliability under normal use (20) | 32 suites + evaluation gate in CI; a 185-check browser run of hostile input, double clicks, two tabs, refresh, expired sessions and phone layouts; fixes for slow free AI models (§4) |
 | Usability and real-world fit (20) | understand-first checks, one card per issue, plain explanations, one-click fixes, a first-visit walkthrough, **My work** for writers, production mode for real teams (§1, §6) |
 | Documentation and roadmap (15) | this README, the final PDF, the decision and disclosure logs, §7 |
 
@@ -488,7 +492,7 @@ explained in [docs/plan-vs-build.md](docs/plan-vs-build.md):
 ├── data/                    ← demo brand book: rules, facts, terms (CSV)
 ├── engine/                  ← FastAPI analysis engine (all product logic)
 │   ├── *.py                 ← modules listed in §3
-│   ├── tests/               ← 33 suites + run_tests.py
+│   ├── tests/               ← 32 suites + run_tests.py
 │   ├── evaluation/          ← evaluate.py, labelled set, committed baseline
 │   ├── Dockerfile
 │   └── requirements.txt
@@ -511,7 +515,7 @@ explained in [docs/plan-vs-build.md](docs/plan-vs-build.md):
 | [approach](docs/approach.md) | how we built it, and the problems we hit |
 | [changelog](docs/changelog.md) | progress against the plan, milestone by milestone |
 | [progress](docs/progress.md) | status, bugs found and fixed, honest gaps |
-| [decision-log](docs/decision-log.md) | every decision D1–D84, dated, with reasons |
+| [decision-log](docs/decision-log.md) | every decision D1–D86, dated, with reasons |
 | [disclosure-log](docs/disclosure-log.md) | AI tools, models, libraries and services used |
 | [usability-test-kit](docs/usability-test-kit.md) | how we run and record user tests |
 | [dev-notes/](docs/dev-notes/) | working specs and plans written during the build |

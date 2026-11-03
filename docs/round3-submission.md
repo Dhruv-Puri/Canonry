@@ -40,7 +40,8 @@
   rules its drafts trip most), reviewer (risk-ranked queue) and brand admin (control room, rules, API docs);
   each role has its own accent colour and main screen.
 - **Learning it:** a quick tour of each role's windows (once per role, with a guide character in plain
-  words) and a step-by-step walkthrough for every role, both restartable from the profile menu.
+  words) and a step-by-step walkthrough for every role, both restartable from the profile menu; a
+  top-bar switch turns the walkthrough on or off per role, and its panel can be dragged out of the way.
 
 **Improvement 1 — documents and images**
 - Upload PDF, Word, PNG or JPEG. PDF findings point to the **page and line**, Word findings to the
@@ -114,7 +115,7 @@ is down or waking up).
 
 ## 4. Testing details
 
-- **Automated:** `python engine/tests/run_tests.py` runs **33 suites** on a fresh database each, plus the
+- **Automated:** `python engine/tests/run_tests.py` runs **32 suites** on a fresh database each, plus the
   evaluation gate (precision and recall per checker on a frozen split). The suites never call a real AI
   provider; malformed AI answers and slow models are tested with fake providers. CI runs them on every
   push with a web type-check, a production build, `pip-audit` and `npm audit`.
