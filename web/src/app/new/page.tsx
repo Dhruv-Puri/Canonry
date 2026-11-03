@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { FileText, FileUp, Image as ImageIcon, PenLine, ShieldCheck, X } from "lucide-react";
+import { FileText, FileUp, Image as ImageIcon, PenLine, ShieldCheck, X, Info } from "lucide-react";
 import { api, MAX_UPLOAD_BYTES, uploadFile } from "@/lib/api";
 import { AiLoadingScreen } from "@/components/ai-loading";
 import { useIdentity } from "@/components/identity";
@@ -67,6 +67,15 @@ function useFilePreview(file: File | null): string | null {
   }, [file]);
   return url;
 }
+
+/** What the channel changes, in plain words (the engine reads the channel to decide which checks apply). */
+const CHANNEL_EFFECT: Record<string, string> = {
+  social: "Social post: the social length limit applies, and a promotional post must have a call to action.",
+  web: "Web page: read as a landing page, so no social length limit.",
+  blog: "Blog: read as an article, so no social length limit.",
+  email: "Email: read as an email, so no social length limit.",
+  sales: "Sales material: short copy is read as an ad, so a promotional one must have a call to action.",
+};
 
 export default function NewSubmissionPage() {
   const router = useRouter();
@@ -244,6 +253,17 @@ export default function NewSubmissionPage() {
             )}
           </Field>
         </div>
+        <p className="-mt-1 flex items-start gap-1.5 text-xs leading-relaxed text-muted-foreground" aria-live="polite">
+          <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+          <span>
+            {CHANNEL_EFFECT[channel]}{" "}
+            {["social", "web", "blog"].includes(channel) && !isAgency && source === "ai-assisted"
+              ? "Public and written with AI help: if a claim stays unsupported, a senior approver reviews it."
+              : channel === "email"
+                ? "A clean email can be approved automatically under the brand's exemption policy."
+                : "A clean draft goes to one reviewer on the fast track."}
+          </span>
+        </p>
 
         {mode === "text" ? (
           <>
