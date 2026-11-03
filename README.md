@@ -18,14 +18,37 @@ key at all.
 |---|---|
 | **Live demo** | **<https://canonry-sigma.vercel.app>** — choose a role, *Continue as guest* (engine: <https://canonry-engine.onrender.com/health>; free tier, the first visit after idle can take ~50 s). Deploy your own: [docs/deployment.md](docs/deployment.md) |
 | **Demo accounts** | **Shared on purpose.** The live demo runs in *demo mode* so judges can try every role without signing up: all visitors use one sample workspace (Quillmark) and can switch between Creator, Reviewer, Agency partner and Brand admin from the top bar. That is a demo choice, not how Canonry runs for a real brand. In **production mode** (`CANONRY_DEMO_MODE=false`, see [docs/deployment.md](docs/deployment.md)) there are no guest or shared accounts: each person joins with a one-use invitation and signs in with their own password (12+ characters), the invitation fixes their role, agency partners see only their own agency's work and never confidential facts, and a writer cannot approve their own draft. The engine enforces all of this (`engine/access.py`, `engine/workflow.py`); `test_identity` and `test_access` cover it. |
-| **Run locally** | [Quick start](#4-quick-start) (about 5 minutes, no accounts, no keys) |
+| **Run locally** | [Quick start](#5-run-it-locally) (about 5 minutes, no accounts, no keys) |
 | **Source** | <https://github.com/Dhruv-Puri/Canonry> |
 | **Final PDF (Round 3)** | [docs/Canonry_Round3_Final_vaidvansh6.pdf](docs/Canonry_Round3_Final_vaidvansh6.pdf): problem, users, solution, workflow, technology, the three improvements, testing and reliability, privacy, security, accessibility and responsible design, limitations, roadmap, contributions |
 | **Earlier PDFs** | [Round 2 build](docs/Canonry_Round2_Build_vaidvansh6.pdf) (with the Round 1 plan as submitted, Part B) |
 
+### Judge's tour: the best path in about 5 minutes
+
+On <https://canonry-sigma.vercel.app> (the first visit after idle can take ~50 s while the free server wakes):
+
+1. **Creator.** Pick *Creator*, *Continue as guest*. Go to **Write**, keep *Sample with mistakes*, press **Check it**.
+   Canonry first says what it understood, then lists cited issues: a renamed product, a customer count that
+   contradicts the approved fact, an expired ISO certificate, a superseded price. Hover a card to see its words light up.
+2. **Fix and send.** Press **Accept all suggested fixes**, then **Send for review**.
+3. **Reviewer.** Top-right menu → switch to **Reviewer** → **Review queue** → open the draft → **Approve & sign**.
+4. **Anyone verifies.** Press **Verify the approval**, paste the approved text: *Verified*. Change one character: *Modified*.
+5. **Sent back.** Write another draft and send it; as Reviewer press **Request changes** with a comment; switch back to
+   Creator → **My work** shows the verdict and the reviewer's words → **Edit the text** → send again.
+6. **Files and images** (Improvement 1). **Write → PDF, Word or image**: upload
+   [social_launch.png](https://github.com/Dhruv-Puri/Canonry/raw/main/data/demo/social_launch.png) (retired logo, low
+   contrast, the model's reading of the picture) or
+   [quillmark_brochure.docx](https://github.com/Dhruv-Puri/Canonry/raw/main/data/demo/quillmark_brochure.docx)
+   (fixes land inside the Word file).
+7. **India pack** (Improvement 3). Check *"Guaranteed results in 30 days. Get a free 14-day trial at just ₹999 per month."*:
+   *Must fix*, citing CCPA Guidelines 2022, Section 12(a).
+8. **Publishing gate** (Improvement 2). Open <https://canonry-sigma.vercel.app/engine/cms>, write a post, **Send to
+   Canonry**; approve it as Reviewer; the publisher page publishes it only after the signed webhook arrives.
+   As **Brand admin**, **API & webhooks** shows the keys, endpoints and every delivery.
+
 ---
 
-## 1. The core workflow (runs end to end)
+## 1. What Canonry does
 
 ```mermaid
 flowchart LR
@@ -55,13 +78,15 @@ what the visitor actually does, can be closed at any time, and never appears for
 
 ### What it looks like
 
-The seeded launch post, from first check to public proof (production build, demo mode, no AI key):
+Screens from the live site, checked with real AI (3 Nov 2026):
 
-| 1 · The creator sees cited findings | 2 · After fixing, the reviewer decides |
+| 1 · The creator sees cited findings | 2 · The reviewer decides |
 |---|---|
-| ![Findings on the launch post: highlighted spans, confidence tiers, citations to the rule or fact, one-click fixes](docs/screenshots/1-findings.png) | ![Reviewer view: low-risk fast track, content locked in review, word-level diff of the last revision, zero open findings](docs/screenshots/2-review.png) |
-| **3 · Anyone verifies the published text** | **4 · Insights for the brand owner** |
-| ![Public verify page, signed out: the pasted published text matches the approved fingerprint](docs/screenshots/3-verify.png) | ![Insights: issues by checker and category, disputes, rules flagged as unclear](docs/screenshots/4-insights.png) |
+| ![Findings on the launch post: what Canonry understood, the next step, highlighted words, confidence tiers, citations and one-click fixes](docs/screenshots/1-findings.jpg) | ![Reviewer view: what changed, what is still open, approve and sign, send back or override](docs/screenshots/2-review.jpg) |
+| **3 · Anyone verifies the published text** | **4 · The writer sees every verdict on My work** |
+| ![Public verify page, signed out: the published text matches the approved fingerprint](docs/screenshots/3-verify.jpg) | ![My work: drafts grouped by where they stand, with the reviewer's words on a sent-back draft](docs/screenshots/4-my-work.jpg) |
+| **5 · Images: what the model sees, findings boxed on the picture** | **6 · India pack: the exact legal clause** |
+| ![A social banner: the vision model's reading, a retired logo flagged, findings drawn on the picture](docs/screenshots/5-image.jpg) | ![Guaranteed results in 30 days: Must fix, citing CCPA Guidelines 2022, Section 12(a)](docs/screenshots/6-india-pack.jpg) |
 
 Fixing the seven findings turned *"Meet Quillmark Insights 2.0 — India's #1 analytics
 platform, trusted by 5,000+ teams and fully ISO 27001 certified. Plans start at just
@@ -69,83 +94,91 @@ platform, trusted by 5,000+ teams and fully ISO 27001 certified. Plans start at 
 teams. Plans start at ₹1,299/month. Start your free trial at quillmark.co/pulse."*:
 every number now traces to an approved fact, and the router fast-tracked it as low risk.
 
-## 2. Round 3 requirements → where to find them
+## 2. The three Round 3 improvements
 
-| Brief requirement (Round 3, *The Finish*) | Where |
+These are the three improvements promised in the Round 2 submission. All three are delivered,
+live on the demo, and covered by automated suites.
+
+### 2.1 Documents and images
+
+Try it: **Write → PDF, Word or image**, then upload `data/demo/social_launch.png` (alt text "Image of a
+banner"), `data/demo/quillmark_pulse_onepager.pdf` or `data/demo/quillmark_brochure.docx`.
+
+| Promised | Delivered |
 |---|---|
-| Final working product and source repository | live link and repository above; [Quick start](#4-quick-start) runs it locally in about 5 minutes |
-| Live demonstration | the live link: every role, no sign-up (*Demo accounts* above); [docs/tutorial.md](docs/tutorial.md) |
-| Report: problem, users, solution, workflow, technology, impact | [Final PDF](docs/Canonry_Round3_Final_vaidvansh6.pdf); §1, §5, §6 |
-| The three promised improvements | [§12](#12-round-3-three-major-improvements) (each: promised → delivered, bugs found) |
-| Testing, reliability improvements, changes during development | [§7](#7-tests-and-reliability); [docs/progress.md](docs/progress.md) (bugs found and fixed); [docs/decision-log.md](docs/decision-log.md) (D1–D80, dated, with reasons); [docs/plan-vs-build.md](docs/plan-vs-build.md) |
-| Privacy, security, accessibility, responsible design | Final PDF; [docs/design.md](docs/design.md); [docs/disclosure-log.md](docs/disclosure-log.md) |
-| Known limitations and roadmap | [§10](#10-known-limitations), [§13](#13-roadmap) |
-| Participants and contributions | [§9](#9-team-and-contributions) |
-| Form answers in one place | [docs/round3-submission.md](docs/round3-submission.md) |
+| DOCX and PDF upload, findings point to the page and line | PDF findings show **page and line**; Word findings show **section and paragraph** (Word has no fixed pages). Every text check (terms, claims, tone, India pack) runs on the file's text. |
+| Fixes | **Word: Accept / Edit change the .docx itself**, only the changed characters inside their runs, so bold words and headings keep their formatting; the fixed file is a new version of the file and is what gets approved. PDF and image findings: fix the source, then **Upload new version** on the same submission (history and decisions stay together). |
+| Logo use | Logos are found with feature matching (ORB + homography) at any size, even stretched or tilted, and checked against the brand kit: **retired logo**, **stretched / squashed / tilted** (with the measured amount), **recoloured**, **on a busy background**, **content inside the clear space**, **too small**. Quillmark's distortion findings cite its own rule BRD-02. |
+| Brand colours | Dominant colours compared with the approved palette by ΔE 2000; photographs are recognised and left alone. |
+| Text contrast (WCAG) | Tesseract reads the words in the image (from a copy where each pixel's distance from its background is drawn in black, so faint text is read too); contrast is measured **per line** on the original pixels against 4.5:1, or 3:1 for large text, and the line is **boxed on the preview**. The words in an image are also checked like any copy, so a claim printed in a graphic is caught. |
+| Alt text | Missing, too short, too long, "image of…", file names, keyword stuffing; edited in Canonry. |
+| Image understanding | When an AI provider that reads images is set up (Gemini), one call per checked image says **what Canonry sees in this image**: a description, brands (ours, retired, competitor), claims drawn into the picture, and whether it fits its title and caption. It flags a retired name or logo OCR missed, a competitor's brand (India-pack comparative clause), a "#1" badge (checked like text) and a picture that contradicts its words, never above *Should fix*, and offers the seen description as one-click alt text. Without it, the image checks are exactly the rule-based ones. |
+| Proof of Compliance in the file | The approved PDF, Word, PNG or JPEG carries its signed proof in its own metadata (Word: a custom document property). The public verify page checks an uploaded file: the approved original or its stamped copy verifies; **a changed file, or a real seal copied onto other bytes, does not**. |
 
-| Round 3 judging criterion (points) | Evidence |
+Bugs found while finishing it, each fixed with a test that failed first: an intermittent "Internal Server
+Error" when a free AI model answered in an unexpected JSON shape; Word uploads could not be approved
+(no Word stamp); a seal copied onto any other file verified; re-check or a dispute on an uploaded file
+turned it into plain text; the logo's own lettering was checked as copy.
+
+### 2.2 Publishing gate: REST API, signed webhooks, demo publisher
+
+Try it on the live demo: open **<https://canonry-sigma.vercel.app/engine/cms>** (the demo publisher),
+write a post and press **Send to Canonry**. Then in Canonry choose **Reviewer**, open the post in the
+**Review queue**, override or fix any high-severity finding and **Approve**. The publisher's page refreshes
+itself and shows the post **published, with a link that verifies its seal**; its *Webhooks received* table
+shows `checked`, `approved` (held: not enough) and `signed` (published). As **Brand admin**, **API & webhooks**
+shows the keys, endpoints and every delivery. Locally: `engine/run_local.py`, then <http://127.0.0.1:8000/cms>
+(or <http://localhost:3000/engine/cms> with the web app).
+
+| Promised | Delivered |
 |---|---|
-| Completeness of the product (25) | the whole journey for four roles: write or upload → understood → checked → fixed → reviewed → sent back or approved → signed → verified, plus the publishing gate and the knowledge base (§1, §12) |
-| The three improvements delivered (20) | §12: documents and images, the publishing gate, the India pack, each with suites and live checks |
-| Reliability under normal use (20) | 32 suites + evaluation gate in CI; a 185-check browser run of hostile input, double clicks, two tabs, refresh, expired sessions and phone layouts; fixes for slow free AI models (§7) |
-| Usability and real-world fit (20) | understand-first checks, one card per issue, plain explanations, one-click fixes, a first-visit walkthrough, **My work** for writers, production mode for real teams (§1, §10) |
-| Documentation and roadmap (15) | this README, the final PDF, the decision and disclosure logs, §13 |
+| Versioned API with per-workspace keys | `/api/v1/checks`, `/uploads`, `/submissions[/{id}]`, `/proofs/{id}`, `/assets/{id}`, `/compliance/packs`, public `/contract`; `Authorization: Bearer ck_live_…`; scopes `check`, `read`, `admin`; keys shown once, stored as SHA-256; revoke works at once. `Idempotency-Key` replays the first answer, a different body with the same key is `409`, and a retry while the first request still runs is `409 idempotency_in_progress`, never a second submission. Errors are `{code, message}` (malformed fields get FastAPI's standard 422 list); JSON over 2 MB is `413`. |
+| Webhooks on *checked*, *approved*, *signed* | Written to an outbox in the same transaction as the event; `X-Canonry-Signature: sha256=HMAC(secret, timestamp + "." + body)` with `X-Canonry-Timestamp`, `-Event`, `-Delivery`. Failed deliveries are retried after 30 s, 2 min, 10 min, 30 min, 1 h, 2 h and 6 h by a background loop, then marked failed; an admin can retry by hand, rotate the secret (old one stops at once) or disable the endpoint. Redirects are not followed. |
+| Safe webhook URLs | HTTPS only; loopback, private, link-local (cloud metadata), shared, multicast and reserved addresses refused, and re-checked before every attempt. `CANONRY_WEBHOOK_ALLOW_LOCAL=true` (set by `run_local.py`, never on the live demo) allows a loopback receiver for local development. |
+| A CMS that holds a post until approval | `cms/app.py`. It sends the post with `submit_for_review`, so it waits in the reviewer's queue; it publishes only on a `signed` event with a valid, fresh signature, after checking that the SHA-256 of the approved text equals the signed hash (text edited in review is published as approved; anything else stays held). The live demo has no separate service: the engine mounts the publisher at `/cms` in demo mode and issues its key and webhook endpoint (named *Demo publisher*) at boot, pointing at its own public address (`RENDER_EXTERNAL_URL` on Render, `CANONRY_PUBLIC_ENGINE_URL` elsewhere). The publisher still uses only the public API and verifies every signature; `cms/Dockerfile` runs it as its own service. |
 
-## 3. The Round 1 improvements (delivered in Round 2)
+Not done: the stretch Google Docs add-on.
 
-| Improvement (Round 1 plan) | In this build | Measured |
-|---|---|---|
-| **1. Claim checking against approved sources** | Explicit claims (counts, prices, percentages, certifications, superlatives, dates) found by patterns and labelled supported / contradicted / outdated / unsupported against the Fact Library; numbers compared by value; implied claims via one batched AI call. **Verified Claim Memory** reuses a verdict only for identical numbers and the same knowledge version | frozen evaluation split: claims recall 100%, precision 100% (targets ≥ 85% / ≥ 80%); see the limits in §10 |
-| **2. Guideline-clarity insights** | Vague-rule linting at import (no examples, contradictory, duplicate); disputes and overrides feed an Insights page; "possibly unclear rules"; fact-expiry alerts listing affected approved content; **rule tests & change preview** shows which approved content a rule edit would newly break | Insights page on live data; `test_knowledge.py`, `test_edge_cases.py` |
-| **3. Confidence tiers and verified citations** | Every finding carries a tier and at least one citation; the citation check discards any finding whose rule or fact does not exist or is inactive ("no citation, no finding"); every finding is validated against the versioned contract `finding@1`; citations pin the rule/fact version they were checked against | invalid citations shown: **0**; "Definite" precision 100% (target ≥ 95%) |
+Bugs found while testing it, each fixed with a test that failed first: simultaneous retries with one
+Idempotency-Key created two submissions and answered 500; a webhook host was checked only when added;
+shared (100.64/10) and multicast addresses were accepted; retries waited for the next product event; the
+upload's `links.file` pointed at a missing route; a multi-megabyte JSON body was parsed whole; rotate and
+disable were not audited; the publisher answered a form with a 303 that had no address, blocked its own
+server while calling the engine, hashed browser line ends differently, and made two posts on a double click.
 
-### Changes from the Round 1 plan
+### 2.3 India advertising compliance pack
 
-Every Must and Should item of the plan is delivered. The main changes, all
-explained in [docs/plan-vs-build.md](docs/plan-vs-build.md):
+Try it: write a draft containing *"Get a free 14-day trial at just ₹999 per month."* or *"Guaranteed results
+in 30 days."*: the finding is **Definite** and cites **CCPA Guidelines 2022, Section 5** (or 12(a)) with the
+clause text and a link to the official PDF. As **Brand admin**, **API & webhooks → Compliance packs**
+switches the pack off (its checks stop) and on.
 
-- **SQLite instead of Supabase Postgres + pgvector**: zero setup for judges; the schema keeps Postgres names, and role rules live in one module instead of row-level security.
-- **Exact keyword and number matching instead of embeddings** for facts: "2,300+" must never match "3,200+".
-- **Demo personas plus password and invitation sign-in** instead of Google sign-in: judges need no account; production use stays secure.
-- **Text content this round**: DOCX/PDF content upload, image checks and file metadata stamps move to Round 3; the public verify page checks pasted text instead.
-- **AI call ledger instead of Sentry/Langfuse**; fixed provider fallback instead of a confidence-based model cascade.
-- **Added during the build**: rule bindings (any rulebook works), a lifecycle lock for approved content, publishable-facts-only claim checks, local Ollama fallback.
-
-## 4. Quick start
-
-Needs Python 3.11+ and Node.js 20+. Run from this folder.
-
-```bash
-# 1. Engine (FastAPI, port 8000) — demo mode seeds the Quillmark workspace
-python -m venv .venv
-.venv/Scripts/pip install -r engine/requirements.txt        # macOS / Linux: .venv/bin/pip
-# start the engine: demo mode, port 8000, auto-reload (no shell variables needed)
-.venv/Scripts/python engine/run_local.py        # Windows: PowerShell or Git Bash
-.venv\Scripts\python engine\run_local.py        # Windows: Command Prompt
-.venv/bin/python engine/run_local.py            # macOS / Linux
-
-# 2. Web (Next.js 16, port 3000), in a second terminal
-cd web
-npm install
-npm run dev
-```
-
-Open <http://localhost:3000>, pick a role and press **Continue as guest**. No
-account, email or password is needed:
-
-| Role | What you can do |
+| Promised | Delivered |
 |---|---|
-| Creator | write drafts and fix what Canonry flags |
-| Reviewer | approve drafts or send them back |
-| Agency partner | submit work for a client brand (sees only its own work) |
-| Brand admin | manage the brand's rules and facts |
+| CCPA 2022 and ASCI Code rules | 13 clauses (`data/compliance/india_advertising_pack.json`, version 2022.3): bait offers, surrogate ads, "free" claims, children, disclaimers, substantiation, "up to" claims, prizes, endorsements, material connection, truthful claims, misleading implications, comparisons. A pack is data: a new market is a new file. |
+| Retrieval of the relevant clause (RAG), exact citation | Each sentence retrieves its nearest clauses (768-dimension local embeddings; keyword union for recall); only retrieved clauses' deterministic patterns can produce a finding, which cites source, reference, clause version, text and URL. Numbers are never interpreted by a model. The seal records the pack versions in force. |
+| Definite bar ≥ 95% precision | Gate in `test_compliance`: 32 labelled sentences (20 violations, 12 compliant near-misses): Definite precision 100%, recall 100%, and **no false alarm at any tier**; plus 14 lines of ordinary marketing copy that must stay silent. |
+| Tested on real decisions | 45 ad lines ASCI upheld complaints against, each quoted from a published report ([bestmediainfo, Jun–Jul 2020](https://bestmediainfo.com/2020/10/asci-upholds-257-complaints-of-misleading-ads-in-june-and-july-2020), [bestmediainfo, Apr 2019](https://bestmediainfo.com/2019/06/asci-upholds-complaints-against-114-misleading-advertisements-in-april-2019), [mediabrief](https://mediabrief.com/asci-upheld-complaints-137-false-misleading-ads/)): **2/45 caught before, 43/45 after**, 0 warnings on 10 compliant lines. The work also fixed sentences splitting at "Rs. 999" / "No. 1" / "Dr." (every checker) and clause retrieval hiding a clause whose own pattern matched. |
+| **Blind test** (added 3 Nov) | 220 more upheld claims, quoted from ASCI's own monthly releases ([Nov 2019](https://www.ascionline.in/wp-content/uploads/2022/09/asci_nov_2019_ccc_release.pdf), [Feb 2020](https://www.ascionline.in/wp-content/uploads/2022/09/asci_feb_2020_ccc.pdf), [Jun 2019](https://www.ascionline.in/wp-content/uploads/2022/09/asci-june-2019-ccc-recom.pdf)), extracted by a rule fixed in advance (`data/compliance/india_asci_blind.jsonl`). Scored with no change first: **64/148 (43%)**, which showed the 43/45 above was fitted to its cases. The Nov and Feb cases were then used to write general claim families (leadership and preference, cures and health outcomes, absolute 100% claims, unbacked numeric comparisons): 127/148. The June cases were **held out, read only after the patterns froze, and scored once: 35/72 (49%)**, against 21/72 for the earlier patterns. The false-alarm gates above still pass. |
+| Managed Postgres with pgvector | Written (`CANONRY_DATABASE_URL`, `vector(768)` column, HNSW index) but **not deployed**: the live demo and tests use SQLite, with the same vectors stored as JSON and ranked in Python (see §6). |
 
-As a Creator, open **Launch post — Pulse 2.0**, fix and submit it; then switch to
-Reviewer from your name in the top bar, and approve and sign it. AI checks show as *pending* until you add a free key (copy
-`.env.example` to `.env`); everything else works without one. Details and
-troubleshooting: [docs/getting-started.md](docs/getting-started.md).
+Bugs found while testing it, each fixed with a test that failed first: approval-blocking *Definite* "free"
+findings on "feel free" and "toll-free number"; "partner", "only 5 minutes", "win back 6 hours" and
+"better than ever" flagged as legal risks; an `#ad` disclosure that could never be recognised; a
+qualifier in the next sentence ("See full terms at …") ignored; the gate counting false alarms only at
+*Definite*; a restart switching a disabled pack back on.
 
-## 5. Architecture
+**Planned in Round 2, and where it ended up:** the move from SQLite to managed Postgres is written
+(`CANONRY_DATABASE_URL`, pgvector) but not deployed: a free database would have added a second
+service that can sleep or run out during judging, so the live demo stays on SQLite (§7). The
+missing-fact suggestions were built (Insights → *Add as approved fact*, D74). The larger,
+independently labelled evaluation set and the usability study were not done; both lead the roadmap.
+
+**Also added in Round 3, beyond the three:** understand-first checks (D63–D69), image understanding
+with a vision model (D70), a knowledge base that grows from use (D74), the writer's **My work** with
+text editing (D76), and the fixes for slow free AI models (D79).
+
+## 3. Architecture
 
 ```mermaid
 flowchart LR
@@ -192,19 +225,7 @@ Main technical decisions (full list with reasons in the [decision log](docs/deci
 - **Signed approvals** (D24, D46): Ed25519 seals that third parties can check against the published text.
 - **Reliable on free AI tiers** (D79): a busy or rate-limited model is cooled down and the next one tried (several free Gemini models, then Groq); a call still running after 4 s gets the next model asked too and the first answer wins, so a stalled free model costs seconds, not half a minute; each call stops at 15 s and a check's AI part after 60 s, and the rule findings are always shown; accepting, editing or disputing a finding re-runs the rule checks instantly and carries over the AI's findings on unchanged text, so nobody waits on the AI twice.
 
-## 6. What we used (APIs, models, data, libraries)
-
-| Kind | What | Notes |
-|---|---|---|
-| AI models (optional, runtime) | Gemini `gemini-3.1-flash-lite` (then other free Gemini models when it is busy), Groq `llama-3.1-8b-instant`, OpenRouter `llama-3.3-70b-instruct:free`, Ollama `llama3.1:8b` | free tiers or local; each model overridable by environment variable; the live demo uses Gemini with Groq as fallback |
-| Dataset | fictional Quillmark Analytics brand book: 43 rules, 41 facts (some expiring, superseded or confidential), 10 terms (`data/*.csv`); 20-sample labelled evaluation set (`engine/evaluation/eval_set.jsonl`) | invented for the challenge; no real company data |
-| Engine libraries | FastAPI, uvicorn, httpx, pydantic, PyNaCl | `engine/requirements.txt` |
-| Web libraries | Next.js 16, React 19, Tailwind CSS 4, Radix UI primitives, lucide-react, class-variance-authority | `web/package.json`; shadcn/ui component recipes |
-| Protocol | Model Context Protocol (JSON-RPC 2.0 over stdio) | Canon Connector |
-| Services | GitHub Actions (CI), Render (engine), Vercel (web) | all free tiers |
-| AI assistance in development | Anthropic Claude (Claude Code), Codebuff | disclosed in [docs/disclosure-log.md](docs/disclosure-log.md) |
-
-## 7. Tests and reliability
+## 4. Tests and reliability
 
 ```bash
 .venv/Scripts/python engine/tests/run_tests.py     # 32 suites (fresh DB each) + evaluation gate
@@ -224,7 +245,7 @@ Main technical decisions (full list with reasons in the [decision log](docs/deci
 | `test_gateway` | AI fallback chain, honest call ledger, no confidential data sent; a stalled model is raced by the next one and set aside, and a stall is not retried (faked providers, no network) |
 | `test_quota` | daily AI allowance: 5 per person, 50 per workspace, clear reasons when out of tries, failed provider calls never charged |
 | `test_documents` | PDF and Word text extraction with page/line and paragraph locators; stamping PDF, PNG and JPEG |
-| `test_compliance` | India pack: clause retrieval, deterministic verdicts, exact clause citations, no warning on 14 lines of ordinary copy, the admin pack switch, its own evaluation gate (no false alarm at any tier), and **45 real ad lines from published ASCI decisions** (at least 90% must get a cited warning; 10 compliant lines with the same words must stay silent) |
+| `test_compliance` | India pack: clause retrieval, deterministic verdicts, exact clause citations, no warning on 14 lines of ordinary copy, the admin pack switch, its own evaluation gate (no false alarm at any tier), **45 real ad lines from published ASCI decisions** (at least 90% must get a cited warning; 10 compliant lines with the same words must stay silent), and the **blind ASCI sets** (no regression: dev ≥ 125/148, held-out ≥ 35/72) |
 | `test_api` | API keys and scopes (missing, wrong, revoked key; wrong scope), bad JSON, 413 over 2 MB, idempotent replay and conflict, simultaneous retries; webhook URLs inside the network refused (also when a name is re-pointed later), HMAC a receiver can verify, retries on schedule, redirects not followed, rotate and disable |
 | `test_publisher` | the publishing gate on a real server: a post in the demo publisher is checked, waits in review, is published only by the signed webhook and verifies against its seal; bad or stale signatures and `approved` alone never publish |
 | `test_ai_shapes` | 18 malformed AI answers (lists of strings, nulls, numbers) never turn a check into a server error |
@@ -233,8 +254,6 @@ Main technical decisions (full list with reasons in the [decision log](docs/deci
 | `test_docx_fix` | fixes land inside the Word file with its formatting; the approved, stamped Word file verifies; a copied seal on changed or different bytes does not |
 | `test_reliability` | two tabs and double clicks: an old tab cannot undo newer fixes, one click = one revision, one approval = one seal; very long drafts and titles; emoji, Hindi, RTL and HTML text kept exactly |
 | `test_understanding` | the content profile (social post, internal note, press release, policy, PDF, image); checks gated by it; denied, attributed and quoted claims; one card per issue; accepting every fix in turn never brings a fixed issue back; every rule an explanation names is cited |
-| evaluation gate | precision / recall per checker and tier on the frozen split; fails on regression |
-
 | `test_review_r3` | findings of the Round 3 code review stay fixed: a hostile embedded seal, a Word zip bomb, damaged Word parts, alt text on an image with words, huge logo files, tidying only the edited paragraph, non-Latin file names |
 | `test_long_draft` | a 50,000-character draft is checked in about a second (it took over two minutes live before the fix) |
 | `test_vision` | image understanding with a faked Gemini: a competitor's brand cites the comparative clause (the logo rule with the pack off), a retired name seen only by the model is Should fix, "India's #1" in the picture is checked like text, a picture that contradicts its caption is Worth a look, the seen alt text is accepted in one click; malformed answers, timeouts and an empty allowance leave exactly the old findings; one card when OCR and the model see the same name; the call counts toward the allowance |
@@ -245,6 +264,7 @@ Main technical decisions (full list with reasons in the [decision log](docs/deci
 | `test_api_gate` | the publishing gate end to end through the API: a post is held until a signed approval, a hash mismatch is never published, a failed delivery stays queued for retry |
 | `test_media` | the audio and video header checks (WAV, MP3, MP4, MOV, WebM; renamed and cut-off files refused); the upload path is skipped until media is wired in (D80) |
 | `test_slow_ai_lock` | a check waiting on a slow AI model never locks other visitors out (sign-ins and drafts during the first and later AI calls answer at once) |
+| evaluation gate | precision / recall per checker and tier on the frozen split; fails on regression |
 
 Image checks use Tesseract for the words in an image. The suites fake it, so they run anywhere; the
 real-OCR checks in `test_image_text` run when Tesseract is installed (it is, in the Docker image) and
@@ -279,7 +299,7 @@ CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs all of it on ev
 a web type-check, a production build, `pip-audit` and `npm audit`.
 Bugs found by testing, and how each was fixed: [docs/progress.md](docs/progress.md) §7–8.
 
-## 8. User testing
+### User testing
 
 A moderated usability test with 5 participants and the SUS questionnaire is
 prepared in [docs/usability-test-kit.md](docs/usability-test-kit.md) (tasks,
@@ -293,18 +313,41 @@ fixed, among others: a second tab could undo fixes made in the first; a double c
 sign twice; pages rendered for nobody when the engine was asleep; and long titles ran off phone
 screens. Each fix is held by a check in `engine/tests/test_reliability.py` or `e2e/journey.py`.
 
-## 9. Team and contributions
+## 5. Run it locally
 
-| Member | Role | Contribution |
-|---|---|---|
-| **Vansh Vaid** (team leader) | Product, web app, workflow, reliability, documentation | Round 1 plan and PDF; product direction for every round; web screens and the review workflow; Round 2 hardening, versioned knowledge base and identity (`9a90cee`); Round 3: Word, OCR and logo checks on the shared file pipeline, image understanding, understand-first checks, the India pack's test on 45 real ASCI cases, the knowledge base that grows from Insights, memory limits for large images, the writer's **My work** and text editing, the banned-term fix, the fixes for slow free AI models, the browser test scripts, the deployments, the documentation and the final PDF |
-| **Dhruv Puri** | Analysis engine, retrieval, AI gateway, evaluation | Initial engine and project setup (`699e7d7`); Gemini model fallbacks, the AI time limit and the admin, agency and review pages (`95bc5c8`); the Round 3 base for all three improvements (`6bf69fc`): document and image upload, file stamping, the REST API and webhooks, the demo publisher (`cms/`), the India compliance pack with clause retrieval and embeddings, and the admin API page; the role-specific tour and document viewer (`2dccbac`, `804cc74`); the audio/video module and the API-gate test (`f8cd7f8`) |
-| Shared | | testing, code review, security fixes, live checks |
+Needs Python 3.11+ and Node.js 20+. Run from this folder.
 
-AI assistance is disclosed in [docs/disclosure-log.md](docs/disclosure-log.md). Commit history on
-GitHub shows who changed what and when; merges went through pull requests.
+```bash
+# 1. Engine (FastAPI, port 8000) — demo mode seeds the Quillmark workspace
+python -m venv .venv
+.venv/Scripts/pip install -r engine/requirements.txt        # macOS / Linux: .venv/bin/pip
+# start the engine: demo mode, port 8000, auto-reload (no shell variables needed)
+.venv/Scripts/python engine/run_local.py        # Windows: PowerShell or Git Bash
+.venv\Scripts\python engine\run_local.py        # Windows: Command Prompt
+.venv/bin/python engine/run_local.py            # macOS / Linux
 
-## 10. Known limitations
+# 2. Web (Next.js 16, port 3000), in a second terminal
+cd web
+npm install
+npm run dev
+```
+
+Open <http://localhost:3000>, pick a role and press **Continue as guest**. No
+account, email or password is needed:
+
+| Role | What you can do |
+|---|---|
+| Creator | write drafts and fix what Canonry flags |
+| Reviewer | approve drafts or send them back |
+| Agency partner | submit work for a client brand (sees only its own work) |
+| Brand admin | manage the brand's rules and facts |
+
+As a Creator, open **Launch post — Pulse 2.0**, fix and submit it; then switch to
+Reviewer from your name in the top bar, and approve and sign it. AI checks show as *pending* until you add a free key (copy
+`.env.example` to `.env`); everything else works without one. Details and
+troubleshooting: [docs/getting-started.md](docs/getting-started.md).
+
+## 6. Known limitations
 
 What a judge may run into on the live demo:
 
@@ -323,12 +366,95 @@ What a judge may run into on the live demo:
 - **Image understanding is a model's judgement**: what Canonry "sees" in a picture comes from one AI call, so it can be wrong; its findings are never above *Should fix*. It needs a provider that reads images (Gemini on the live demo; Groq and OpenRouter only with a vision model set), uses the same daily allowance and Gemini's free quota, and is skipped (with the reason shown) when that runs out.
 - **Logo checks** recognise the logos in the brand kit (Quillmark: the current and the retired logo); a logo that is not in the kit cannot be judged. They target flat, designed graphics, not photographs.
 - **Publishing gate**: the demo publisher runs inside the engine (open to anyone, shared, reset with the demo). Webhooks are retried for about 10 hours (8 attempts), then marked failed; while the free engine sleeps nothing is retried. A webhook host is checked before every attempt, but the address is resolved again when connecting, so a DNS answer that changes in that instant is not caught. Signing secrets are stored as plain values in the database (keys only as hashes).
-- **India pack**: rule patterns, not legal advice. Two test sets: 32 sentences written by the team (100% precision and recall), and 45 ad lines ASCI upheld complaints against, quoted from published reports (`data/compliance/india_asci_cases.jsonl`). On the real cases the pack first caught **2 of 45**; after adding leadership, guarantee, cure and offer patterns it catches **43 of 45** with no warning on 10 compliant lines. Those patterns were written after reading the cases, so 43/45 is not a blind score. It still misses a No. 1 claim with an out-of-date source (a 2016 survey) and "1 Shot Dandruff Killer". Patterns can still miss rephrased violations or flag ordinary copy; findings are *Likely* or *Consider* except the clear Section 5 and 12(a) cases. Retrieval uses a local hashed-n-gram embedding stored in SQLite; the Postgres + pgvector path (`CANONRY_DATABASE_URL`) exists in code but the live demo and CI do not run it.
+- **India pack**: rule patterns, not legal advice. On ASCI decisions it had never seen it catches **about half (35 of 72 held-out cases)**; on its own labelled set it is 100% precise with no false alarms. Typical misses: claims the patterns cannot know are false (SPF values, "satisfied customers" counts, "Product of Spain"), health claims in new wording, and claims that need the picture or the product to judge. The 43/45 score on the first real set was not blind (the patterns were written after reading those cases). Retrieval uses a local hashed-n-gram embedding stored in SQLite; the Postgres + pgvector path (`CANONRY_DATABASE_URL`) exists in code but the live demo and CI do not run it.
 - **Not reachable from the web link**: the Canon Connector (MCP) runs locally; there are no email or Slack notifications, region routing or SLA reminders.
 - **Audio and video** are not accepted yet: a header-checking module exists (`engine/media.py`, D80) but is not wired to uploads.
 - **Evidence still to collect**: the five moderated usability sessions (SUS) have not been run; the evaluation set is small (20 samples, 6 frozen) and labelled by the team. CI tests the AI path with faked providers only.
 
-## 11. Repository layout
+## 7. Roadmap
+
+What comes next, in order, and what each fixes. Nothing below is claimed as built.
+
+| Next | Why | First step |
+|---|---|---|
+| **Managed Postgres + pgvector live** | The India pack's clause retrieval and all data should survive restarts; the code path exists (`CANONRY_DATABASE_URL`) but the demo runs on SQLite | Point the engine at a free Neon / Supabase database, run the suites against it in CI |
+| **A stronger India pack** | Blind score is 49% on unseen ASCI decisions | Label 200+ cases from newer ASCI reports outside the team; add AI review of claims the patterns miss, measured on a fresh held-out month |
+| **User testing** | No real users have used Canonry yet | Run the prepared 5-person SUS study ([docs/usability-test-kit.md](docs/usability-test-kit.md)) on the live link; fix the top three issues |
+| **Larger evaluation set** | The claim-check evaluation has 20 samples labelled by the team | 200 samples labelled by someone outside the team; hold the 85% recall / 80% precision targets |
+| **Signed approvals that survive restarts** | The free server regenerates its signing key on restart | A persistent key (paid disk or a key-management service) |
+| **Where people write** | Content is checked after it is written | Google Docs add-on and the MCP connector in AI writing tools, using the public API |
+| **Audio and video** | Ads are often video; `engine/media.py` already checks the files' headers and links a transcript | Wire it to uploads and run the transcript through the claim checks (D80) |
+| **More formats and markets** | Today: text, PDF, Word, PNG, JPEG; English; India pack | Slides and video frames; more language and market packs as data, not code |
+
+## 8. Team and contributions
+
+| Member | Role | Contribution |
+|---|---|---|
+| **Vansh Vaid** (team leader) | Product, web app, workflow, reliability, documentation | Round 1 plan and PDF; product direction for every round; web screens and the review workflow; Round 2 hardening, versioned knowledge base and identity (`9a90cee`); Round 3: Word, OCR and logo checks on the shared file pipeline, image understanding, understand-first checks, the India pack's test on 45 real ASCI cases, the knowledge base that grows from Insights, memory limits for large images, the writer's **My work** and text editing, the banned-term fix, the fixes for slow free AI models, the browser test scripts, the deployments, the documentation and the final PDF |
+| **Dhruv Puri** | Analysis engine, retrieval, AI gateway, evaluation | Initial engine and project setup (`699e7d7`); Gemini model fallbacks, the AI time limit and the admin, agency and review pages (`95bc5c8`); the Round 3 base for all three improvements (`6bf69fc`): document and image upload, file stamping, the REST API and webhooks, the demo publisher (`cms/`), the India compliance pack with clause retrieval and embeddings, and the admin API page; the role-specific tour and document viewer (`2dccbac`, `804cc74`); the audio/video module and the API-gate test (`f8cd7f8`) |
+| Shared | | testing, code review, security fixes, live checks |
+
+AI assistance is disclosed in [docs/disclosure-log.md](docs/disclosure-log.md). Commit history on
+GitHub shows who changed what and when; merges went through pull requests.
+
+All code was written by team vaidvansh6 during the build window, with the AI
+assistance disclosed above. Demo brand data is fictional.
+
+## 9. What we used (APIs, models, data, libraries)
+
+| Kind | What | Notes |
+|---|---|---|
+| AI models (optional, runtime) | Gemini `gemini-3.1-flash-lite` (then other free Gemini models when it is busy), Groq `llama-3.1-8b-instant`, OpenRouter `llama-3.3-70b-instruct:free`, Ollama `llama3.1:8b` | free tiers or local; each model overridable by environment variable; the live demo uses Gemini with Groq as fallback |
+| Dataset | fictional Quillmark Analytics brand book: 43 rules, 41 facts (some expiring, superseded or confidential), 10 terms (`data/*.csv`); 20-sample labelled evaluation set (`engine/evaluation/eval_set.jsonl`) | invented for the challenge; no real company data |
+| Engine libraries | FastAPI, uvicorn, httpx, pydantic, PyNaCl | `engine/requirements.txt` |
+| Web libraries | Next.js 16, React 19, Tailwind CSS 4, Radix UI primitives, lucide-react, class-variance-authority | `web/package.json`; shadcn/ui component recipes |
+| Protocol | Model Context Protocol (JSON-RPC 2.0 over stdio) | Canon Connector |
+| Services | GitHub Actions (CI), Render (engine), Vercel (web) | all free tiers |
+| AI assistance in development | Anthropic Claude (Claude Code), Codebuff | disclosed in [docs/disclosure-log.md](docs/disclosure-log.md) |
+
+## 10. Where to find what
+
+| Brief requirement (Round 3, *The Finish*) | Where |
+|---|---|
+| Final working product and source repository | live link and repository above; [Quick start](#5-run-it-locally) runs it locally in about 5 minutes |
+| Live demonstration | the live link: every role, no sign-up (*Demo accounts* above); [docs/tutorial.md](docs/tutorial.md) |
+| Report: problem, users, solution, workflow, technology, impact | [Final PDF](docs/Canonry_Round3_Final_vaidvansh6.pdf); §1, §3, §9 |
+| The three promised improvements | [§2](#2-the-three-round-3-improvements) (each: promised → delivered, bugs found) |
+| Testing, reliability improvements, changes during development | [§4](#4-tests-and-reliability); [docs/progress.md](docs/progress.md) (bugs found and fixed); [docs/decision-log.md](docs/decision-log.md) (D1–D81, dated, with reasons); [docs/plan-vs-build.md](docs/plan-vs-build.md) |
+| Privacy, security, accessibility, responsible design | Final PDF; [docs/design.md](docs/design.md); [docs/disclosure-log.md](docs/disclosure-log.md) |
+| Known limitations and roadmap | [§6](#6-known-limitations), [§7](#7-roadmap) |
+| Participants and contributions | [§8](#8-team-and-contributions) |
+| Form answers in one place | [docs/round3-submission.md](docs/round3-submission.md) |
+
+| Round 3 judging criterion (points) | Evidence |
+|---|---|
+| Completeness of the product (25) | the whole journey for four roles: write or upload → understood → checked → fixed → reviewed → sent back or approved → signed → verified, plus the publishing gate and the knowledge base (§1, §12) |
+| The three improvements delivered (20) | §2: documents and images, the publishing gate, the India pack, each with suites and live checks |
+| Reliability under normal use (20) | 32 suites + evaluation gate in CI; a 185-check browser run of hostile input, double clicks, two tabs, refresh, expired sessions and phone layouts; fixes for slow free AI models (§4) |
+| Usability and real-world fit (20) | understand-first checks, one card per issue, plain explanations, one-click fixes, a first-visit walkthrough, **My work** for writers, production mode for real teams (§1, §6) |
+| Documentation and roadmap (15) | this README, the final PDF, the decision and disclosure logs, §7 |
+
+### Earlier rounds: the Round 1 improvements and changes from the plan
+
+| Improvement (Round 1 plan) | In this build | Measured |
+|---|---|---|
+| **1. Claim checking against approved sources** | Explicit claims (counts, prices, percentages, certifications, superlatives, dates) found by patterns and labelled supported / contradicted / outdated / unsupported against the Fact Library; numbers compared by value; implied claims via one batched AI call. **Verified Claim Memory** reuses a verdict only for identical numbers and the same knowledge version | frozen evaluation split: claims recall 100%, precision 100% (targets ≥ 85% / ≥ 80%); see the limits in §6 |
+| **2. Guideline-clarity insights** | Vague-rule linting at import (no examples, contradictory, duplicate); disputes and overrides feed an Insights page; "possibly unclear rules"; fact-expiry alerts listing affected approved content; **rule tests & change preview** shows which approved content a rule edit would newly break | Insights page on live data; `test_knowledge.py`, `test_edge_cases.py` |
+| **3. Confidence tiers and verified citations** | Every finding carries a tier and at least one citation; the citation check discards any finding whose rule or fact does not exist or is inactive ("no citation, no finding"); every finding is validated against the versioned contract `finding@1`; citations pin the rule/fact version they were checked against | invalid citations shown: **0**; "Definite" precision 100% (target ≥ 95%) |
+
+#### Changes from the Round 1 plan
+
+Every Must and Should item of the plan is delivered. The main changes, all
+explained in [docs/plan-vs-build.md](docs/plan-vs-build.md):
+
+- **SQLite instead of Supabase Postgres + pgvector**: zero setup for judges; the schema keeps Postgres names, and role rules live in one module instead of row-level security.
+- **Exact keyword and number matching instead of embeddings** for facts: "2,300+" must never match "3,200+".
+- **Demo personas plus password and invitation sign-in** instead of Google sign-in: judges need no account; production use stays secure.
+- **Text content this round**: DOCX/PDF content upload, image checks and file metadata stamps move to Round 3; the public verify page checks pasted text instead.
+- **AI call ledger instead of Sentry/Langfuse**; fixed provider fallback instead of a confidence-based model cascade.
+- **Added during the build**: rule bindings (any rulebook works), a lifecycle lock for approved content, publishable-facts-only claim checks, local Ollama fallback.
+
+### Repository layout
 
 ```
 .
@@ -338,7 +464,7 @@ What a judge may run into on the live demo:
 ├── .github/workflows/ci.yml ← tests, evaluation gate, web build, dependency audits
 ├── data/                    ← demo brand book: rules, facts, terms (CSV)
 ├── engine/                  ← FastAPI analysis engine (all product logic)
-│   ├── *.py                 ← modules listed in §5
+│   ├── *.py                 ← modules listed in §3
 │   ├── tests/               ← 32 suites + run_tests.py
 │   ├── evaluation/          ← evaluate.py, labelled set, committed baseline
 │   ├── Dockerfile
@@ -362,113 +488,7 @@ What a judge may run into on the live demo:
 | [approach](docs/approach.md) | how we built it, and the problems we hit |
 | [changelog](docs/changelog.md) | progress against the plan, milestone by milestone |
 | [progress](docs/progress.md) | status, bugs found and fixed, honest gaps |
-| [decision-log](docs/decision-log.md) | every decision D1–D80, dated, with reasons |
+| [decision-log](docs/decision-log.md) | every decision D1–D81, dated, with reasons |
 | [disclosure-log](docs/disclosure-log.md) | AI tools, models, libraries and services used |
 | [usability-test-kit](docs/usability-test-kit.md) | how we run and record user tests |
 | [dev-notes/](docs/dev-notes/) | working specs and plans written during the build |
-
-## 12. Round 3: three major improvements
-
-Each adds a capability Canonry does not have today, comes from the Round 1 roadmap, and has a test that decides when it is done.
-
-| Improvement | What it is | What it changes for the user | Done when |
-|---|---|---|---|
-| **1. Documents and images** | Upload DOCX and PDF content (findings point to the page and line); image checkers for logo use, brand colours, text contrast (WCAG) and alt text; the Proof of Compliance stamped into the approved file's metadata | Teams review the files they actually publish, catch visual and accessibility mistakes, and a downloaded asset carries its own proof of approval | a PDF one-pager and a social image complete the full journey to a sealed, verifiable file; planted visual issues are caught |
-| **2. Publishing gate: REST API + webhooks** | Versioned API with per-workspace keys; webhooks on *checked*, *approved* and *signed*; a demo CMS integration that holds a post until approval (stretch: Google Docs add-on) | Review stops being optional: content passes Canonry on its way to publication, and every published item links to a signed approval | an external client publishes only after a webhook reports a signed approval, and the page verifies against that seal |
-| **3. India advertising compliance pack, with RAG** | Rules from the CCPA Guidelines for Prevention of Misleading Advertisements (2022) and the ASCI Code; the regulation text is embedded in **managed Postgres with pgvector**, the most relevant clauses are retrieved for each sentence (RAG), and every finding cites the exact clause; numbers stay exactly matched | Marketers see legal risk before publishing, reviewers see the legal basis of each warning, and new markets are a pack, not a retraining | violations from published ASCI complaint decisions are caught with the right clause cited, at the "Definite" bar (≥ 95% precision) |
-
-### Improvement 1 — delivered: documents and images
-
-Try it: **Write → PDF, Word or image**, then upload `data/demo/social_launch.png` (alt text "Image of a
-banner"), `data/demo/quillmark_pulse_onepager.pdf` or `data/demo/quillmark_brochure.docx`.
-
-| Promised | Delivered |
-|---|---|
-| DOCX and PDF upload, findings point to the page and line | PDF findings show **page and line**; Word findings show **section and paragraph** (Word has no fixed pages). Every text check (terms, claims, tone, India pack) runs on the file's text. |
-| Fixes | **Word: Accept / Edit change the .docx itself**, only the changed characters inside their runs, so bold words and headings keep their formatting; the fixed file is a new version of the file and is what gets approved. PDF and image findings: fix the source, then **Upload new version** on the same submission (history and decisions stay together). |
-| Logo use | Logos are found with feature matching (ORB + homography) at any size, even stretched or tilted, and checked against the brand kit: **retired logo**, **stretched / squashed / tilted** (with the measured amount), **recoloured**, **on a busy background**, **content inside the clear space**, **too small**. Quillmark's distortion findings cite its own rule BRD-02. |
-| Brand colours | Dominant colours compared with the approved palette by ΔE 2000; photographs are recognised and left alone. |
-| Text contrast (WCAG) | Tesseract reads the words in the image (from a copy where each pixel's distance from its background is drawn in black, so faint text is read too); contrast is measured **per line** on the original pixels against 4.5:1, or 3:1 for large text, and the line is **boxed on the preview**. The words in an image are also checked like any copy, so a claim printed in a graphic is caught. |
-| Alt text | Missing, too short, too long, "image of…", file names, keyword stuffing; edited in Canonry. |
-| Image understanding | When an AI provider that reads images is set up (Gemini), one call per checked image says **what Canonry sees in this image**: a description, brands (ours, retired, competitor), claims drawn into the picture, and whether it fits its title and caption. It flags a retired name or logo OCR missed, a competitor's brand (India-pack comparative clause), a "#1" badge (checked like text) and a picture that contradicts its words, never above *Should fix*, and offers the seen description as one-click alt text. Without it, the image checks are exactly the rule-based ones. |
-| Proof of Compliance in the file | The approved PDF, Word, PNG or JPEG carries its signed proof in its own metadata (Word: a custom document property). The public verify page checks an uploaded file: the approved original or its stamped copy verifies; **a changed file, or a real seal copied onto other bytes, does not**. |
-
-Bugs found while finishing it, each fixed with a test that failed first: an intermittent "Internal Server
-Error" when a free AI model answered in an unexpected JSON shape; Word uploads could not be approved
-(no Word stamp); a seal copied onto any other file verified; re-check or a dispute on an uploaded file
-turned it into plain text; the logo's own lettering was checked as copy.
-
-### Improvement 2 — delivered: publishing gate (API, signed webhooks, demo publisher)
-
-Try it on the live demo: open **<https://canonry-sigma.vercel.app/engine/cms>** (the demo publisher),
-write a post and press **Send to Canonry**. Then in Canonry choose **Reviewer**, open the post in the
-**Review queue**, override or fix any high-severity finding and **Approve**. The publisher's page refreshes
-itself and shows the post **published, with a link that verifies its seal**; its *Webhooks received* table
-shows `checked`, `approved` (held: not enough) and `signed` (published). As **Brand admin**, **API & webhooks**
-shows the keys, endpoints and every delivery. Locally: `engine/run_local.py`, then <http://127.0.0.1:8000/cms>
-(or <http://localhost:3000/engine/cms> with the web app).
-
-| Promised | Delivered |
-|---|---|
-| Versioned API with per-workspace keys | `/api/v1/checks`, `/uploads`, `/submissions[/{id}]`, `/proofs/{id}`, `/assets/{id}`, `/compliance/packs`, public `/contract`; `Authorization: Bearer ck_live_…`; scopes `check`, `read`, `admin`; keys shown once, stored as SHA-256; revoke works at once. `Idempotency-Key` replays the first answer, a different body with the same key is `409`, and a retry while the first request still runs is `409 idempotency_in_progress`, never a second submission. Errors are `{code, message}` (malformed fields get FastAPI's standard 422 list); JSON over 2 MB is `413`. |
-| Webhooks on *checked*, *approved*, *signed* | Written to an outbox in the same transaction as the event; `X-Canonry-Signature: sha256=HMAC(secret, timestamp + "." + body)` with `X-Canonry-Timestamp`, `-Event`, `-Delivery`. Failed deliveries are retried after 30 s, 2 min, 10 min, 30 min, 1 h, 2 h and 6 h by a background loop, then marked failed; an admin can retry by hand, rotate the secret (old one stops at once) or disable the endpoint. Redirects are not followed. |
-| Safe webhook URLs | HTTPS only; loopback, private, link-local (cloud metadata), shared, multicast and reserved addresses refused, and re-checked before every attempt. `CANONRY_WEBHOOK_ALLOW_LOCAL=true` (set by `run_local.py`, never on the live demo) allows a loopback receiver for local development. |
-| A CMS that holds a post until approval | `cms/app.py`. It sends the post with `submit_for_review`, so it waits in the reviewer's queue; it publishes only on a `signed` event with a valid, fresh signature, after checking that the SHA-256 of the approved text equals the signed hash (text edited in review is published as approved; anything else stays held). The live demo has no separate service: the engine mounts the publisher at `/cms` in demo mode and issues its key and webhook endpoint (named *Demo publisher*) at boot, pointing at its own public address (`RENDER_EXTERNAL_URL` on Render, `CANONRY_PUBLIC_ENGINE_URL` elsewhere). The publisher still uses only the public API and verifies every signature; `cms/Dockerfile` runs it as its own service. |
-
-Not done: the stretch Google Docs add-on.
-
-Bugs found while testing it, each fixed with a test that failed first: simultaneous retries with one
-Idempotency-Key created two submissions and answered 500; a webhook host was checked only when added;
-shared (100.64/10) and multicast addresses were accepted; retries waited for the next product event; the
-upload's `links.file` pointed at a missing route; a multi-megabyte JSON body was parsed whole; rotate and
-disable were not audited; the publisher answered a form with a 303 that had no address, blocked its own
-server while calling the engine, hashed browser line ends differently, and made two posts on a double click.
-
-### Improvement 3 — delivered: India advertising compliance pack
-
-Try it: write a draft containing *"Get a free 14-day trial at just ₹999 per month."* or *"Guaranteed results
-in 30 days."*: the finding is **Definite** and cites **CCPA Guidelines 2022, Section 5** (or 12(a)) with the
-clause text and a link to the official PDF. As **Brand admin**, **API & webhooks → Compliance packs**
-switches the pack off (its checks stop) and on.
-
-| Promised | Delivered |
-|---|---|
-| CCPA 2022 and ASCI Code rules | 13 clauses (`data/compliance/india_advertising_pack.json`, version 2022.2): bait offers, surrogate ads, "free" claims, children, disclaimers, substantiation, "up to" claims, prizes, endorsements, material connection, truthful claims, misleading implications, comparisons. A pack is data: a new market is a new file. |
-| Retrieval of the relevant clause (RAG), exact citation | Each sentence retrieves its nearest clauses (768-dimension local embeddings; keyword union for recall); only retrieved clauses' deterministic patterns can produce a finding, which cites source, reference, clause version, text and URL. Numbers are never interpreted by a model. The seal records the pack versions in force. |
-| Definite bar ≥ 95% precision | Gate in `test_compliance`: 32 labelled sentences (20 violations, 12 compliant near-misses): Definite precision 100%, recall 100%, and **no false alarm at any tier**; plus 14 lines of ordinary marketing copy that must stay silent. |
-| Tested on real decisions | 45 ad lines ASCI upheld complaints against, each quoted from a published report ([bestmediainfo, Jun–Jul 2020](https://bestmediainfo.com/2020/10/asci-upholds-257-complaints-of-misleading-ads-in-june-and-july-2020), [bestmediainfo, Apr 2019](https://bestmediainfo.com/2019/06/asci-upholds-complaints-against-114-misleading-advertisements-in-april-2019), [mediabrief](https://mediabrief.com/asci-upheld-complaints-137-false-misleading-ads/)): **2/45 caught before, 43/45 after**, 0 warnings on 10 compliant lines. The work also fixed sentences splitting at "Rs. 999" / "No. 1" / "Dr." (every checker) and clause retrieval hiding a clause whose own pattern matched. |
-| Managed Postgres with pgvector | Written (`CANONRY_DATABASE_URL`, `vector(768)` column, HNSW index) but **not deployed**: the live demo and tests use SQLite, with the same vectors stored as JSON and ranked in Python (see §10). |
-
-Bugs found while testing it, each fixed with a test that failed first: approval-blocking *Definite* "free"
-findings on "feel free" and "toll-free number"; "partner", "only 5 minutes", "win back 6 hours" and
-"better than ever" flagged as legal risks; an `#ad` disclosure that could never be recognised; a
-qualifier in the next sentence ("See full terms at …") ignored; the gate counting false alarms only at
-*Definite*; a restart switching a disabled pack back on.
-
-**Planned in Round 2, and where it ended up:** the move from SQLite to managed Postgres is written
-(`CANONRY_DATABASE_URL`, pgvector) but not deployed: a free database would have added a second
-service that can sleep or run out during judging, so the live demo stays on SQLite (§13). The
-missing-fact suggestions were built (Insights → *Add as approved fact*, D74). The larger,
-independently labelled evaluation set and the usability study were not done; both lead the roadmap.
-
-**Also added in Round 3, beyond the three:** understand-first checks (D63–D69), image understanding
-with a vision model (D70), a knowledge base that grows from use (D74), the writer's **My work** with
-text editing (D76), and the fixes for slow free AI models (D79).
-
-All code was written by team vaidvansh6 during the build window, with the AI
-assistance disclosed above. Demo brand data is fictional.
-
-## 13. Roadmap
-
-What comes next, in order, and what each fixes. Nothing below is claimed as built.
-
-| Next | Why | First step |
-|---|---|---|
-| **Managed Postgres + pgvector live** | The India pack's clause retrieval and all data should survive restarts; the code path exists (`CANONRY_DATABASE_URL`) but the demo runs on SQLite | Point the engine at a free Neon / Supabase database, run the suites against it in CI |
-| **Blind-tested India pack** | 43/45 on real ASCI cases, but the patterns were written after reading them | A fresh set from newer ASCI reports, labelled by someone outside the team, scored before any change; flag sources older than the claim allows |
-| **User testing** | No real users have used Canonry yet | Run the prepared 5-person SUS study ([docs/usability-test-kit.md](docs/usability-test-kit.md)) on the live link; fix the top three issues |
-| **Larger evaluation set** | The claim-check evaluation has 20 samples labelled by the team | 200 samples labelled by someone outside the team; hold the 85% recall / 80% precision targets |
-| **Signed approvals that survive restarts** | The free server regenerates its signing key on restart | A persistent key (paid disk or a key-management service) |
-| **Where people write** | Content is checked after it is written | Google Docs add-on and the MCP connector in AI writing tools, using the public API |
-| **Audio and video** | Ads are often video; `engine/media.py` already checks the files' headers and links a transcript | Wire it to uploads and run the transcript through the claim checks (D80) |
-| **More formats and markets** | Today: text, PDF, Word, PNG, JPEG; English; India pack | Slides and video frames; more language and market packs as data, not code |

@@ -81,3 +81,6 @@ MODEL_LIST.md
 
 # e2e/journey.py output (screenshots, temp DB)
 e2e/.tmp/
+
+# a stray build folder at the repo root (the web app builds in web/)
+/.next/

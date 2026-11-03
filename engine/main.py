@@ -33,7 +33,6 @@ import assets
 import claims
 import compliance
 import contract
-import embeddings
 import webhooks
 import documents
 import gateway

@@ -88,6 +88,7 @@ workspace).
 | Seed CSV data | Written by the team | Fictional; see §3 |
 | India pack clauses | Quoted from the CCPA Guidelines for Prevention of Misleading Advertisements (2022) and the ASCI Code, each with its source link | Public regulatory text, cited |
 | ASCI test cases | 45 ad lines quoted from published reports of upheld ASCI complaints (bestmediainfo, mediabrief), with links (`data/compliance/india_asci_cases.jsonl`) | Short quotations used for testing |
+| ASCI blind test | 220 claims quoted from ASCI's own monthly press releases (Nov 2019, Feb 2020, June 2019 PDFs on ascionline.in), with links (`data/compliance/india_asci_blind.jsonl`) | Short quotations used for testing |
 | Demo logo and files | `data/brand/`, `data/demo/`: drawn and written by the team | Fictional brand |
 
 ## 6. Templates and scaffolding

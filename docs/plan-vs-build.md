@@ -16,7 +16,7 @@
 | **Must** list (Section 11.3): rules, facts and terms → text submission → terminology and claim checks → cited findings with tiers → fix/dispute → risk routing → review/override → approve → history and revision diff | ✅ all delivered |
 | **Should** list: Verified Claim Memory, Proof of Compliance, Canon Connector, rule tests, exemption policies, tone check, rule linting, CSV import | ✅ all delivered; some lighter than planned (section 3) |
 | **Could** list: DOCX/PDF upload, basic insights, 20-sample evaluation set, monitoring dashboards | ◐ insights and the 20-sample evaluation set delivered; DOCX import for rules only; no monitoring dashboards |
-| The three improvements (Section 8) | ✅ Round 2 scope delivered for all three ([README §3](../README.md#3-the-three-improvements-we-committed-to)) |
+| The three improvements (Section 8) | ✅ Round 2 scope delivered for all three ([README §10](../README.md#earlier-rounds-the-round-1-improvements-and-changes-from-the-plan)) |
 | Milestones M1–M6 (Section 11.2) | ✅ M2–M5 done; M1 and M6 done except the items in section 5 |
 
 ## 2. Milestones (Section 11.2)
