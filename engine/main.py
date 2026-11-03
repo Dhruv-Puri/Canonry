@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional
 from starlette.concurrency import run_in_threadpool
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -72,7 +73,16 @@ def pack_versions(conn, workspace_id: str) -> Dict[str, str]:
     except Exception:
         return {}
 
-app = FastAPI(title="Canonry engine", version="0.1.0")
+app = FastAPI(title="Canonry engine", version="0.1.0", docs_url=None, redoc_url=None,
+              description="The Canonry API. Integrations use `/api/v1` with an API key "
+                          "(`Authorization: Bearer ck_live_...`); webhooks are signed with HMAC-SHA256.")
+
+
+@app.get("/docs", include_in_schema=False)
+def api_docs():
+    """The interactive API reference. A relative schema URL, so it works both on the engine
+    itself and through the web app's /engine/ proxy (an absolute one 404s there)."""
+    return get_swagger_ui_html(openapi_url="openapi.json", title="Canonry API reference")
 app.add_middleware(CORSMiddleware, allow_origins=sorted(APP_ORIGINS), allow_credentials=True,
                    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
                    allow_headers=["Content-Type", "Authorization", "X-Canon-Session"])

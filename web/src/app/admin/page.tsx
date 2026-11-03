@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowRight, BookMarked, LineChart, ShieldCheck, Sparkles, TriangleAlert, Users } from "lucide-react";
+import { ArrowRight, BookMarked, FileCode2, LineChart, ShieldCheck, Sparkles, TriangleAlert, Users } from "lucide-react";
 import { api, type Fact, type Submission } from "@/lib/api";
 import { RiskBadge, StatusBadge } from "@/components/fx";
 import { useIdentity } from "@/components/identity";
@@ -117,6 +117,9 @@ export default function AdminOverviewPage() {
           <Link href="/admin/api" className="btn btn-secondary">
             <ShieldCheck className="size-4" aria-hidden /> API &amp; webhooks
           </Link>
+          <a href="/engine/docs" target="_blank" rel="noreferrer" className="btn btn-secondary">
+            <FileCode2 className="size-4" aria-hidden /> API docs
+          </a>
         </div>
       </div>
 

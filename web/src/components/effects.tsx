@@ -9,15 +9,29 @@ import { useEffect, useRef } from "react";
 export function Spotlight() {
   useEffect(() => {
     if (!window.matchMedia("(pointer: fine)").matches) return;
-    const onMove = (e: PointerEvent) => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    let last: PointerEvent | null = null;
+    let frame = 0;
+    const paint = () => {
+      frame = 0;
+      const e = last;
+      if (!e) return;
       const el = (e.target as Element | null)?.closest?.(".surface") as HTMLElement | null;
       if (!el) return;
       const r = el.getBoundingClientRect();
       el.style.setProperty("--mx", `${e.clientX - r.left}px`);
       el.style.setProperty("--my", `${e.clientY - r.top}px`);
     };
+    // at most once per frame: moving the mouse no longer repaints on every event
+    const onMove = (e: PointerEvent) => {
+      last = e;
+      if (!frame) frame = window.requestAnimationFrame(paint);
+    };
     document.addEventListener("pointermove", onMove, { passive: true });
-    return () => document.removeEventListener("pointermove", onMove);
+    return () => {
+      document.removeEventListener("pointermove", onMove);
+      if (frame) window.cancelAnimationFrame(frame);
+    };
   }, []);
   return null;
 }

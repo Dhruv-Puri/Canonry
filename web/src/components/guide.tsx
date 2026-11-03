@@ -304,6 +304,14 @@ function nextStep(path: string, role: string, mine: Submission[], detail: Submis
       target: '[data-guide="new-primary"], [data-guide="check-it"]',
     };
   }
+  if (signed && !draft && !inReview && role === "agency") {
+    return {
+      n: 6,
+      title: "Approved: check your scorecard",
+      body: <>Your client signed it off. The scorecard on My work shows how often your work is approved first time.</>,
+      link: { href: "/agency", label: "Open my scorecard" },
+    };
+  }
   if (signed && !draft && !inReview) {
     return {
       n: 6,
