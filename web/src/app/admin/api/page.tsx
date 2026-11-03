@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, Check, Copy, KeyRound, RefreshCw, Send, ShieldCheck, Webhook } from "lucide-react";
+import { ArrowLeft, Check, Copy, FileCode2, KeyRound, RefreshCw, Send, ShieldCheck, Webhook } from "lucide-react";
 import { api } from "@/lib/api";
 import { useIdentity } from "@/components/identity";
 
@@ -157,10 +157,13 @@ export default function ApiSettingsPage() {
           <p className="eyebrow">Integration surface</p>
           <h1 className="page-title mt-1.5">API &amp; webhooks</h1>
           <p className="page-lede max-w-2xl">
-            Connect the systems that publish (a website, a CMS, a script) so nothing goes live before it passes Canonry.
-            You only need this if someone on your team publishes through one of those systems.
+            Nothing goes live on your website until Canonry has approved it.
           </p>
         </div>
+        <div className="flex flex-wrap gap-2">
+        <a href="/engine/docs" target="_blank" rel="noreferrer" className="btn btn-primary">
+          <FileCode2 className="size-4" aria-hidden /> API &amp; webhook docs
+        </a>
         <button onClick={() => void run(async () => {
             const r = await api<{ attempted: number; delivered: number }>("/webhooks/flush", { method: "POST" });
             setNotice(r.attempted ? `Sent ${r.attempted} waiting deliver${r.attempted === 1 ? "y" : "ies"}; ${r.delivered} delivered.` : "Nothing was waiting to be sent.");
@@ -168,6 +171,7 @@ export default function ApiSettingsPage() {
           disabled={busy} className="btn btn-secondary">
           <RefreshCw className={`size-4 ${busy ? "animate-spin" : ""}`} aria-hidden /> Send waiting webhooks now
         </button>
+        </div>
       </div>
 
       <section aria-label="How the publishing gate works" className="surface p-5">
@@ -193,7 +197,7 @@ export default function ApiSettingsPage() {
             for its approval arrives. Its key and endpoint below are named <em>Demo publisher</em>.
           </p>
         </div>
-        <a href="/engine/cms" target="_blank" rel="noreferrer" className="btn btn-primary">Open the demo publisher</a>
+        <a href="/engine/cms" target="_blank" rel="noreferrer" data-guide="open-publisher" className="btn btn-primary">Open the demo publisher</a>
       </section>}
 
       {error && <p role="alert" className="rounded-xl border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger-fg">{error}</p>}

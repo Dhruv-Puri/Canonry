@@ -140,8 +140,7 @@ export default function KBPage() {
           <p className="eyebrow">Source of truth</p>
           <h1 className="page-title mt-1.5">Knowledge base</h1>
           <p className="page-lede max-w-2xl">
-            The rules, facts and terms every check cites. Changes are versioned: earlier issues and signed approvals
-            keep showing the version they were checked against.
+            The rules, facts and terms every check cites. Every change is a new version.
           </p>
           {me && (
             <p className="mt-2 text-sm text-muted-foreground">
@@ -152,7 +151,7 @@ export default function KBPage() {
         {canEdit && (
           <div className="flex flex-wrap gap-2">
             {tab === "rules" && <button className="btn btn-secondary" onClick={() => setImportOpen((open) => !open)}><Upload className="size-4" aria-hidden /> Import rulebook</button>}
-            <button className="btn btn-primary" onClick={() => setEditing({ kind: tab, entity: null })}>
+            <button data-guide="kb-new" className="btn btn-primary" onClick={() => setEditing({ kind: tab, entity: null })}>
               <Plus className="size-4" aria-hidden /> New {NOUN[tab]}
             </button>
           </div>

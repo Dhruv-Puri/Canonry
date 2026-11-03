@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional
 from starlette.concurrency import run_in_threadpool
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -72,7 +73,16 @@ def pack_versions(conn, workspace_id: str) -> Dict[str, str]:
     except Exception:
         return {}
 
-app = FastAPI(title="Canonry engine", version="0.1.0")
+app = FastAPI(title="Canonry engine", version="0.1.0", docs_url=None, redoc_url=None,
+              description="The Canonry API. Integrations use `/api/v1` with an API key "
+                          "(`Authorization: Bearer ck_live_...`); webhooks are signed with HMAC-SHA256.")
+
+
+@app.get("/docs", include_in_schema=False)
+def api_docs():
+    """The interactive API reference. A relative schema URL, so it works both on the engine
+    itself and through the web app's /engine/ proxy (an absolute one 404s there)."""
+    return get_swagger_ui_html(openapi_url="openapi.json", title="Canonry API reference")
 app.add_middleware(CORSMiddleware, allow_origins=sorted(APP_ORIGINS), allow_credentials=True,
                    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
                    allow_headers=["Content-Type", "Authorization", "X-Canon-Session"])
@@ -1308,6 +1318,62 @@ def list_submissions(req: Request):
                 (sub["id"],)).fetchone()
             sub["last_review"] = dict(last) if last else None
         return {"submissions": visible}
+    finally:
+        conn.close()
+
+
+@app.get("/agency/scorecard")
+def agency_scorecard(req: Request):
+    """How an agency's work fares against the client's rules: what clients judge agencies on.
+    First-time right (approved without being sent back), issues on the first check, and the
+    client rules the agency's drafts trip most. Agency partners only, and only their own work."""
+    conn = connect()
+    try:
+        user = _user(req, conn)
+        if user["role"] != "agency":
+            raise HTTPException(403, "The scorecard is for agency partners.")
+        where, params = access.submission_scope(user, "s")
+        subs = conn.execute(f"SELECT s.id, s.status, s.workspace_id FROM submissions s WHERE {where}", params).fetchall()
+        approved = first_time = sent_back = 0
+        first_issue_counts: List[int] = []
+        rule_hits: Dict[str, int] = {}
+        category_hits: Dict[str, int] = {}
+        for s in subs:
+            backs = conn.execute(
+                "SELECT COUNT(*) FROM approvals WHERE submission_id=? AND action='request_changes'", (s["id"],)
+            ).fetchone()[0]
+            sent_back += 1 if backs else 0
+            if s["status"] in ("Signed", "Approved", "Exempt-approved"):
+                approved += 1
+                first_time += 0 if backs else 1
+            first = conn.execute(
+                "SELECT id FROM revisions WHERE submission_id=? ORDER BY revision_no LIMIT 1", (s["id"],)
+            ).fetchone()
+            if not first:
+                continue
+            rows = conn.execute("SELECT category, citations_json FROM findings WHERE revision_id=?", (first["id"],)).fetchall()
+            first_issue_counts.append(len(rows))
+            for f in rows:
+                category_hits[f["category"]] = category_hits.get(f["category"], 0) + 1
+                for c in json.loads(f["citations_json"] or "[]"):
+                    if isinstance(c, dict) and c.get("type") == "rule" and c.get("id"):
+                        rule_hits[c["id"]] = rule_hits.get(c["id"], 0) + 1
+        top_rules = []
+        for rid, n in sorted(rule_hits.items(), key=lambda kv: -kv[1])[:3]:
+            r = conn.execute(
+                "SELECT statement FROM rules WHERE id=? AND workspace_id=? ORDER BY version DESC LIMIT 1",
+                (rid, subs[0]["workspace_id"] if subs else ""),
+            ).fetchone()
+            top_rules.append({"id": rid, "statement": r["statement"] if r else rid, "count": n})
+        return {
+            "submissions": len(subs),
+            "approved": approved,
+            "first_time_right": first_time,
+            "sent_back": sent_back,
+            "avg_first_check_issues": round(sum(first_issue_counts) / len(first_issue_counts), 1) if first_issue_counts else None,
+            "top_rules": top_rules,
+            "top_categories": [{"category": k, "count": v} for k, v in sorted(category_hits.items(), key=lambda kv: -kv[1])[:3]],
+        }
     finally:
         conn.close()
 

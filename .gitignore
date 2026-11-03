@@ -84,3 +84,5 @@ e2e/.tmp/
 
 # a stray build folder at the repo root (the web app builds in web/)
 /.next/
+# local Claude Code settings
+.claude/

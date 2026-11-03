@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
-import { ArrowRight, Check, ChevronRight, Sparkles } from "lucide-react";
+import { ArrowRight, Check } from "lucide-react";
 import { forgetVisit, hasVisited, rememberFirstTime, useGuide } from "@/components/guide";
 import { api, ApiError, SIGNED_OUT_EVENT, type AuthMode, type User } from "@/lib/api";
 import { ROLES, type Role } from "@/lib/roles";
@@ -134,8 +134,8 @@ export function IdentityGate({ children }: { children: React.ReactNode }) {
     try {
       await api("/logout", { method: "POST" });
     } finally {
-      // Logging out forgets the visit too, so the next person gets the welcome
-      // screen and a first-run tour instead of the last person's leftovers.
+      // Logging out forgets this visit's guide progress; the browser keeps having seen the intro
+      // and the tours, so switching profile this way does not replay them.
       forgetVisit();
       setMe(null);
       setState("out");

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { Geist, Geist_Mono, Source_Serif_4 } from "next/font/google";
+import { EB_Garamond, Geist, Geist_Mono, Source_Serif_4 } from "next/font/google";
 import { SiteNav } from "@/components/site-nav";
 import { BrandMark } from "@/components/brand";
 import { Spotlight } from "@/components/effects";
@@ -21,6 +21,12 @@ const geistMono = Geist_Mono({
 });
 
 // Serif is reserved for the copy under review, so drafts read like print.
+// Garamond for the tutorial's spoken lines: a warm book face that reads easily at a glance.
+const garamond = EB_Garamond({
+  variable: "--font-garamond",
+  subsets: ["latin"],
+});
+
 const serif = Source_Serif_4({
   variable: "--font-serif-face",
   subsets: ["latin"],
@@ -36,7 +42,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} ${serif.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${serif.variable} ${garamond.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col overflow-x-clip">
         <div aria-hidden className="scroll-progress" />

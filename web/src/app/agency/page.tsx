@@ -9,6 +9,7 @@ import { useIdentity } from "@/components/identity";
 import { Reveal } from "@/components/motion";
 import { SubmissionCard } from "@/components/submission-card";
 import { roleHome } from "@/lib/roles";
+import { AgencyScorecard } from "./scorecard";
 
 export default function AgencyWorkspacePage() {
   const { me } = useIdentity();
@@ -51,12 +52,6 @@ export default function AgencyWorkspacePage() {
   }
 
   const list = subs ?? [];
-  const counts = {
-    inReview: list.filter((s) => s.status === "In review").length,
-    changes: list.filter((s) => s.status === "Changes requested").length,
-    signed: list.filter((s) => s.status === "Signed").length,
-    open: list.reduce((n, s) => n + (s.open_findings ?? 0), 0),
-  };
   const needsWork = list.filter(
     (s) => s.status === "Changes requested" || (s.status === "Checked" && (s.open_findings ?? 0) > 0)
   );
@@ -68,11 +63,10 @@ export default function AgencyWorkspacePage() {
           <p className="eyebrow">Agency workspace</p>
           <h1 className="page-title mt-1.5">My work</h1>
           <p className="page-lede max-w-2xl">
-            Submit client work, fix what Canonry flags, and follow each item through review. You see only the submissions
-            your agency created.
+            Your agency’s work for the client, and how it is doing.
           </p>
         </div>
-        <Link href="/new" className="btn btn-primary btn-lg shadow-card">
+        <Link href="/new" data-guide="agency-new" className="btn btn-primary btn-lg shadow-card">
           Submit client work <span aria-hidden className="btn-arrow">→</span>
         </Link>
       </div>
@@ -83,12 +77,7 @@ export default function AgencyWorkspacePage() {
         </p>
       )}
 
-      <div className="surface grid grid-cols-2 divide-x divide-y divide-border overflow-hidden sm:grid-cols-4 sm:divide-y-0">
-        <Stat label="In review" value={counts.inReview} />
-        <Stat label="Changes requested" value={counts.changes} tone={counts.changes > 0 ? "warning" : "normal"} />
-        <Stat label="Signed" value={counts.signed} />
-        <Stat label="Open issues" value={counts.open} tone={counts.open > 0 ? "danger" : "normal"} />
-      </div>
+      <AgencyScorecard />
 
       {/* with no work yet, the empty state below is the one thing to do */}
       {list.length > 0 && (
@@ -159,21 +148,6 @@ export default function AgencyWorkspacePage() {
           redacted, and brand rules are read-only.
         </p>
       </div>
-    </div>
-  );
-}
-
-function Stat({ label, value, tone = "normal" }: { label: string; value: number; tone?: "normal" | "danger" | "warning" }) {
-  const color =
-    tone === "danger" && value > 0
-      ? "text-danger-fg"
-      : tone === "warning" && value > 0
-        ? "text-warning-fg"
-        : "text-foreground";
-  return (
-    <div className="p-5">
-      <p className={`text-3xl font-bold tabular-nums ${color}`}>{value}</p>
-      <p className="mt-1 text-xs font-medium text-muted-foreground">{label}</p>
     </div>
   );
 }

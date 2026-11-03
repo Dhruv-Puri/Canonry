@@ -371,8 +371,11 @@ export function ProductTour({
         aria-modal="true"
         aria-labelledby="tour-title"
         tabIndex={-1}
+        className="relative z-10 my-auto w-full max-w-2xl outline-none"
+      >
+      <div
         style={{ height: "min(84dvh, 37rem)" }}
-        className="surface relative z-10 my-auto flex w-full max-w-2xl flex-col overflow-hidden border-border-strong shadow-float outline-none"
+        className="surface flex flex-col overflow-hidden border-border-strong shadow-float"
       >
         <div className="flex shrink-0 items-center gap-2.5 border-b border-border bg-muted/60 px-5 py-3">
           <BrandMark className="size-7" />
@@ -382,23 +385,6 @@ export function ProductTour({
           <button type="button" onClick={onClose} className="btn btn-ghost btn-sm ml-auto" aria-label="Skip tour">
             <X className="size-3.5" aria-hidden /> Skip
           </button>
-        </div>
-
-        {/* progress rail: also the step picker, so a returning visitor can jump */}
-        <div className="flex shrink-0 gap-1 px-5 pt-3" role="tablist" aria-label="Tour steps">
-          {STEPS.map((s, i) => (
-            <button
-              key={s.title}
-              type="button"
-              role="tab"
-              aria-selected={i === step}
-              aria-label={`Step ${i + 1}: ${s.title}`}
-              onClick={() => setStep(i)}
-              className={`h-1.5 flex-1 rounded-full transition-all duration-300 ${
-                i === step ? "bg-brand" : i < step ? "bg-brand/45" : "bg-border-strong hover:bg-brand/30"
-              }`}
-            />
-          ))}
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
@@ -470,34 +456,45 @@ export function ProductTour({
           )}
         </div>
 
-        <div className="flex shrink-0 items-center gap-3 border-t border-border bg-card px-5 py-3">
-          <p className="text-xs tabular-nums text-muted-foreground">
-            Step {step + 1} of {STEPS.length}
-          </p>
-          <div className="ml-auto flex items-center gap-2">
+        <div className="flex shrink-0 items-center justify-center gap-4 border-t border-border bg-card px-5 py-3">
+          <button
+            type="button"
+            onClick={() => setStep((current) => Math.max(0, current - 1))}
+            disabled={step === 0}
+            className="btn btn-ghost btn-sm disabled:invisible"
+          >
+            <ArrowLeft className="size-3.5" aria-hidden /> Back
+          </button>
+          {/* progress, and a step picker: each dot jumps to its page */}
+          <span className="flex items-center gap-1.5" role="group" aria-label="Tour steps">
+            {STEPS.map((s, i) => (
+              <button
+                key={s.title}
+                type="button"
+                onClick={() => setStep(i)}
+                aria-label={`Step ${i + 1}: ${s.title}`}
+                aria-current={i === step ? "step" : undefined}
+                className="grid h-6 place-items-center px-0.5"
+              >
+                <span className={`tour-dot ${i === step ? "is-current" : i < step ? "is-done" : ""}`} />
+              </button>
+            ))}
+          </span>
+          {last ? (
+            <button type="button" onClick={onFinish} className="btn btn-primary btn-sm">
+              Try a sample <ArrowRight className="size-3.5" aria-hidden />
+            </button>
+          ) : (
             <button
               type="button"
-              onClick={() => setStep((current) => Math.max(0, current - 1))}
-              disabled={step === 0}
-              className="btn btn-secondary btn-sm"
+              onClick={() => setStep((current) => Math.min(STEPS.length - 1, current + 1))}
+              className="btn btn-primary btn-sm"
             >
-              <ArrowLeft className="size-3.5" aria-hidden /> Back
+              Next <ArrowRight className="size-3.5" aria-hidden />
             </button>
-            {last ? (
-              <button type="button" onClick={onFinish} className="btn btn-primary btn-sm">
-                Try a sample <ArrowRight className="size-3.5" aria-hidden />
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setStep((current) => Math.min(STEPS.length - 1, current + 1))}
-                className="btn btn-primary btn-sm"
-              >
-                Next <ArrowRight className="size-3.5" aria-hidden />
-              </button>
-            )}
-          </div>
+          )}
         </div>
+      </div>
       </div>
     </div>,
     document.body,

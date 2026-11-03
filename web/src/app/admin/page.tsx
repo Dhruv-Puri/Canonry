@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowRight, BookMarked, LineChart, ShieldCheck, Sparkles, TriangleAlert, Users } from "lucide-react";
+import { ArrowRight, BookMarked, FileCode2, ShieldCheck, Sparkles, TriangleAlert, Users } from "lucide-react";
 import { api, type Fact, type Submission } from "@/lib/api";
 import { RiskBadge, StatusBadge } from "@/components/fx";
 import { useIdentity } from "@/components/identity";
@@ -104,7 +104,7 @@ export default function AdminOverviewPage() {
           <p className="eyebrow">Brand admin</p>
           <h1 className="page-title mt-1.5">Workspace overview</h1>
           <p className="page-lede max-w-2xl">
-            The brand’s rules, its review load, and the health of the rules and facts behind every check.
+            Review load and rulebook health, at a glance.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -117,6 +117,9 @@ export default function AdminOverviewPage() {
           <Link href="/admin/api" className="btn btn-secondary">
             <ShieldCheck className="size-4" aria-hidden /> API &amp; webhooks
           </Link>
+          <a href="/engine/docs" target="_blank" rel="noreferrer" className="btn btn-secondary">
+            <FileCode2 className="size-4" aria-hidden /> API docs
+          </a>
         </div>
       </div>
 

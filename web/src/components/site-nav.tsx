@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { Check, ChevronDown, Copy, LogOut, Menu, PencilLine, X } from "lucide-react";
+import { Check, ChevronDown, Compass, Copy, LogOut, Menu, MousePointerClick, PencilLine, X } from "lucide-react";
+import { useGuide } from "@/components/guide";
 import { BrandMark } from "@/components/brand";
 import { useIdentity } from "@/components/identity";
 import { api } from "@/lib/api";
@@ -19,6 +20,12 @@ export function SiteNav() {
   const home = roleHome(me?.role);
 
   useEffect(() => setOpen(false), [pathname]);
+
+  // the role's accent colour (globals.css: html[data-role]) follows whoever is signed in
+  useEffect(() => {
+    if (me?.role) document.documentElement.dataset.role = me.role;
+    else delete document.documentElement.dataset.role;
+  }, [me?.role]);
 
   // The product tour can open the phone menu, so it can point at a window there.
   useEffect(() => {
@@ -102,6 +109,7 @@ export function SiteNav() {
 function ProfileMenu({ inline = false }: { inline?: boolean }) {
   const router = useRouter();
   const { me, demoMode, update, leave } = useIdentity();
+  const { start: startGuide } = useGuide();
   const [open, setOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("creator");
@@ -216,6 +224,26 @@ function ProfileMenu({ inline = false }: { inline?: boolean }) {
               <PencilLine className="size-4 text-brand" aria-hidden /> Change name
             </button>
           )}
+          <button
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              window.dispatchEvent(new Event("canonry:open-tour"));
+            }}
+            className="flex w-full items-center gap-2.5 rounded-xl px-2 py-2 text-left text-sm hover:bg-muted"
+          >
+            <Compass className="size-4 text-brand" aria-hidden /> Show me the tour
+          </button>
+          <button
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              startGuide();
+            }}
+            className="flex w-full items-center gap-2.5 rounded-xl px-2 py-2 text-left text-sm hover:bg-muted"
+          >
+            <MousePointerClick className="size-4 text-brand" aria-hidden /> Start the walkthrough
+          </button>
           {confirmLogout ? (
             <div className="rounded-xl border border-border bg-muted/60 p-2.5">
               <p className="text-xs leading-relaxed text-foreground">

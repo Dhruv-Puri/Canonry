@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { Compass, PartyPopper, X } from "lucide-react";
+import { X } from "lucide-react";
 import { useIdentity } from "@/components/identity";
+import { GuideCharacter } from "@/components/tour-figures";
 import { api, type Submission, type SubmissionDetail } from "@/lib/api";
 
 /**
@@ -56,14 +57,24 @@ export function wantsGuide(): boolean {
 export function rememberFirstTime(first: boolean) {
   write(FIRST_KEY, first ? "yes" : "no");
   write(GUIDE_KEY, first ? "on" : "off");
+  // ticking "Show me around" is an explicit request: every role's tour plays again
+  if (first) {
+    try {
+      window.localStorage.removeItem("canonry.tour.seen");
+    } catch {
+      // storage blocked: nothing was remembered anyway
+    }
+  }
 }
 
 /**
- * Signing out forgets this visit: no welcome answer, no guide, no seen tour.
- * The next person starts at the welcome screen, as if they had just arrived.
+ * Signing out forgets this visit's progress (the guide, the draft it was following). The welcome
+ * answer and the tours already seen stay with the browser, so they are not shown twice.
  */
 export function forgetVisit() {
-  for (const key of [FIRST_KEY, GUIDE_KEY, SENT_KEY, "canonry.tour.seen", "canonry.tour.v1", "canonry.tour.role"]) {
+  // This browser has still seen the intro and each role's tour: switching profile by signing out
+  // and back in must not show them again (it did, every time). Only this visit's progress goes.
+  for (const key of [GUIDE_KEY, SENT_KEY, "canonry.tour.v1", "canonry.tour.role"]) {
     try {
       window.localStorage.removeItem(key);
       window.sessionStorage.removeItem(key);
@@ -92,7 +103,7 @@ export function GuideProvider({ children }: { children: React.ReactNode }) {
   return <Ctx.Provider value={{ on, start, stop, firstTime }}>{children}</Ctx.Provider>;
 }
 
-type Step = { n: number; title: string; body: React.ReactNode; target?: string; link?: { href: string; label: string } };
+type Step = { n: number; title: string; body: React.ReactNode; target?: string; link?: { href: string; label: string }; total?: number };
 const TOTAL = 6;
 const DONE = ["Signed", "Approved", "Exempt-approved"];
 
@@ -201,6 +212,68 @@ function nextStep(path: string, role: string, mine: Submission[], detail: Submis
     };
   }
 
+  // the brand admin's own journey: what only an admin does
+  if (role === "admin" && !path.startsWith("/review")) {
+    const total = 5;
+    if (path.startsWith("/kb")) {
+      return {
+        n: 2, total,
+        title: "Keep the rulebook right",
+        body: (
+          <>
+            Every check reads from here. Press <strong>New rule</strong> to add one; editing a rule first shows which
+            approved posts it would change. Then open <strong>Insights</strong>.
+          </>
+        ),
+        target: '[data-guide="kb-new"]',
+        link: { href: "/insights", label: "Open Insights" },
+      };
+    }
+    if (path.startsWith("/insights")) {
+      return {
+        n: 3, total,
+        title: "Turn repeated claims into facts",
+        body: (
+          <>
+            Under <strong>Claims with no fact behind them</strong>, press <strong>Add as approved fact</strong>: once
+            approved, the same claim is backed instead of flagged.
+          </>
+        ),
+        target: 'main a[href^="/kb?fact="]',
+        link: { href: "/admin/api", label: "Next: the publishing gate" },
+      };
+    }
+    if (path.startsWith("/admin/api")) {
+      return {
+        n: 4, total,
+        title: "Put Canonry in front of your website",
+        body: (
+          <>
+            Press <strong>Open the demo publisher</strong>: a post there goes live only after Canonry&apos;s signed
+            approval arrives.
+          </>
+        ),
+        target: '[data-guide="open-publisher"]',
+        link: { href: "/admin", label: "Back to the overview" },
+      };
+    }
+    if (path.startsWith("/admin") && read("canonry.guide.admin") === "done") {
+      return {
+        n: 5, total,
+        title: "That's the admin's job",
+        body: <>Rules, facts and the publishing gate are yours; reviewers decide on drafts in the review queue.</>,
+        link: { href: "/review", label: "Open the review queue" },
+      };
+    }
+    return {
+      n: 1, total,
+      title: "Your control room",
+      body: <>The numbers show what is waiting and what needs attention. Start with the rulebook every check reads.</>,
+      target: 'nav a[data-nav="/kb"]',
+      link: { href: "/kb", label: "Open the knowledge base" },
+    };
+  }
+
   if (role === "reviewer" || role === "admin") {
     if (path.startsWith("/review")) {
       return {
@@ -231,6 +304,14 @@ function nextStep(path: string, role: string, mine: Submission[], detail: Submis
       target: '[data-guide="new-primary"], [data-guide="check-it"]',
     };
   }
+  if (signed && !draft && !inReview && role === "agency") {
+    return {
+      n: 6,
+      title: "Approved: check your scorecard",
+      body: <>Your client signed it off. The scorecard on My work shows how often your work is approved first time.</>,
+      link: { href: "/agency", label: "Open my scorecard" },
+    };
+  }
   if (signed && !draft && !inReview) {
     return {
       n: 6,
@@ -259,6 +340,20 @@ function nextStep(path: string, role: string, mine: Submission[], detail: Submis
       body: <>Open your draft to see the issues and fix them.</>,
       target: '[data-guide="open-draft"]',
       link: { href: `/submissions/${draft.id}`, label: "Open my draft" },
+    };
+  }
+  if (role === "agency") {
+    return {
+      n: 1,
+      title: "Submit work for your client",
+      body: (
+        <>
+          You see only your agency&apos;s work. Press <strong>Submit client work</strong>: Canonry checks it against the
+          client&apos;s rules before their reviewer sees it.
+        </>
+      ),
+      target: '[data-guide="agency-new"]',
+      link: path.startsWith("/agency") ? undefined : { href: "/agency", label: "Open my work" },
     };
   }
   return {
@@ -317,8 +412,12 @@ export function GuidePanel() {
     };
   }, [on, me, sid, path, tick]);
 
+  useEffect(() => {
+    if (on && me?.role === "admin" && path.startsWith("/admin/api")) write("canonry.guide.admin", "done");
+  }, [on, me, path]);
+
   const step = useMemo(
-    () => (me ? nextStep(path, me.role, me.role === "creator" ? mine : [], detail) : null),
+    () => (me ? nextStep(path, me.role, me.role === "creator" || me.role === "agency" ? mine : [], detail) : null),
     [path, me, mine, detail],
   );
 
@@ -355,15 +454,14 @@ export function GuidePanel() {
     <aside
       aria-label="Guide"
       aria-live="polite"
-      className="guide-panel fixed inset-x-3 bottom-3 z-50 rounded-2xl border border-brand/30 bg-card p-4 shadow-float md:inset-x-auto md:bottom-6 md:right-6 md:w-[340px]"
+      className="guide-panel fixed inset-x-3 bottom-3 z-50 mx-auto max-w-[460px] rounded-2xl border border-brand/30 bg-card p-4 shadow-float md:bottom-6"
     >
       <div className="flex items-start gap-3">
-        <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-brand/10 text-brand">
-          {finished ? <PartyPopper className="size-5" aria-hidden /> : <Compass className="size-5" aria-hidden />}
-        </span>
+        {/* the same guide who leads the Quick Tour walks you through the steps */}
+        <GuideCharacter className="-mb-1 -ml-1 -mt-2 h-[68px] w-[58px] shrink-0" waving={finished} />
         <div className="min-w-0 flex-1">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-brand">
-            Guide · step {step.n} of {TOTAL}
+            Guide · step {step.n} of {step.total ?? TOTAL}
           </p>
           <p className="mt-0.5 font-semibold text-foreground">{step.title}</p>
         </div>
@@ -376,9 +474,9 @@ export function GuidePanel() {
           <X className="size-4" aria-hidden />
         </button>
       </div>
-      <p className="mt-2 text-sm leading-relaxed text-foreground-secondary">{step.body}</p>
+      <p className="tutorial-text mt-2 text-foreground">{step.body}</p>
       <div aria-hidden className="mt-3 flex gap-1">
-        {Array.from({ length: TOTAL }, (_, i) => (
+        {Array.from({ length: step.total ?? TOTAL }, (_, i) => (
           <span key={i} className={`h-1 flex-1 rounded-full ${i < step.n ? "bg-brand" : "bg-border"}`} />
         ))}
       </div>

@@ -25,9 +25,9 @@
   --sunken: #f3ebdf;
   --sidebar: #f8f3ea;
 
-  --foreground: #2b1d14;
+  --foreground: #16100b;
   --foreground-secondary: #4a3527;
-  --muted-foreground: #7a5f4a;
+  --muted-foreground: #66503f;
   --placeholder: #7f6954; /* 4.7-5.1:1 on the cream surfaces (was #a08a73, 2.8-3.3:1) */
 
   --primary: #3b2618;
@@ -37,8 +37,8 @@
   --brand-highlight: #c49a74;
   --caramel: #a0673f;
 
-  --border: #e6d9c5;
-  --border-strong: #d4c0a3;
+  --border: #ddcdb4;
+  --border-strong: #c4ad90;
   --input: #9e8770;
   --ring: #8b5e3c;
   --ring-glow: rgba(139, 94, 60, 0.16);
@@ -203,7 +203,7 @@ body {
     font-size: 0.8125rem;
     font-weight: 600;
     letter-spacing: 0.01em;
-    color: var(--brand);
+    color: var(--role-accent, var(--brand));
   }
   .page-title {
     overflow-wrap: anywhere; /* a pasted URL or a long word never runs off a phone screen */
@@ -271,15 +271,6 @@ body {
   /* Marker-pen highlight on flagged phrases. */
   .marker {
     background-image: linear-gradient(to bottom, transparent 52%, var(--highlight) 52%, var(--highlight) 92%, transparent 92%);
-    border-radius: 2px;
-    padding: 0 1px;
-    box-decoration-break: clone;
-    -webkit-box-decoration-break: clone;
-  }
-
-  /* Two or more findings on the same words: deeper ink. */
-  .marker-strong {
-    background-image: linear-gradient(to bottom, transparent 40%, var(--highlight-active) 40%, var(--highlight-active) 94%, transparent 94%);
     border-radius: 2px;
     padding: 0 1px;
     box-decoration-break: clone;
@@ -359,8 +350,7 @@ body {
     display: inline-block;
     transition: transform 200ms var(--ease-out);
   }
-  .btn:not(:disabled):hover .btn-arrow,
-  .link-arrow:hover .btn-arrow {
+  .btn:not(:disabled):hover .btn-arrow {
     transform: translateX(3px);
   }
 
@@ -417,7 +407,7 @@ body {
     color: var(--foreground);
   }
   .capsule-link[aria-current="page"] {
-    background: var(--primary);
+    background: var(--role-accent, var(--primary));
     color: var(--primary-foreground);
   }
 }
@@ -430,8 +420,8 @@ body {
    Content is never hidden: only a short lift is animated, so a block that is
    printed, captured mid-scroll or never observed is still fully readable. */
 .reveal {
-  transform: translateY(16px);
-  transition: transform 700ms var(--ease-out);
+  transform: translateY(10px);
+  transition: transform 320ms var(--ease-out);
   transition-delay: var(--reveal-delay, 0ms);
 }
 .reveal.is-visible {
@@ -655,7 +645,7 @@ body {
 
 /* ---- route change: content settles in ---- */
 .page-enter {
-  animation: rise 700ms var(--ease-out) both;
+  animation: rise 260ms var(--ease-out) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -987,8 +977,143 @@ select.field:hover:not(:focus) {
 @keyframes gc-blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(0.1); } }
 @keyframes gc-point { 0%, 70%, 100% { transform: rotate(0); } 78% { transform: rotate(-9deg); } 86% { transform: rotate(4deg); } }
 @keyframes gc-wave { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(-22deg); } }
-.guide-caret { display: inline-block; width: 2px; height: 1em; margin-left: 2px; vertical-align: -2px; background: var(--brand); animation: gc-caret 0.9s steps(1) infinite; }
-@keyframes gc-caret { 50% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) {
-  .guide-char .gc-body, .guide-char .gc-eyes, .guide-char .gc-arm, .guide-char .gc-shadow, .guide-caret { animation: none !important; }
+  .guide-char .gc-body, .guide-char .gc-eyes, .guide-char .gc-arm, .guide-char .gc-shadow { animation: none !important; }
 }
+
+/* ---- tour: the guide's words settle in smoothly ---- */
+.guide-word { display: inline; opacity: 0; filter: blur(3px); animation: guide-word-in 420ms var(--ease-out) forwards; }
+.guide-words.is-instant .guide-word { animation: none; opacity: 1; filter: none; }
+@keyframes guide-word-in { from { opacity: 0; filter: blur(3px); } to { opacity: 1; filter: blur(0); } }
+@media (prefers-reduced-motion: reduce) { .guide-word { animation: none; opacity: 1; filter: none; } }
+
+/* ---- "carbon block" (design doc §5.4): a dark section that breaks up the beige ---- */
+.carbon-block {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, #4a3527 0%, #5c4331 100%);
+  color: #f7f1e6;
+  border: 1px solid #6b5140;
+}
+.carbon-block::before {
+  content: "";
+  position: absolute;
+  inset: -40% -10% auto auto;
+  width: 60%;
+  height: 120%;
+  background: radial-gradient(circle, rgba(166, 123, 91, 0.22) 0%, transparent 70%);
+  pointer-events: none;
+}
+.carbon-block > * { position: relative; }
+
+/* ---- review queue: counts in the filter tabs ---- */
+.queue-tab {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.25rem 0.1rem 0.65rem;
+  margin-bottom: -1px;
+  border-bottom: 2px solid transparent;
+  color: var(--muted-foreground);
+  transition: color 150ms var(--ease-out), border-color 150ms var(--ease-out);
+}
+.queue-tab:hover { color: var(--foreground); }
+.queue-tab.is-active { color: var(--foreground); border-bottom-color: var(--role-accent, var(--primary)); }
+
+/* ---- My work: the draft journey as connected stages ---- */
+.pipeline { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; }
+@media (min-width: 640px) { .pipeline { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; } }
+.pipeline-stage {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.85rem 1.1rem 0.85rem 1.6rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--muted-foreground);
+}
+@media (min-width: 640px) {
+  .pipeline-stage { clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%, 14px 50%); margin-right: -6px; border: 0; }
+  .pipeline-stage:first-child { clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%); border-radius: 12px 0 0 12px; }
+  .pipeline-stage:last-child { clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 14px 50%); border-radius: 0 12px 12px 0; margin-right: 0; }
+  .pipeline-stage { background: var(--muted); }
+}
+@media (max-width: 639px) { .pipeline-stage { border-radius: 12px; } }
+.pipeline-stage.has-items { color: var(--foreground); }
+.pipeline-stage.has-items.tone-warning { background: var(--warning-bg); color: var(--warning-fg); }
+.pipeline-stage.has-items.tone-success { background: var(--success-bg); color: var(--success-fg); }
+.pipeline-stage.has-items.tone-neutral { background: var(--card); }
+
+/* ---- each role has its own accent, so the four workspaces never look alike ----
+   creator: roasted coffee · reviewer: forest moss · agency: warm ochre · admin: carbon (design doc §2) */
+html[data-role="creator"] { --role-accent: #6f4e37; --role-tint: #f3e9df; }
+html[data-role="reviewer"] { --role-accent: #2e5a44; --role-tint: #e6efe9; }
+html[data-role="agency"] { --role-accent: #8a4f0e; --role-tint: #fbefdf; }
+html[data-role="admin"] { --role-accent: #0f0e0c; --role-tint: #ebe6df; }
+/* a thin band in the role's colour along the top of every page */
+html[data-role] body::after {
+  content: "";
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: var(--role-accent);
+  z-index: 61;
+  pointer-events: none;
+}
+
+/* ---- tutorial text: Garamond, larger, full-strength ink ---- */
+.tutorial-text {
+  font-family: var(--font-garamond), "EB Garamond", Garamond, Georgia, serif;
+  font-size: 1.125rem;
+  line-height: 1.45;
+  letter-spacing: 0.005em;
+}
+
+/* ---- dropdown lists in the site's style (Chromium's customizable select; other browsers keep
+   their native list, so nothing breaks) ---- */
+@supports (appearance: base-select) {
+  select,
+  select.field,
+  select::picker(select) {
+    appearance: base-select;
+    -webkit-appearance: base-select;
+  }
+  select.field::picker-icon { display: none; } /* the field already draws its own chevron */
+  select { display: inline-flex; align-items: center; }
+  select.field { display: flex; }
+  select::picker-icon { color: var(--muted-foreground); font-size: 0.65em; margin-left: 0.35rem; transition: rotate 150ms var(--ease-out); }
+  select:open::picker-icon { rotate: 180deg; }
+  select::picker(select) {
+    margin-top: 6px;
+    padding: 6px;
+    border: 1px solid var(--border-strong);
+    border-radius: 12px;
+    background: var(--card);
+    color: var(--foreground);
+    box-shadow: 0 20px 30px -10px rgba(35, 27, 20, 0.18), 0 4px 10px -2px rgba(35, 27, 20, 0.06);
+  }
+  select option {
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    color: var(--foreground);
+  }
+  select option:hover,
+  select option:focus-visible {
+    background: var(--muted);
+    outline: none;
+  }
+  select option:checked {
+    background: var(--role-tint, var(--accent));
+    font-weight: 600;
+  }
+  select option::checkmark {
+    color: var(--role-accent, var(--brand));
+  }
+}
+
+/* ---- tour footer: Back · progress dots · Next, centred ---- */
+.tour-dot { width: 7px; height: 7px; border-radius: 9999px; background: var(--border-strong); transition: width 200ms var(--ease-out), background-color 200ms; }
+.tour-dot.is-current { width: 22px; background: var(--role-accent, var(--brand)); }
+.tour-dot.is-done { background: color-mix(in srgb, var(--role-accent, var(--brand)) 45%, transparent); }

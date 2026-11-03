@@ -44,7 +44,9 @@ On <https://canonry-sigma.vercel.app> (the first visit after idle can take ~50 s
    *Must fix*, citing CCPA Guidelines 2022, Section 12(a).
 8. **Publishing gate** (Improvement 2). Open <https://canonry-sigma.vercel.app/engine/cms>, write a post, **Send to
    Canonry**; approve it as Reviewer; the publisher page publishes it only after the signed webhook arrives.
-   As **Brand admin**, **API & webhooks** shows the keys, endpoints and every delivery.
+   As **Brand admin**, **API & webhooks** shows the keys, endpoints and every delivery; **API docs** opens the reference.
+9. **Agency partner.** Switch to *Agency partner*, submit a draft, and open **My work**: the **client scorecard**
+   shows how often your work is approved first time and which client rules your drafts trip most.
 
 ---
 
@@ -69,12 +71,26 @@ flowchart LR
 6. Approval signs a **Proof of Compliance**: SHA-256 of the approved text, approver role, knowledge version and time, signed with Ed25519. Approved content is then locked.
 7. Anyone can open `/verify/<id>` without signing in and paste the published text: **Verified** (exact approved text) or **Modified**.
 
-**First visit: an interactive walkthrough.** The welcome screen offers *Show me around (first time
-here)*, ticked on a browser's first visit and unticked afterwards. When it is on, a small guide floats
-beside the page, says the one next thing to do in plain words and puts a glowing ring on the exact
-button: pick the sample → *Check draft* → *Accept all suggested fixes* → *Send for review* → switch to
-*Reviewer* in the top-right menu → open the draft you sent → *Approve & sign* → *Verify*. It follows
-what the visitor actually does, can be closed at any time, and never appears for returning visitors.
+### Four roles, four workspaces
+
+Each role does a different job, sees different things, and has its own colour and its own main screen.
+
+| Role | Who it is in real life | Can do | Cannot do | Its own screen |
+|---|---|---|---|---|
+| **Creator** | in-house writer or marketer | write or upload drafts, fix issues, send for review, edit a draft that was sent back | approve; change the rulebook | **My work**: every draft as a stage pipeline (sent back → to finish → with a reviewer → approved), with the reviewer's words |
+| **Agency partner** | an outside agency writing for the brand | submit client work, fix, send; see **only its own** work | see other teams' drafts or confidential facts; edit rules; approve | **Client scorecard**: approved first time, sent back, issues per first check, and the client rules its drafts trip most |
+| **Reviewer** | brand or legal reviewer | approve and sign, send back with a comment, override one finding with a reason | manage keys, webhooks or packs | **Review queue**: risk-ranked rows; the tabs carry the counts, high risk is called out |
+| **Brand admin** | head of brand or marketing ops | everything a reviewer does; edit rules, facts and terms; Insights; API keys, webhooks, compliance packs | | **Workspace overview**: the control room, plus **API docs** |
+
+In production mode the role is fixed by the invitation; in the demo anyone can switch from the top-right menu.
+
+**Learning it: a quick tour and a walkthrough, for every role.** Ticking *Show me around* on the welcome
+screen starts both. The **quick tour** shows each window of the current role once, with a guide character
+who explains it in one plain sentence and a small drawing of the window; it opens once per role and never
+again unless asked. The **walkthrough** is a panel that says the one next thing to do and rings the button:
+creators and agencies go draft → fix → send → (as reviewer) approve → verify, the agency ending at its
+scorecard; admins go overview → rulebook → turning repeated claims into facts → the publishing gate.
+Both can be started any time from the profile menu (*Show me the tour*, *Start the walkthrough*).
 
 ### What it looks like
 
@@ -87,6 +103,10 @@ Screens from the live site, checked with real AI (3 Nov 2026):
 | ![Public verify page, signed out: the published text matches the approved fingerprint](docs/screenshots/3-verify.jpg) | ![My work: drafts grouped by where they stand, with the reviewer's words on a sent-back draft](docs/screenshots/4-my-work.jpg) |
 | **5 · Images: what the model sees, findings boxed on the picture** | **6 · India pack: the exact legal clause** |
 | ![A social banner: the vision model's reading, a retired logo flagged, findings drawn on the picture](docs/screenshots/5-image.jpg) | ![Guaranteed results in 30 days: Must fix, citing CCPA Guidelines 2022, Section 12(a)](docs/screenshots/6-india-pack.jpg) |
+
+**7 · Only an agency has this: the client scorecard**
+
+![Client scorecard: approved first time, drafts sent and sent back, issues per first check, and the client rules to brief the team on](docs/screenshots/7-agency-scorecard.jpg)
 
 Fixing the seven findings turned *"Meet Quillmark Insights 2.0 — India's #1 analytics
 platform, trusted by 5,000+ teams and fully ISO 27001 certified. Plans start at just
@@ -176,7 +196,8 @@ independently labelled evaluation set and the usability study were not done; bot
 
 **Also added in Round 3, beyond the three:** understand-first checks (D63–D69), image understanding
 with a vision model (D70), a knowledge base that grows from use (D74), the writer's **My work** with
-text editing (D76), and the fixes for slow free AI models (D79).
+text editing (D76), the fixes for slow free AI models (D79), a quick tour and walkthrough for every role
+(D82), a distinct look and main screen per role (D83), and the agency's client scorecard (D84).
 
 ## 3. Architecture
 
@@ -228,7 +249,7 @@ Main technical decisions (full list with reasons in the [decision log](docs/deci
 ## 4. Tests and reliability
 
 ```bash
-.venv/Scripts/python engine/tests/run_tests.py     # 32 suites (fresh DB each) + evaluation gate
+.venv/Scripts/python engine/tests/run_tests.py     # 33 suites (fresh DB each) + evaluation gate
 ```
 
 | Suite (`engine/tests/`) | Proves |
@@ -263,6 +284,7 @@ Main technical decisions (full list with reasons in the [decision log](docs/deci
 | `test_creator_work` | a writer sees who sent a draft back and why, edits its text into a new checked revision, cannot edit while it is in review or after approval, and sees the approval |
 | `test_api_gate` | the publishing gate end to end through the API: a post is held until a signed approval, a hash mismatch is never published, a failed delivery stays queued for retry |
 | `test_media` | the audio and video header checks (WAV, MP3, MP4, MOV, WebM; renamed and cut-off files refused); the upload path is skipped until media is wired in (D80) |
+| `test_agency_scorecard` | the agency's client scorecard: first-time right, sent back, issues on the first check and the client rules tripped most; agency partners only, and only their own work |
 | `test_slow_ai_lock` | a check waiting on a slow AI model never locks other visitors out (sign-ins and drafts during the first and later AI calls answer at once) |
 | evaluation gate | precision / recall per checker and tier on the frozen split; fails on regression |
 
@@ -361,6 +383,7 @@ What a judge may run into on the live demo:
 - **AI findings are judgement calls** (tiers *Likely* and *Consider*) and can be wrong; a person decides and can dispute or override them.
 - **Self-approval in the demo**: one guest can switch from Creator to Reviewer and approve their own draft. It is labelled *self-approved*; production mode blocks it.
 - **One draft at a time per item**: if the same draft is open in two tabs, the tab that acts second is told the draft changed and shows the latest version; nothing is merged. Drafts pasted as text are limited to 100,000 characters.
+- **Dropdown lists** use the site's theme in Chrome and Edge (customizable `<select>`); other browsers show their standard list.
 - **English only**: checks, and the reading of words in images, are English.
 - **Files**: PDF, Word (.docx), PNG and JPEG, up to 4 MB through the web app (Vercel's proxy limit; 10 MB through the API). Scanned PDFs without a text layer are refused rather than guessed at. Canonry edits Word files in place, but not PDFs or the pixels of an image: those are fixed in their source and uploaded as a new version. A Word edit that adds a paragraph, or text inside a Word text box, must also be made in Word.
 - **Image understanding is a model's judgement**: what Canonry "sees" in a picture comes from one AI call, so it can be wrong; its findings are never above *Should fix*. It needs a provider that reads images (Gemini on the live demo; Groq and OpenRouter only with a vision model set), uses the same daily allowance and Gemini's free quota, and is skipped (with the reason shown) when that runs out.
@@ -390,7 +413,7 @@ What comes next, in order, and what each fixes. Nothing below is claimed as buil
 
 | Member | Role | Contribution |
 |---|---|---|
-| **Vansh Vaid** (team leader) | Product, web app, workflow, reliability, documentation | Round 1 plan and PDF; product direction for every round; web screens and the review workflow; Round 2 hardening, versioned knowledge base and identity (`9a90cee`); Round 3: Word, OCR and logo checks on the shared file pipeline, image understanding, understand-first checks, the India pack's test on 45 real ASCI cases, the knowledge base that grows from Insights, memory limits for large images, the writer's **My work** and text editing, the banned-term fix, the fixes for slow free AI models, the browser test scripts, the deployments, the documentation and the final PDF |
+| **Vansh Vaid** (team leader) | Product, web app, workflow, reliability, documentation | Round 1 plan and PDF; product direction for every round; web screens and the review workflow; Round 2 hardening, versioned knowledge base and identity (`9a90cee`); Round 3: Word, OCR and logo checks on the shared file pipeline, image understanding, understand-first checks, the India pack's test on 45 real ASCI cases, the knowledge base that grows from Insights, memory limits for large images, the writer's **My work** and text editing, the banned-term fix, the fixes for slow free AI models, the per-role tours, walkthroughs and designs, the agency client scorecard, the browser test scripts, the deployments, the documentation and the final PDF |
 | **Dhruv Puri** | Analysis engine, retrieval, AI gateway, evaluation | Initial engine and project setup (`699e7d7`); Gemini model fallbacks, the AI time limit and the admin, agency and review pages (`95bc5c8`); the Round 3 base for all three improvements (`6bf69fc`): document and image upload, file stamping, the REST API and webhooks, the demo publisher (`cms/`), the India compliance pack with clause retrieval and embeddings, and the admin API page; the role-specific tour and document viewer (`2dccbac`, `804cc74`); the audio/video module and the API-gate test (`f8cd7f8`) |
 | Shared | | testing, code review, security fixes, live checks |
 
@@ -420,7 +443,7 @@ assistance disclosed above. Demo brand data is fictional.
 | Live demonstration | the live link: every role, no sign-up (*Demo accounts* above); [docs/tutorial.md](docs/tutorial.md) |
 | Report: problem, users, solution, workflow, technology, impact | [Final PDF](docs/Canonry_Round3_Final_vaidvansh6.pdf); §1, §3, §9 |
 | The three promised improvements | [§2](#2-the-three-round-3-improvements) (each: promised → delivered, bugs found) |
-| Testing, reliability improvements, changes during development | [§4](#4-tests-and-reliability); [docs/progress.md](docs/progress.md) (bugs found and fixed); [docs/decision-log.md](docs/decision-log.md) (D1–D81, dated, with reasons); [docs/plan-vs-build.md](docs/plan-vs-build.md) |
+| Testing, reliability improvements, changes during development | [§4](#4-tests-and-reliability); [docs/progress.md](docs/progress.md) (bugs found and fixed); [docs/decision-log.md](docs/decision-log.md) (D1–D84, dated, with reasons); [docs/plan-vs-build.md](docs/plan-vs-build.md) |
 | Privacy, security, accessibility, responsible design | Final PDF; [docs/design.md](docs/design.md); [docs/disclosure-log.md](docs/disclosure-log.md) |
 | Known limitations and roadmap | [§6](#6-known-limitations), [§7](#7-roadmap) |
 | Participants and contributions | [§8](#8-team-and-contributions) |
@@ -430,7 +453,7 @@ assistance disclosed above. Demo brand data is fictional.
 |---|---|
 | Completeness of the product (25) | the whole journey for four roles: write or upload → understood → checked → fixed → reviewed → sent back or approved → signed → verified, plus the publishing gate and the knowledge base (§1, §12) |
 | The three improvements delivered (20) | §2: documents and images, the publishing gate, the India pack, each with suites and live checks |
-| Reliability under normal use (20) | 32 suites + evaluation gate in CI; a 185-check browser run of hostile input, double clicks, two tabs, refresh, expired sessions and phone layouts; fixes for slow free AI models (§4) |
+| Reliability under normal use (20) | 33 suites + evaluation gate in CI; a 185-check browser run of hostile input, double clicks, two tabs, refresh, expired sessions and phone layouts; fixes for slow free AI models (§4) |
 | Usability and real-world fit (20) | understand-first checks, one card per issue, plain explanations, one-click fixes, a first-visit walkthrough, **My work** for writers, production mode for real teams (§1, §6) |
 | Documentation and roadmap (15) | this README, the final PDF, the decision and disclosure logs, §7 |
 
@@ -465,7 +488,7 @@ explained in [docs/plan-vs-build.md](docs/plan-vs-build.md):
 ├── data/                    ← demo brand book: rules, facts, terms (CSV)
 ├── engine/                  ← FastAPI analysis engine (all product logic)
 │   ├── *.py                 ← modules listed in §3
-│   ├── tests/               ← 32 suites + run_tests.py
+│   ├── tests/               ← 33 suites + run_tests.py
 │   ├── evaluation/          ← evaluate.py, labelled set, committed baseline
 │   ├── Dockerfile
 │   └── requirements.txt
@@ -488,7 +511,7 @@ explained in [docs/plan-vs-build.md](docs/plan-vs-build.md):
 | [approach](docs/approach.md) | how we built it, and the problems we hit |
 | [changelog](docs/changelog.md) | progress against the plan, milestone by milestone |
 | [progress](docs/progress.md) | status, bugs found and fixed, honest gaps |
-| [decision-log](docs/decision-log.md) | every decision D1–D81, dated, with reasons |
+| [decision-log](docs/decision-log.md) | every decision D1–D84, dated, with reasons |
 | [disclosure-log](docs/disclosure-log.md) | AI tools, models, libraries and services used |
 | [usability-test-kit](docs/usability-test-kit.md) | how we run and record user tests |
 | [dev-notes/](docs/dev-notes/) | working specs and plans written during the build |
