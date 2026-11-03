@@ -371,8 +371,29 @@ export function ProductTour({
         aria-modal="true"
         aria-labelledby="tour-title"
         tabIndex={-1}
+        className="relative z-10 my-auto w-full max-w-2xl outline-none"
+      >
+      {/* carousel arrows on the card's sides (inside the edges on a phone) */}
+      <button
+        type="button"
+        aria-label="Back"
+        onClick={() => setStep((current) => Math.max(0, current - 1))}
+        disabled={step === 0}
+        className="tour-arrow left-2 md:-left-16"
+      >
+        <ArrowLeft className="size-5" aria-hidden />
+      </button>
+      <button
+        type="button"
+        aria-label={last ? "Try a sample" : "Next"}
+        onClick={last ? onFinish : () => setStep((current) => Math.min(STEPS.length - 1, current + 1))}
+        className="tour-arrow tour-arrow-next right-2 md:-right-16"
+      >
+        <ArrowRight className="size-5" aria-hidden />
+      </button>
+      <div
         style={{ height: "min(84dvh, 37rem)" }}
-        className="surface relative z-10 my-auto flex w-full max-w-2xl flex-col overflow-hidden border-border-strong shadow-float outline-none"
+        className="surface flex flex-col overflow-hidden border-border-strong shadow-float"
       >
         <div className="flex shrink-0 items-center gap-2.5 border-b border-border bg-muted/60 px-5 py-3">
           <BrandMark className="size-7" />
@@ -470,34 +491,18 @@ export function ProductTour({
           )}
         </div>
 
-        <div className="flex shrink-0 items-center gap-3 border-t border-border bg-card px-5 py-3">
-          <p className="text-xs tabular-nums text-muted-foreground">
-            Step {step + 1} of {STEPS.length}
-          </p>
-          <div className="ml-auto flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setStep((current) => Math.max(0, current - 1))}
-              disabled={step === 0}
-              className="btn btn-secondary btn-sm"
-            >
-              <ArrowLeft className="size-3.5" aria-hidden /> Back
+        <div className="flex shrink-0 items-center justify-center gap-3 border-t border-border bg-card px-5 py-3">
+          {last ? (
+            <button type="button" onClick={onFinish} className="btn btn-primary btn-sm">
+              Try a sample <ArrowRight className="size-3.5" aria-hidden />
             </button>
-            {last ? (
-              <button type="button" onClick={onFinish} className="btn btn-primary btn-sm">
-                Try a sample <ArrowRight className="size-3.5" aria-hidden />
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setStep((current) => Math.min(STEPS.length - 1, current + 1))}
-                className="btn btn-primary btn-sm"
-              >
-                Next <ArrowRight className="size-3.5" aria-hidden />
-              </button>
-            )}
-          </div>
+          ) : (
+            <p className="text-xs tabular-nums text-muted-foreground">
+              Step {step + 1} of {STEPS.length} · use the arrows or ← →
+            </p>
+          )}
         </div>
+      </div>
       </div>
     </div>,
     document.body,

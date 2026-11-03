@@ -77,8 +77,7 @@ export default function ReviewQueuePage() {
           <p className="eyebrow">Review workspace</p>
           <h1 className="page-title mt-1.5">Review queue</h1>
           <p className="page-lede max-w-2xl">
-            Submissions waiting on a person. Open one to read each issue and the rule behind it, then approve and sign,
-            or send it back with changes.
+            Open a draft, read what Canonry flagged, then approve or send it back.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -97,14 +96,8 @@ export default function ReviewQueuePage() {
         </p>
       )}
 
-      <div className="surface grid grid-cols-2 divide-x divide-y divide-border overflow-hidden sm:grid-cols-4 sm:divide-y-0">
-        <Stat label="Waiting on you" value={counts.queue} />
-        <Stat label="High risk" value={counts.high} tone={counts.high > 0 ? "danger" : "normal"} />
-        <Stat label="Changes requested" value={counts.changes} />
-        <Stat label="Signed" value={counts.signed} />
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filter the review queue">
+      {/* the counts live in the filter itself: one control, no repeated number tiles */}
+      <div className="flex flex-wrap items-end gap-x-6 gap-y-2 border-b border-border" role="group" aria-label="Filter the review queue">
         {FILTERS.map((f) => {
           const active = filter === f.id;
           const count = f.id === "all" ? subs?.length ?? 0 : counts[f.id];
@@ -114,12 +107,19 @@ export default function ReviewQueuePage() {
               type="button"
               onClick={() => setFilter(f.id)}
               aria-pressed={active}
-              className={`btn btn-sm ${active ? "btn-primary" : "btn-secondary"}`}
+              className={`queue-tab ${active ? "is-active" : ""}`}
             >
-              {f.label} <span className="tabular-nums opacity-70">{count}</span>
+              <span className="text-2xl font-bold tabular-nums">{count}</span>
+              <span className="text-sm font-medium">{f.label}</span>
             </button>
           );
         })}
+        {counts.high > 0 && (
+          <p className="mb-2 ml-auto inline-flex items-center gap-1.5 rounded-full bg-danger-bg px-3 py-1 text-sm font-semibold text-danger-fg">
+            <span className="size-2 rounded-full bg-danger-fg" aria-hidden />
+            {counts.high} high risk: a senior look first
+          </p>
+        )}
       </div>
 
       {!subs && !error && <p className="text-sm text-muted-foreground">Loading the queue…</p>}
@@ -171,17 +171,6 @@ export default function ReviewQueuePage() {
           </ul>
         </div>
       )}
-    </div>
-  );
-}
-
-function Stat({ label, value, tone = "normal" }: { label: string; value: number; tone?: "normal" | "danger" }) {
-  return (
-    <div className="p-5">
-      <p className={`text-3xl font-bold tabular-nums ${tone === "danger" && value > 0 ? "text-danger-fg" : "text-foreground"}`}>
-        {value}
-      </p>
-      <p className="mt-1 text-xs font-medium text-muted-foreground">{label}</p>
     </div>
   );
 }

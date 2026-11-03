@@ -6,13 +6,11 @@ import { useCallback, useEffect, useState } from "react";
 import {
   ArrowRight,
   BadgeCheck,
-  BookMarked,
   CalendarClock,
   Check,
   FileWarning,
   Gavel,
   Hash,
-  Library,
   Megaphone,
   MessageSquareWarning,
   PenLine,
@@ -28,7 +26,7 @@ import { EmptyIllustration } from "@/components/brand";
 import { AiLoadingScreen } from "@/components/ai-loading";
 import { ProductTour } from "@/components/tour";
 import { HeroDemo } from "@/components/hero-demo";
-import { CountUp, Reveal } from "@/components/motion";
+import { Reveal } from "@/components/motion";
 import { Tilt } from "@/components/effects";
 import { useIdentity } from "@/components/identity";
 import { roleHome } from "@/lib/roles";
@@ -94,6 +92,18 @@ function flowIndex(status: string): number {
 const CHANNELS = ["social", "web", "blog", "email", "sales"];
 const HEADLINE = ["Every", "word,"];
 const HEADLINE_INK = ["on", "brand."];
+
+/** One habit that avoids each common issue, so the chart teaches rather than just counts. */
+const HABIT: Record<string, string> = {
+  unsupported_claim: "Back every number or ranking with an approved fact.",
+  contradicted_claim: "Copy figures from the fact library, never from memory.",
+  outdated_claim: "Check the fact's expiry date before you use it.",
+  outdated_term: "Use the current product name: Quillmark Pulse.",
+  banned_term: "Swap banned words for the approved term.",
+  tone: "Confident, not pushy: drop \"just\", \"!!\" and hard sell.",
+  cta: "End a promotional post with one clear next step.",
+  readability: "Keep sentences under about 22 words.",
+};
 
 export default function HomePage() {
   const router = useRouter();
@@ -162,8 +172,6 @@ export default function HomePage() {
   }
 
   const firstName = me ? me.name.split(" ")[0] : null;
-  const awaiting = subs?.filter((s) => s.status === "In review").length ?? 0;
-  const signed = subs?.filter((s) => flowIndex(s.status) === 3).length ?? 0;
   const catMax = Math.max(1, ...cats.map((c) => c.c));
 
   return (
@@ -340,63 +348,40 @@ export default function HomePage() {
         </div>
       </Reveal>
 
-      {/* ---------------- bento: chart + numbers ---------------- */}
+      {/* ---------------- what writers get caught on (a creator's view; the workspace numbers are the admin's) ---------------- */}
       {ws && (
-        <section className="space-y-6">
+        <section className="space-y-5">
           <Reveal>
-            <p className="eyebrow">At a glance</p>
-            <h2 className="mt-1 text-3xl font-bold tracking-tight sm:text-4xl">The workspace, in numbers.</h2>
+            <p className="eyebrow">Before you write</p>
+            <h2 className="mt-1 text-3xl font-bold tracking-tight sm:text-4xl">What gets caught most here.</h2>
           </Reveal>
-          <div className="grid gap-4 lg:grid-cols-4">
-            <Reveal className="lg:col-span-2 lg:row-span-2">
-              <div className="surface h-full p-7">
-                <div className="flex items-center justify-between">
-                  <p className="font-semibold text-foreground">What gets caught most</p>
-                  <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs text-muted-foreground">All checks</span>
-                </div>
-                {cats.length === 0 ? (
-                  <p className="mt-10 text-sm text-muted-foreground">Run a check to see this fill in.</p>
-                ) : (
-                  <ul className="mt-7 space-y-5">
-                    {cats.map((c, i) => (
-                      <li key={c.category}>
-                        <div className="flex items-baseline justify-between text-sm">
-                          <span className="font-medium text-foreground">
-                            {CATEGORY_LABEL[c.category] ?? c.category.replace(/_/g, " ")}
-                          </span>
-                          <span className="tabular-nums text-muted-foreground">{c.c}</span>
-                        </div>
-                        <div className="mt-2 h-3 overflow-hidden rounded-full bg-muted">
-                          <div
-                            className="bar h-full rounded-full bg-gradient-to-r from-brand-highlight to-brand"
-                            style={{ width: `${(c.c / catMax) * 100}%`, "--i": i } as React.CSSProperties}
-                          />
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </Reveal>
-            {[
-              { icon: BookMarked, value: ws.rules, label: "Approved rules" },
-              { icon: Library, value: ws.facts, label: "Facts on file" },
-              { icon: Gavel, value: awaiting, label: "Awaiting review" },
-              { icon: Stamp, value: signed, label: "Signed & sealed" },
-            ].map(({ icon: Icon, value, label }, i) => (
-              <Reveal key={label} delay={i * 90}>
-                <div className="surface h-full p-6">
-                  <span className="grid size-11 place-items-center rounded-2xl bg-gradient-to-br from-highlight to-brand-highlight/50 text-primary">
-                    <Icon className="size-5" strokeWidth={2} />
-                  </span>
-                  <p className="mt-5 text-5xl font-bold tracking-tight text-foreground">
-                    <CountUp value={value} />
-                  </p>
-                  <p className="mt-1 font-semibold text-foreground">{label}</p>
-                </div>
-              </Reveal>
-            ))}
-          </div>
+          <Reveal>
+            <div className="surface p-6 sm:p-7">
+              {cats.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Run a check to see this fill in.</p>
+              ) : (
+                <ul className="grid gap-x-10 gap-y-5 md:grid-cols-2">
+                  {cats.map((c, i) => (
+                    <li key={c.category}>
+                      <div className="flex items-baseline justify-between gap-3 text-sm">
+                        <span className="font-semibold text-foreground">
+                          {CATEGORY_LABEL[c.category] ?? c.category.replace(/_/g, " ")}
+                        </span>
+                        <span className="tabular-nums text-muted-foreground">{c.c}</span>
+                      </div>
+                      <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-muted">
+                        <div
+                          className="bar h-full rounded-full bg-gradient-to-r from-brand-highlight to-brand"
+                          style={{ width: `${(c.c / catMax) * 100}%`, "--i": i } as React.CSSProperties}
+                        />
+                      </div>
+                      {HABIT[c.category] && <p className="mt-1.5 text-xs text-foreground-secondary">{HABIT[c.category]}</p>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </Reveal>
         </section>
       )}
 

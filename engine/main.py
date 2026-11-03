@@ -1312,6 +1312,62 @@ def list_submissions(req: Request):
         conn.close()
 
 
+@app.get("/agency/scorecard")
+def agency_scorecard(req: Request):
+    """How an agency's work fares against the client's rules: what clients judge agencies on.
+    First-time right (approved without being sent back), issues on the first check, and the
+    client rules the agency's drafts trip most. Agency partners only, and only their own work."""
+    conn = connect()
+    try:
+        user = _user(req, conn)
+        if user["role"] != "agency":
+            raise HTTPException(403, "The scorecard is for agency partners.")
+        where, params = access.submission_scope(user, "s")
+        subs = conn.execute(f"SELECT s.id, s.status, s.workspace_id FROM submissions s WHERE {where}", params).fetchall()
+        approved = first_time = sent_back = 0
+        first_issue_counts: List[int] = []
+        rule_hits: Dict[str, int] = {}
+        category_hits: Dict[str, int] = {}
+        for s in subs:
+            backs = conn.execute(
+                "SELECT COUNT(*) FROM approvals WHERE submission_id=? AND action='request_changes'", (s["id"],)
+            ).fetchone()[0]
+            sent_back += 1 if backs else 0
+            if s["status"] in ("Signed", "Approved", "Exempt-approved"):
+                approved += 1
+                first_time += 0 if backs else 1
+            first = conn.execute(
+                "SELECT id FROM revisions WHERE submission_id=? ORDER BY revision_no LIMIT 1", (s["id"],)
+            ).fetchone()
+            if not first:
+                continue
+            rows = conn.execute("SELECT category, citations_json FROM findings WHERE revision_id=?", (first["id"],)).fetchall()
+            first_issue_counts.append(len(rows))
+            for f in rows:
+                category_hits[f["category"]] = category_hits.get(f["category"], 0) + 1
+                for c in json.loads(f["citations_json"] or "[]"):
+                    if isinstance(c, dict) and c.get("type") == "rule" and c.get("id"):
+                        rule_hits[c["id"]] = rule_hits.get(c["id"], 0) + 1
+        top_rules = []
+        for rid, n in sorted(rule_hits.items(), key=lambda kv: -kv[1])[:3]:
+            r = conn.execute(
+                "SELECT statement FROM rules WHERE id=? AND workspace_id=? ORDER BY version DESC LIMIT 1",
+                (rid, subs[0]["workspace_id"] if subs else ""),
+            ).fetchone()
+            top_rules.append({"id": rid, "statement": r["statement"] if r else rid, "count": n})
+        return {
+            "submissions": len(subs),
+            "approved": approved,
+            "first_time_right": first_time,
+            "sent_back": sent_back,
+            "avg_first_check_issues": round(sum(first_issue_counts) / len(first_issue_counts), 1) if first_issue_counts else None,
+            "top_rules": top_rules,
+            "top_categories": [{"category": k, "count": v} for k, v in sorted(category_hits.items(), key=lambda kv: -kv[1])[:3]],
+        }
+    finally:
+        conn.close()
+
+
 @app.get("/submissions/{sid}")
 def get_submission(req: Request, sid: str):
     conn = connect()

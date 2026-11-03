@@ -142,6 +142,15 @@ export default function NewSubmissionPage() {
     }
   }
 
+  // Next keeps this page's state while you are on another one (cacheComponents). A check that
+  // succeeded navigates away with "busy" still on, so coming back here must start fresh; effects
+  // re-run each time the page is shown again. Before, pressing Write after a check showed the
+  // "Checking your submission" screen forever.
+  useEffect(() => {
+    setBusy(false);
+    setUploading(false);
+  }, []);
+
   async function submit() {
     setBusy(true);
     setError(null);
@@ -182,8 +191,7 @@ export default function NewSubmissionPage() {
         <p className="eyebrow">{isAgency ? "Agency submission" : "New check"}</p>
         <h1 className="page-title mt-1.5">{isAgency ? "Submit client work" : "Check your content"}</h1>
         <p className="page-lede">
-          Write it here or upload a file. Canonry checks it against Quillmark&apos;s brand rules and approved facts as
-          soon as you submit, and tells you what to fix.
+          Write or upload it; Canonry tells you what to fix.
           {isAgency ? " It then goes to the client’s review queue under your agency source." : ""}
         </p>
       </div>

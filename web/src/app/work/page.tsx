@@ -45,8 +45,7 @@ export default function MyWorkPage() {
           <p className="eyebrow">Your drafts</p>
           <h1 className="page-title mt-1.5">My work</h1>
           <p className="page-lede max-w-2xl">
-            Everything you wrote, and where it stands: what a reviewer sent back and why, what is still with them, and
-            what was approved.
+            Everything you wrote, and where it stands.
           </p>
         </div>
         <Link href="/new" className="btn btn-primary btn-lg shadow-card">
@@ -60,12 +59,13 @@ export default function MyWorkPage() {
         </p>
       )}
 
-      <div className="surface grid grid-cols-2 divide-x divide-y divide-border overflow-hidden sm:grid-cols-4 sm:divide-y-0">
-        <Stat label="Sent back to you" value={sentBack.length} tone="warning" />
-        <Stat label="To finish and send" value={toFinish.length} tone="warning" />
-        <Stat label="With a reviewer" value={withReviewer.length} />
-        <Stat label="Approved" value={approved.length} tone="success" />
-      </div>
+      {/* where each draft is in its journey, left to right */}
+      <ol className="pipeline" aria-label="Where your drafts are">
+        <Stage n={sentBack.length} label="Sent back to you" tone="warning" />
+        <Stage n={toFinish.length} label="To finish and send" tone="warning" />
+        <Stage n={withReviewer.length} label="With a reviewer" tone="neutral" />
+        <Stage n={approved.length} label="Approved" tone="success" />
+      </ol>
 
       {subs === null && !error && <p className="text-sm text-muted-foreground">Loading your work…</p>}
 
@@ -115,13 +115,11 @@ function Group({ title, lede, items }: { title: string; lede: string; items: Sub
   );
 }
 
-function Stat({ label, value, tone = "normal" }: { label: string; value: number; tone?: "normal" | "warning" | "success" }) {
-  const color =
-    tone === "warning" && value > 0 ? "text-warning-fg" : tone === "success" && value > 0 ? "text-success-fg" : "text-foreground";
+function Stage({ n, label, tone }: { n: number; label: string; tone: "warning" | "neutral" | "success" }) {
   return (
-    <div className="p-5">
-      <p className={`text-3xl font-bold tabular-nums ${color}`}>{value}</p>
-      <p className="mt-1 text-xs font-medium text-muted-foreground">{label}</p>
-    </div>
+    <li className={`pipeline-stage tone-${tone} ${n > 0 ? "has-items" : ""}`}>
+      <span className="text-2xl font-bold tabular-nums">{n}</span>
+      <span className="text-xs font-semibold">{label}</span>
+    </li>
   );
 }

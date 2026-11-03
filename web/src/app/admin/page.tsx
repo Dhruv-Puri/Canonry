@@ -104,7 +104,7 @@ export default function AdminOverviewPage() {
           <p className="eyebrow">Brand admin</p>
           <h1 className="page-title mt-1.5">Workspace overview</h1>
           <p className="page-lede max-w-2xl">
-            The brand’s rules, its review load, and the health of the rules and facts behind every check.
+            Review load and rulebook health, at a glance.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">

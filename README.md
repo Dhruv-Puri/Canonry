@@ -228,7 +228,7 @@ Main technical decisions (full list with reasons in the [decision log](docs/deci
 ## 4. Tests and reliability
 
 ```bash
-.venv/Scripts/python engine/tests/run_tests.py     # 32 suites (fresh DB each) + evaluation gate
+.venv/Scripts/python engine/tests/run_tests.py     # 33 suites (fresh DB each) + evaluation gate
 ```
 
 | Suite (`engine/tests/`) | Proves |
@@ -263,6 +263,7 @@ Main technical decisions (full list with reasons in the [decision log](docs/deci
 | `test_creator_work` | a writer sees who sent a draft back and why, edits its text into a new checked revision, cannot edit while it is in review or after approval, and sees the approval |
 | `test_api_gate` | the publishing gate end to end through the API: a post is held until a signed approval, a hash mismatch is never published, a failed delivery stays queued for retry |
 | `test_media` | the audio and video header checks (WAV, MP3, MP4, MOV, WebM; renamed and cut-off files refused); the upload path is skipped until media is wired in (D80) |
+| `test_agency_scorecard` | the agency's client scorecard: first-time right, sent back, issues on the first check and the client rules tripped most; agency partners only, and only their own work |
 | `test_slow_ai_lock` | a check waiting on a slow AI model never locks other visitors out (sign-ins and drafts during the first and later AI calls answer at once) |
 | evaluation gate | precision / recall per checker and tier on the frozen split; fails on regression |
 
@@ -420,7 +421,7 @@ assistance disclosed above. Demo brand data is fictional.
 | Live demonstration | the live link: every role, no sign-up (*Demo accounts* above); [docs/tutorial.md](docs/tutorial.md) |
 | Report: problem, users, solution, workflow, technology, impact | [Final PDF](docs/Canonry_Round3_Final_vaidvansh6.pdf); §1, §3, §9 |
 | The three promised improvements | [§2](#2-the-three-round-3-improvements) (each: promised → delivered, bugs found) |
-| Testing, reliability improvements, changes during development | [§4](#4-tests-and-reliability); [docs/progress.md](docs/progress.md) (bugs found and fixed); [docs/decision-log.md](docs/decision-log.md) (D1–D81, dated, with reasons); [docs/plan-vs-build.md](docs/plan-vs-build.md) |
+| Testing, reliability improvements, changes during development | [§4](#4-tests-and-reliability); [docs/progress.md](docs/progress.md) (bugs found and fixed); [docs/decision-log.md](docs/decision-log.md) (D1–D84, dated, with reasons); [docs/plan-vs-build.md](docs/plan-vs-build.md) |
 | Privacy, security, accessibility, responsible design | Final PDF; [docs/design.md](docs/design.md); [docs/disclosure-log.md](docs/disclosure-log.md) |
 | Known limitations and roadmap | [§6](#6-known-limitations), [§7](#7-roadmap) |
 | Participants and contributions | [§8](#8-team-and-contributions) |
@@ -430,7 +431,7 @@ assistance disclosed above. Demo brand data is fictional.
 |---|---|
 | Completeness of the product (25) | the whole journey for four roles: write or upload → understood → checked → fixed → reviewed → sent back or approved → signed → verified, plus the publishing gate and the knowledge base (§1, §12) |
 | The three improvements delivered (20) | §2: documents and images, the publishing gate, the India pack, each with suites and live checks |
-| Reliability under normal use (20) | 32 suites + evaluation gate in CI; a 185-check browser run of hostile input, double clicks, two tabs, refresh, expired sessions and phone layouts; fixes for slow free AI models (§4) |
+| Reliability under normal use (20) | 33 suites + evaluation gate in CI; a 185-check browser run of hostile input, double clicks, two tabs, refresh, expired sessions and phone layouts; fixes for slow free AI models (§4) |
 | Usability and real-world fit (20) | understand-first checks, one card per issue, plain explanations, one-click fixes, a first-visit walkthrough, **My work** for writers, production mode for real teams (§1, §6) |
 | Documentation and roadmap (15) | this README, the final PDF, the decision and disclosure logs, §7 |
 
@@ -465,7 +466,7 @@ explained in [docs/plan-vs-build.md](docs/plan-vs-build.md):
 ├── data/                    ← demo brand book: rules, facts, terms (CSV)
 ├── engine/                  ← FastAPI analysis engine (all product logic)
 │   ├── *.py                 ← modules listed in §3
-│   ├── tests/               ← 32 suites + run_tests.py
+│   ├── tests/               ← 33 suites + run_tests.py
 │   ├── evaluation/          ← evaluate.py, labelled set, committed baseline
 │   ├── Dockerfile
 │   └── requirements.txt
@@ -488,7 +489,7 @@ explained in [docs/plan-vs-build.md](docs/plan-vs-build.md):
 | [approach](docs/approach.md) | how we built it, and the problems we hit |
 | [changelog](docs/changelog.md) | progress against the plan, milestone by milestone |
 | [progress](docs/progress.md) | status, bugs found and fixed, honest gaps |
-| [decision-log](docs/decision-log.md) | every decision D1–D81, dated, with reasons |
+| [decision-log](docs/decision-log.md) | every decision D1–D84, dated, with reasons |
 | [disclosure-log](docs/disclosure-log.md) | AI tools, models, libraries and services used |
 | [usability-test-kit](docs/usability-test-kit.md) | how we run and record user tests |
 | [dev-notes/](docs/dev-notes/) | working specs and plans written during the build |

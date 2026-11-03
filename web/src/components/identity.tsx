@@ -134,8 +134,8 @@ export function IdentityGate({ children }: { children: React.ReactNode }) {
     try {
       await api("/logout", { method: "POST" });
     } finally {
-      // Logging out forgets the visit too, so the next person gets the welcome
-      // screen and a first-run tour instead of the last person's leftovers.
+      // Logging out forgets this visit's guide progress; the browser keeps having seen the intro
+      // and the tours, so switching profile this way does not replay them.
       forgetVisit();
       setMe(null);
       setState("out");

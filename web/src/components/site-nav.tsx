@@ -20,6 +20,12 @@ export function SiteNav() {
 
   useEffect(() => setOpen(false), [pathname]);
 
+  // the role's accent colour (globals.css: html[data-role]) follows whoever is signed in
+  useEffect(() => {
+    if (me?.role) document.documentElement.dataset.role = me.role;
+    else delete document.documentElement.dataset.role;
+  }, [me?.role]);
+
   // The product tour can open the phone menu, so it can point at a window there.
   useEffect(() => {
     const openMenu = () => setOpen(true);

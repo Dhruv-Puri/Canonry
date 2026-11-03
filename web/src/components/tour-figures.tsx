@@ -85,41 +85,25 @@ export function GuideCharacter({ className = "", waving = false }: { className?:
   );
 }
 
-/** The guide speaks his line word by word; click the bubble to show it all, click him for a tip. */
+/** The guide's line fades in word by word (smoothly); click the bubble to show it at once, click him for a tip. */
 export function GuideSays({ text }: { text: string }) {
-  const [shown, setShown] = useState(0);
+  const [instant, setInstant] = useState(false);
   const [waving, setWaving] = useState(false);
   const [tip, setTip] = useState<string | null>(null);
   const words = useMemo(() => text.split(" "), [text]);
 
   useEffect(() => {
     setTip(null);
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      setShown(words.length);
-      return;
-    }
-    setShown(0);
-    const t = window.setInterval(() => {
-      setShown((n) => {
-        if (n >= words.length) {
-          window.clearInterval(t);
-          return n;
-        }
-        return n + 1;
-      });
-    }, 55);
-    return () => window.clearInterval(t);
-  }, [words]);
+    setInstant(false);
+  }, [text]);
 
   function poke() {
     setWaving(true);
-    setShown(words.length);
+    setInstant(true);
     setTip((cur) => TIPS[(TIPS.indexOf(cur ?? "") + 1) % TIPS.length]);
     window.setTimeout(() => setWaving(false), 1200);
   }
 
-  const done = shown >= words.length;
-  const rest = words.slice(shown).join(" ");
   return (
     <div className="mt-4 flex items-end gap-3">
       <button
@@ -133,14 +117,16 @@ export function GuideSays({ text }: { text: string }) {
       </button>
       <div className="min-w-0 flex-1">
         <p
-          onClick={() => setShown(words.length)}
-          className="relative rounded-2xl rounded-bl-sm border border-border-strong bg-warning-bg/60 px-4 py-3 text-sm leading-relaxed text-foreground"
+          onClick={() => setInstant(true)}
+          className="tutorial-text relative rounded-2xl rounded-bl-sm border border-border-strong bg-card px-4 py-3 text-foreground shadow-sm"
         >
           <span className="sr-only">{text}</span>
-          <span aria-hidden>
-            {words.slice(0, shown).join(" ")}
-            {!done && <span className="guide-caret" />}
-            {rest && <span className="invisible"> {rest}</span>}
+          <span aria-hidden key={text} className={instant ? "guide-words is-instant" : "guide-words"}>
+            {words.map((w, i) => (
+              <span key={i} className="guide-word" style={{ animationDelay: `${i * 70}ms` }}>
+                {w}{" "}
+              </span>
+            ))}
           </span>
         </p>
         {tip && (

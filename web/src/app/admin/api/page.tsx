@@ -157,8 +157,7 @@ export default function ApiSettingsPage() {
           <p className="eyebrow">Integration surface</p>
           <h1 className="page-title mt-1.5">API &amp; webhooks</h1>
           <p className="page-lede max-w-2xl">
-            Connect the systems that publish (a website, a CMS, a script) so nothing goes live before it passes Canonry.
-            You only need this if someone on your team publishes through one of those systems.
+            Nothing goes live on your website until Canonry has approved it.
           </p>
         </div>
         <button onClick={() => void run(async () => {
@@ -193,7 +192,7 @@ export default function ApiSettingsPage() {
             for its approval arrives. Its key and endpoint below are named <em>Demo publisher</em>.
           </p>
         </div>
-        <a href="/engine/cms" target="_blank" rel="noreferrer" className="btn btn-primary">Open the demo publisher</a>
+        <a href="/engine/cms" target="_blank" rel="noreferrer" data-guide="open-publisher" className="btn btn-primary">Open the demo publisher</a>
       </section>}
 
       {error && <p role="alert" className="rounded-xl border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger-fg">{error}</p>}
