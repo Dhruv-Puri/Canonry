@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { Check, ChevronDown, Copy, LogOut, Menu, PencilLine, X } from "lucide-react";
+import { Check, ChevronDown, Compass, Copy, LogOut, Menu, PencilLine, X } from "lucide-react";
 import { BrandMark } from "@/components/brand";
 import { useIdentity } from "@/components/identity";
 import { api } from "@/lib/api";
@@ -222,6 +222,16 @@ function ProfileMenu({ inline = false }: { inline?: boolean }) {
               <PencilLine className="size-4 text-brand" aria-hidden /> Change name
             </button>
           )}
+          <button
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              window.dispatchEvent(new Event("canonry:open-tour"));
+            }}
+            className="flex w-full items-center gap-2.5 rounded-xl px-2 py-2 text-left text-sm hover:bg-muted"
+          >
+            <Compass className="size-4 text-brand" aria-hidden /> Show me the tour
+          </button>
           {confirmLogout ? (
             <div className="rounded-xl border border-border bg-muted/60 p-2.5">
               <p className="text-xs leading-relaxed text-foreground">

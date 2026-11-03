@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { Compass, PartyPopper, X } from "lucide-react";
+import { X } from "lucide-react";
 import { useIdentity } from "@/components/identity";
+import { GuideCharacter } from "@/components/tour-figures";
 import { api, type Submission, type SubmissionDetail } from "@/lib/api";
 
 /**
@@ -56,6 +57,14 @@ export function wantsGuide(): boolean {
 export function rememberFirstTime(first: boolean) {
   write(FIRST_KEY, first ? "yes" : "no");
   write(GUIDE_KEY, first ? "on" : "off");
+  // ticking "Show me around" is an explicit request: every role's tour plays again
+  if (first) {
+    try {
+      window.localStorage.removeItem("canonry.tour.seen");
+    } catch {
+      // storage blocked: nothing was remembered anyway
+    }
+  }
 }
 
 /**
@@ -437,12 +446,11 @@ export function GuidePanel() {
     <aside
       aria-label="Guide"
       aria-live="polite"
-      className="guide-panel fixed inset-x-3 bottom-3 z-50 rounded-2xl border border-brand/30 bg-card p-4 shadow-float md:inset-x-auto md:bottom-6 md:right-6 md:w-[340px]"
+      className="guide-panel fixed inset-x-3 bottom-3 z-50 mx-auto max-w-[460px] rounded-2xl border border-brand/30 bg-card p-4 shadow-float md:bottom-6"
     >
       <div className="flex items-start gap-3">
-        <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-brand/10 text-brand">
-          {finished ? <PartyPopper className="size-5" aria-hidden /> : <Compass className="size-5" aria-hidden />}
-        </span>
+        {/* the same guide who leads the Quick Tour walks you through the steps */}
+        <GuideCharacter className="-mb-1 -ml-1 -mt-2 h-[68px] w-[58px] shrink-0" waving={finished} />
         <div className="min-w-0 flex-1">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-brand">
             Guide · step {step.n} of {step.total ?? TOTAL}
