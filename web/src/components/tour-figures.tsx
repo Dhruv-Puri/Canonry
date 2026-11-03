@@ -1,50 +1,154 @@
+"use client";
+
 /**
  * Pictures for the product tour: a friendly guide who explains each window in one plain sentence,
  * and a small drawing of the window itself, so no tour page is just a line of text.
  * Everything is drawn in code (no images to load) and is decorative: the words carry the meaning.
  */
+import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, BadgeCheck, Building2, Lock, Send, ShieldCheck } from "lucide-react";
 
 export type FigureKind = "home" | "kb" | "work" | "queue" | "insights" | "overview" | "api" | "agency";
 
-/** The tour's guide: an original, kindly "uncle" character in Canonry's colours. */
-export function GuideCharacter({ className = "" }: { className?: string }) {
+const TIPS = [
+  "Tip: the arrow keys move through the tour, and Esc closes it.",
+  "Tip: every finding names the rule or fact behind it, so you can check my work.",
+  "Tip: you can reopen this tour any time from the home page.",
+  "Tip: you decide. I only point things out.",
+];
+
+/**
+ * The tour's guide: an original, kindly "uncle" character in Canonry's colours. He breathes,
+ * blinks and waves his pointer; hovering makes him tip his hat, and clicking makes him wave.
+ * All motion stops when the visitor prefers reduced motion.
+ */
+export function GuideCharacter({ className = "", waving = false }: { className?: string; waving?: boolean }) {
   return (
-    <svg viewBox="0 0 64 72" className={className} aria-hidden>
-      {/* top hat */}
-      <rect x="18" y="2" width="28" height="18" rx="3" fill="#3b2618" />
-      <rect x="18" y="13" width="28" height="4" fill="#c49a74" />
-      <rect x="11" y="19" width="42" height="5" rx="2.5" fill="#3b2618" />
-      {/* face */}
-      <circle cx="32" cy="36" r="13" fill="#f3d9bd" stroke="#8b5e3c" strokeWidth="1.2" />
-      {/* spectacles */}
-      <circle cx="26.5" cy="34" r="3.6" fill="#fffefb" stroke="#3b2618" strokeWidth="1.3" />
-      <circle cx="37.5" cy="34" r="3.6" fill="#fffefb" stroke="#3b2618" strokeWidth="1.3" />
-      <line x1="30.1" y1="34" x2="33.9" y2="34" stroke="#3b2618" strokeWidth="1.3" />
-      <circle cx="26.8" cy="34.4" r="1.2" fill="#3b2618" />
-      <circle cx="37.8" cy="34.4" r="1.2" fill="#3b2618" />
-      {/* moustache and smile */}
-      <path d="M24 41.5c3-2.6 6.2-2.6 8 0 1.8-2.6 5-2.6 8 0-2.8 1.2-5.6 1-8-.4-2.4 1.4-5.2 1.6-8 .4z" fill="#fffefb" stroke="#8b5e3c" strokeWidth=".8" />
-      <path d="M28.5 45.2c2.2 1.4 4.8 1.4 7 0" stroke="#8b5e3c" strokeWidth="1.2" fill="none" strokeLinecap="round" />
-      {/* coat and bow tie */}
-      <path d="M14 72c1-12 8-18 18-18s17 6 18 18z" fill="#8b5e3c" />
-      <path d="M27 56l5 4 5-4-1.5 6H28.5z" fill="#fffefb" />
-      <path d="M28 59l4 2-4 2zM36 59l-4 2 4 2z" fill="#3b2618" />
-      {/* pointer stick */}
-      <line x1="50" y1="64" x2="62" y2="44" stroke="#3b2618" strokeWidth="2" strokeLinecap="round" />
-      <circle cx="62" cy="44" r="1.8" fill="#c49a74" />
+    <svg viewBox="0 0 80 96" className={`guide-char ${waving ? "is-waving" : ""} ${className}`} aria-hidden>
+      <defs>
+        <radialGradient id="gc-face" cx="45%" cy="40%" r="65%">
+          <stop offset="0%" stopColor="#fbe6cf" />
+          <stop offset="100%" stopColor="#ecc9a4" />
+        </radialGradient>
+        <linearGradient id="gc-coat" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#9a6a45" />
+          <stop offset="100%" stopColor="#6b4428" />
+        </linearGradient>
+        <linearGradient id="gc-hat" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor="#2b1d14" />
+          <stop offset="55%" stopColor="#4a3020" />
+          <stop offset="100%" stopColor="#2b1d14" />
+        </linearGradient>
+      </defs>
+      <ellipse cx="40" cy="93" rx="22" ry="2.6" fill="#3b2618" opacity=".12" className="gc-shadow" />
+      <g className="gc-body">
+        <path d="M17 94c1.5-15 10-23 23-23s21.5 8 23 23z" fill="url(#gc-coat)" />
+        <path d="M33 72l7 10 7-10-3 22h-8z" fill="#fffaf2" />
+        <path d="M33 72l7 10-5 2-4-11z M47 72l-7 10 5 2 4-11z" fill="#7a5034" />
+        <circle cx="40" cy="87" r="1" fill="#3b2618" />
+        <circle cx="40" cy="91" r="1" fill="#3b2618" />
+        <path d="M35.5 77.5l4.5 2.3-4.5 2.3zM44.5 77.5L40 79.8l4.5 2.3z" fill="#b5651d" />
+        <rect x="35" y="64" width="10" height="8" rx="3" fill="#ecc9a4" />
+        <g className="gc-head">
+          <circle cx="23.5" cy="49" r="3.4" fill="#ecc9a4" />
+          <circle cx="56.5" cy="49" r="3.4" fill="#ecc9a4" />
+          <ellipse cx="40" cy="48" rx="16" ry="17" fill="url(#gc-face)" />
+          <path d="M25 52c1 11 7 17 15 17s14-6 15-17c-3 4-6 5-8 4-2 3-5 3-7 3s-5 0-7-3c-2 1-5 0-8-4z" fill="#fbf8f2" stroke="#e2d6c4" strokeWidth=".6" />
+          <circle cx="29" cy="52" r="2.6" fill="#e8a38a" opacity=".45" />
+          <circle cx="51" cy="52" r="2.6" fill="#e8a38a" opacity=".45" />
+          <path d="M28 40.5q4-2.4 8 0M44 40.5q4-2.4 8 0" stroke="#d9cbb7" strokeWidth="1.6" fill="none" strokeLinecap="round" className="gc-brows" />
+          <g className="gc-eyes">
+            <circle cx="33" cy="46" r="1.6" fill="#2b1d14" />
+            <circle cx="47" cy="46" r="1.6" fill="#2b1d14" />
+            <circle cx="33.5" cy="45.4" r=".5" fill="#fff" />
+            <circle cx="47.5" cy="45.4" r=".5" fill="#fff" />
+          </g>
+          <circle cx="33" cy="46" r="4.6" fill="#ffffff" fillOpacity=".25" stroke="#3b2618" strokeWidth="1.2" />
+          <circle cx="47" cy="46" r="4.6" fill="#ffffff" fillOpacity=".25" stroke="#3b2618" strokeWidth="1.2" />
+          <path d="M37.6 46h4.8" stroke="#3b2618" strokeWidth="1.2" />
+          <path d="M31 54.5c3.5-3 7-3 9 0 2-3 5.5-3 9 0-3 1.6-6.4 1.3-9-.4-2.6 1.7-6 2-9 .4z" fill="#fbf8f2" stroke="#d9cbb7" strokeWidth=".6" />
+          <path d="M36 58.2q4 2.6 8 0" stroke="#8b5e3c" strokeWidth="1.2" fill="none" strokeLinecap="round" />
+          <g className="gc-hat">
+            <rect x="26" y="12" width="28" height="22" rx="3" fill="url(#gc-hat)" />
+            <rect x="26" y="27" width="28" height="4.5" fill="#b5651d" />
+            <rect x="19" y="32" width="42" height="5" rx="2.5" fill="#2b1d14" />
+          </g>
+        </g>
+        <g className="gc-arm">
+          <path d="M58 78c5-2 9-6 11-11" stroke="url(#gc-coat)" strokeWidth="7" strokeLinecap="round" fill="none" />
+          <circle cx="69.5" cy="66" r="3.4" fill="#ecc9a4" />
+          <line x1="70" y1="66" x2="78" y2="44" stroke="#3b2618" strokeWidth="2" strokeLinecap="round" />
+          <circle cx="78" cy="44" r="2" fill="#b5651d" />
+        </g>
+      </g>
     </svg>
   );
 }
 
-/** The guide and a speech bubble with the one-sentence, plain-language explanation. */
+/** The guide speaks his line word by word; click the bubble to show it all, click him for a tip. */
 export function GuideSays({ text }: { text: string }) {
+  const [shown, setShown] = useState(0);
+  const [waving, setWaving] = useState(false);
+  const [tip, setTip] = useState<string | null>(null);
+  const words = useMemo(() => text.split(" "), [text]);
+
+  useEffect(() => {
+    setTip(null);
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setShown(words.length);
+      return;
+    }
+    setShown(0);
+    const t = window.setInterval(() => {
+      setShown((n) => {
+        if (n >= words.length) {
+          window.clearInterval(t);
+          return n;
+        }
+        return n + 1;
+      });
+    }, 55);
+    return () => window.clearInterval(t);
+  }, [words]);
+
+  function poke() {
+    setWaving(true);
+    setShown(words.length);
+    setTip((cur) => TIPS[(TIPS.indexOf(cur ?? "") + 1) % TIPS.length]);
+    window.setTimeout(() => setWaving(false), 1200);
+  }
+
+  const done = shown >= words.length;
+  const rest = words.slice(shown).join(" ");
   return (
     <div className="mt-4 flex items-end gap-3">
-      <GuideCharacter className="h-16 w-14 shrink-0" />
-      <p className="relative rounded-2xl rounded-bl-sm border border-border-strong bg-warning-bg/60 px-4 py-3 text-sm leading-relaxed text-foreground">
-        {text}
-      </p>
+      <button
+        type="button"
+        onClick={poke}
+        className="guide-char-btn shrink-0 rounded-2xl"
+        aria-label="Ask the guide for a tip"
+        title="Click me for a tip"
+      >
+        <GuideCharacter className="h-[88px] w-[74px]" waving={waving} />
+      </button>
+      <div className="min-w-0 flex-1">
+        <p
+          onClick={() => setShown(words.length)}
+          className="relative rounded-2xl rounded-bl-sm border border-border-strong bg-warning-bg/60 px-4 py-3 text-sm leading-relaxed text-foreground"
+        >
+          <span className="sr-only">{text}</span>
+          <span aria-hidden>
+            {words.slice(0, shown).join(" ")}
+            {!done && <span className="guide-caret" />}
+            {rest && <span className="invisible"> {rest}</span>}
+          </span>
+        </p>
+        {tip && (
+          <p role="status" className="animate-fade-up mt-1.5 text-xs text-muted-foreground">
+            {tip}
+          </p>
+        )}
+      </div>
     </div>
   );
 }

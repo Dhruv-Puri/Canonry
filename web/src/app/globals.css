@@ -969,3 +969,26 @@ select.field:hover:not(:focus) {
   font: 600 0.7rem/1.4 var(--font-sans);
   text-align: center;
 }
+
+/* ---- the tour guide: breathing, blinking, a wave of the pointer; hat tip on hover ---- */
+.guide-char-btn { cursor: pointer; transition: transform 180ms var(--ease-out); }
+.guide-char-btn:hover { transform: translateY(-2px); }
+.guide-char .gc-body { animation: gc-bob 3.2s ease-in-out infinite; transform-box: view-box; transform-origin: 40px 94px; }
+.guide-char .gc-eyes { animation: gc-blink 4.6s infinite; transform-box: view-box; transform-origin: 40px 46px; }
+.guide-char .gc-arm { animation: gc-point 5s ease-in-out infinite; transform-box: view-box; transform-origin: 58px 78px; }
+.guide-char .gc-hat { transition: transform 260ms var(--ease-out); transform-box: view-box; transform-origin: 26px 34px; }
+.guide-char .gc-brows { transition: transform 200ms var(--ease-out); }
+.guide-char-btn:hover .gc-hat, .guide-char-btn:focus-visible .gc-hat { transform: translate(-1px, -5px) rotate(-14deg); }
+.guide-char-btn:hover .gc-brows { transform: translateY(-1px); }
+.guide-char.is-waving .gc-arm { animation: gc-wave 0.4s ease-in-out 3; }
+.guide-char .gc-shadow { animation: gc-shadow 3.2s ease-in-out infinite; transform-box: view-box; transform-origin: 40px 93px; }
+@keyframes gc-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1.6px); } }
+@keyframes gc-shadow { 0%, 100% { transform: scaleX(1); } 50% { transform: scaleX(0.92); } }
+@keyframes gc-blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(0.1); } }
+@keyframes gc-point { 0%, 70%, 100% { transform: rotate(0); } 78% { transform: rotate(-9deg); } 86% { transform: rotate(4deg); } }
+@keyframes gc-wave { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(-22deg); } }
+.guide-caret { display: inline-block; width: 2px; height: 1em; margin-left: 2px; vertical-align: -2px; background: var(--brand); animation: gc-caret 0.9s steps(1) infinite; }
+@keyframes gc-caret { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .guide-char .gc-body, .guide-char .gc-eyes, .guide-char .gc-arm, .guide-char .gc-shadow, .guide-caret { animation: none !important; }
+}
