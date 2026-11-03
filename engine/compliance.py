@@ -22,12 +22,11 @@ from __future__ import annotations
 import json
 import os
 import re
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Tuple
 
 import checkers
 import embeddings
-from db import _now, gen_id, get_knowledge_version
-from contract import location_key
+from db import _now, gen_id
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "compliance")
 PACK_FILE = os.path.join(DATA_DIR, "india_advertising_pack.json")

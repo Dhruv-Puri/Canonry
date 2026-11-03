@@ -20,7 +20,7 @@ import re
 import secrets
 import sqlite3
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 DB_PATH = os.environ.get("CANONRY_DB_PATH") or os.path.join(os.path.dirname(__file__), "..", "db", "canonry.db")
 # Postgres (Neon/Supabase). Unset = SQLite, the zero-setup local/default mode.

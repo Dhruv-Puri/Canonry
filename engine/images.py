@@ -14,7 +14,7 @@ import threading
 from dataclasses import dataclass, replace
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from PIL import Image, ImageChops, ImageOps, ImageStat
+from PIL import Image
 
 import logos
 from db import gen_id

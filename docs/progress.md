@@ -10,9 +10,9 @@
 
 | Improvement | Status | Evidence |
 |---|---|---|
-| 1. Documents and images | ✅ delivered and live | README §12; suites `test_documents`, `test_image_text`, `test_logos`, `test_docx_fix`, `test_vision`, `test_large_images`; live: a 4000×3000 photo and real Gemini image understanding checked on 3 Nov |
+| 1. Documents and images | ✅ delivered and live | README §2; suites `test_documents`, `test_image_text`, `test_logos`, `test_docx_fix`, `test_vision`, `test_large_images`; live: a 4000×3000 photo and real Gemini image understanding checked on 3 Nov |
 | 2. Publishing gate: REST API + webhooks | ✅ delivered and live | `test_api`, `test_publisher` (real HTTP webhooks), `test_api_gate`; the demo publisher at `/engine/cms` on the live site |
-| 3. India compliance pack with retrieval | ✅ delivered on SQLite and live; Postgres + pgvector written, not deployed | `test_compliance`: 32 labelled sentences (precision and recall 1.0) and 45 real ASCI cases (43 caught, 0 false alarms on 10 controls) |
+| 3. India compliance pack with retrieval | ✅ delivered on SQLite and live; Postgres + pgvector written, not deployed | `test_compliance`: 32 labelled sentences (precision and recall 1.0), 45 real ASCI cases (43 caught, not blind), and a blind test on 220 more (held-out month 35/72) |
 
 **Final checks, 3 Nov:** 32 suites + evaluation gate pass; the browser run passes 185/185 on a local
 production build; the first-visit walkthrough (27/27) and the writer's sent back → edit → approved loop
@@ -38,6 +38,7 @@ production build; the first-visit walkthrough (27/27) and the writer's sent back
 | A stalled free AI model held up the check | the same check took 3 s or 28 s; one burst took 58 s | a second model is asked after 4 s; calls stop at 15 s; a stall is not retried | `test_gateway` |
 | Two walkthroughs on top of each other | the role tour and the guide both opened; the tour returned on every role switch | one at a time; the tour only for a first visit or a new role | browser walkthrough 27/27 |
 | Signed-out visitors saw the app menu | the public verify page showed Home, Write, My work to a stranger | no app menu without an account | browser check of /verify at 1280 and 390 px |
+| India pack's real-case score was fitted | 43/45 on cases the patterns were written from; 43% on unseen ASCI decisions | general claim families, measured on a held-out month: 35/72 (49%), up from 21 | `test_compliance` blind sets (D81) |
 | Audio test crashed, API-gate test unregistered | CI did not run them | `test_api_gate` registered; `test_media` checks the module, skips the unwired upload path | `run_tests.py`: 32 suites |
 
 ---

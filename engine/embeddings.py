@@ -23,7 +23,7 @@ import json
 import math
 import os
 import re
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence
 
 DIM = 768
 LOCAL_MODEL = "canonry-hash-ngram@1"

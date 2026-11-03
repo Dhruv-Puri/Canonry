@@ -25,7 +25,6 @@ _db.use_test_database("canonry_api_gate")
 
 import api  # noqa: E402
 import main as engine  # noqa: E402
-import webhooks  # noqa: E402
 from db import connect  # noqa: E402
 from seed import seed  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

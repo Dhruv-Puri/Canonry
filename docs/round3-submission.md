@@ -1,7 +1,7 @@
 # Canonry — Round 3 submission (team vaidvansh6)
 
 > Answers for the Round 3 form. Nothing here claims more than the repository and the live demo show;
-> what is not done is said in §5 and in README §10.
+> what is not done is said in §5 and in README §6.
 
 | | |
 |---|---|
@@ -69,9 +69,11 @@
 - Rules from the CCPA Guidelines (2022) and the ASCI Code; every legal finding cites the exact clause
   with a link; the pack can be switched on and off per workspace.
 - Clause retrieval with embeddings (local, in SQLite on the demo; Postgres + pgvector supported in code).
-- Tested on **45 real ad lines ASCI upheld complaints against** (quoted from published reports): it first
-  caught 2 of 45; after new leadership, guarantee, cure and offer checks it catches **43 of 45**, with no
-  warning on 10 compliant lines that use the same words. Its own 32-sentence set: 100% precision and recall.
+- Its own 32-sentence set: 100% precision and recall, no false alarm at any tier; ordinary copy stays silent.
+- Tested on real ASCI decisions, honestly: 43 of 45 on the first set of upheld ad lines, but those patterns
+  were written after reading them. A **blind test** on 220 more claims quoted from ASCI's own monthly
+  releases showed what generalises: 43% caught before any change; after new general claim families written
+  on two months (127/148), a third month held out and scored once catches **35 of 72 (49%)**, up from 21.
 
 ## 2. Architecture summary
 
@@ -86,15 +88,15 @@ parsed into text with a locator map (page/line, paragraph, or image box); image 
 contrast, logo, alt text) run on the pixels. Approvals are signed with Ed25519 and, for files, stamped
 into the file. The publishing gate adds an authenticated API and HMAC-signed webhooks. Deployed on free
 tiers: Render (engine, Docker with Tesseract) and Vercel (web).
-Details: README §5 and [architecture.md](architecture.md); decisions with reasons: [decision-log.md](decision-log.md).
+Details: README §3 and [architecture.md](architecture.md); decisions with reasons: [decision-log.md](decision-log.md).
 
 ## 3. Improvements completed after Round 2
 
 | # | Improvement | Status | Evidence |
 |---|---|---|---|
-| 1 | Documents and images | Done | README §12; suites `test_documents`, `test_image_text`, `test_logos`, `test_docx_fix`, `test_review_r3` |
-| 2 | REST API + signed webhooks + demo publisher | Done (Google Docs add-on, a stretch goal, not built) | README §12; suites `test_api`, `test_publisher` (real HTTP webhooks) |
-| 3 | India compliance pack with retrieval | Done on SQLite; tested on 45 real ASCI cases (43 caught); Postgres + pgvector in code, not deployed | README §12; suite `test_compliance` and its evaluation gate |
+| 1 | Documents and images | Done | README §2; suites `test_documents`, `test_image_text`, `test_logos`, `test_docx_fix`, `test_review_r3` |
+| 2 | REST API + signed webhooks + demo publisher | Done (Google Docs add-on, a stretch goal, not built) | README §2; suites `test_api`, `test_publisher` (real HTTP webhooks) |
+| 3 | India compliance pack with retrieval | Done on SQLite; a blind test on ASCI decisions it had not seen catches 35/72 (49%); Postgres + pgvector in code, not deployed | README §2; suite `test_compliance` and its evaluation gate |
 
 Also in Round 3: image understanding with a vision model (`test_vision`), a knowledge base that grows
 from claims writers keep making (`test_suggested_facts`), the "understand first" analysis
@@ -127,7 +129,7 @@ is down or waking up).
 
 ## 5. Roadmap
 
-See README §13: managed Postgres + pgvector live; the India pack blind-tested on newer ASCI
+See README §7: managed Postgres + pgvector live; the India pack blind-tested on newer ASCI
 decisions; the five-person usability study; a larger, independently labelled evaluation set; signing
 keys that survive restarts; checks where people write (Google Docs add-on, MCP connector); audio
 and video (the header module exists, not yet wired); more formats and market packs.
@@ -142,4 +144,4 @@ and video (the header module exists, not yet wired); more formats and market pac
   base for all three improvements (uploads and stamping, REST API and webhooks, demo publisher, India
   pack with clause retrieval, admin API page); the role tour and document viewer; the audio/video
   module and the API-gate test.
-- Details with commit ids: README §9. AI assistance: docs/disclosure-log.md.
+- Details with commit ids: README §8. AI assistance: docs/disclosure-log.md.
