@@ -16,7 +16,9 @@
 
 **Final checks, 3 Nov:** 32 suites + evaluation gate pass; the browser run passes 185/185 on a local
 production build; the first-visit walkthrough (27/27) and the writer's sent back → edit → approved loop
-(16/16) pass locally and on the live site with real AI.
+(16/16) pass locally and on the live site with real AI. Last polish (merged as #23): the welcome screen
+redesign (D85) and the per-role, movable walkthrough (D86), with their own browser checks (per-role
+walkthrough 8/8, dragging 8/8 on desktop and phone).
 
 ### Bugs found by testing in Round 3 (each fixed with a test that failed first)
 

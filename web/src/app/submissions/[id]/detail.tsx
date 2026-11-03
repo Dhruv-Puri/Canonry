@@ -259,7 +259,7 @@ export function SubmissionDetailClient({ sid }: { sid: string }) {
           {sourceLabel(s.channel)} · {sourceLabel(s.source_type)}
         </span>
       </div>
-      <JourneySteps status={s.status} open={openFindings.length} />
+      <JourneySteps status={s.status} />
 
       {error && (
         <p role="alert" className="rounded-xl border border-warning-border bg-warning-bg px-4 py-3 text-sm text-warning-fg">
@@ -1305,7 +1305,7 @@ function FindingCard({
             {index}
           </span>
         )}
-        <LevelBadge tier={f.tier} severity={f.severity} />
+        <LevelBadge tier={f.tier} />
         {!open && (
           <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] capitalize text-muted-foreground">
             {f.status}
