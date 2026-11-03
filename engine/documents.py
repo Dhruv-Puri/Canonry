@@ -67,7 +67,8 @@ def _pdf(data: bytes) -> Extracted:
         offset += len(page_text) + 2  # "\n\n" between pages
     text = "\n\n".join(chunks)
     if not text.strip():
-        raise DocumentError("This PDF has no text layer. Scanned PDFs need OCR, which is not supported yet.")
+        raise DocumentError("This PDF has no selectable text: it was scanned, or printed to PDF as shapes. "
+                            "Upload the original file (Word, or a PDF exported from it), or paste the text.")
     if len(text) > 200_000:
         raise DocumentError("The extracted text is too long (limit 200,000 characters).")
     return Extracted(text=text, source_kind="pdf", page_count=len(reader.pages),

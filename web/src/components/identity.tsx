@@ -2,11 +2,13 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
-import { ArrowRight, Check } from "lucide-react";
+import { ArrowRight, BadgeCheck, Check, ChevronDown, Info, Quote, Wand2 } from "lucide-react";
 import { forgetVisit, hasVisited, rememberFirstTime, useGuide } from "@/components/guide";
 import { api, ApiError, SIGNED_OUT_EVENT, type AuthMode, type User } from "@/lib/api";
 import { ROLES, type Role } from "@/lib/roles";
 import { BrandMark } from "@/components/brand";
+import { HeroDemo } from "@/components/hero-demo";
+import { GuideCharacter } from "@/components/tour-figures";
 import { EngineDown, EngineLoading, GIVE_UP_MS, isWaking, RETRY_MS } from "@/components/engine-status";
 
 type Identity = {
@@ -177,10 +179,18 @@ function Welcome({ onJoined }: { onJoined: (u: User) => void }) {
   return auth.demo_mode ? <GuestWelcome onJoined={onJoined} /> : <AccountWelcome onJoined={onJoined} />;
 }
 
-const BENEFITS = [
-  "Every issue explained, with the rule or fact behind it",
-  "One-click fixes, and people make the final call",
-  "Approvals anyone can verify later",
+/** Each role's accent, the same colours the workspace uses once you are in (globals.css: html[data-role]). */
+const ROLE_ACCENT: Record<Role, { accent: string; tint: string }> = {
+  creator: { accent: "#6f4e37", tint: "#f3e9df" },
+  reviewer: { accent: "#2e5a44", tint: "#e6efe9" },
+  agency: { accent: "#8a4f0e", tint: "#fbefdf" },
+  admin: { accent: "#0f0e0c", tint: "#ebe6df" },
+};
+
+const PROOF = [
+  { icon: Quote, text: "Every issue cites its source" },
+  { icon: Wand2, text: "One-click fixes, a person decides" },
+  { icon: BadgeCheck, text: "Approvals anyone can verify" },
 ];
 
 function GuestWelcome({ onJoined }: { onJoined: (u: User) => void }) {
@@ -193,6 +203,7 @@ function GuestWelcome({ onJoined }: { onJoined: (u: User) => void }) {
   }, []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const chosen = ROLES.find((r) => r.id === role);
 
   async function start() {
     setBusy(true);
@@ -210,80 +221,79 @@ function GuestWelcome({ onJoined }: { onJoined: (u: User) => void }) {
   }
 
   return (
-    <main className="relative grid min-h-dvh place-items-center overflow-hidden px-4 py-10 sm:px-6">
-      <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
-        <div className="aurora left-[8%] top-[6%] size-[420px] bg-[#f7e2b5]" />
-        <div className="aurora right-[6%] bottom-[8%] size-[380px] bg-[#f3cfb4]" style={{ animationDelay: "-7s" }} />
-      </div>
-      <div className="animate-rise grid w-full max-w-4xl overflow-hidden rounded-3xl border border-border bg-card shadow-card md:grid-cols-[1fr_1.1fr]">
-        <section className="flex flex-col gap-10 bg-primary p-8 text-primary-foreground sm:p-10">
-          <div className="flex items-center gap-2">
-            <BrandMark className="size-8" />
-            <span className="text-lg font-bold tracking-tight">Canonry</span>
+    <main className="grid min-h-dvh lg:grid-cols-2">
+      {/* ---- the story: what Canonry is, shown working ---- */}
+      <section className="welcome-hero relative flex flex-col gap-6 overflow-hidden px-6 py-8 sm:px-12 lg:items-center lg:justify-center lg:py-10">
+        {/* the logo sits in the corner, so the two halves' content can be centred alike */}
+        <div className="flex items-center gap-2.5 lg:absolute lg:left-12 lg:top-9">
+          <BrandMark className="size-8" />
+          <span className="text-lg font-bold tracking-tight">Canonry</span>
+        </div>
+        <div className="w-full lg:max-w-[480px]">
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#e2b88f]">Brand review before you publish</p>
+          <h1 className="mt-3 text-4xl font-bold leading-[1.08] tracking-tight text-[#fbf6ee] xl:text-[2.75rem]">
+            Every word on brand, before it goes out.
+          </h1>
+          <p className="mt-3 max-w-md text-base leading-relaxed text-[#e9dccb] xl:text-[17px]">
+            Canonry checks drafts against the brand&apos;s own rules and facts, explains every issue, and leaves the decision
+            to a person.
+          </p>
+          <ul className="mt-5 flex flex-wrap gap-2">
+            {PROOF.map(({ icon: Icon, text }) => (
+              <li key={text} className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.07] px-3 py-1.5 text-sm text-[#f3e8d9]">
+                <Icon className="size-3.5 text-[#e2b88f]" aria-hidden /> {text}
+              </li>
+            ))}
+          </ul>
+          <div className="welcome-preview mt-8 hidden lg:block" aria-hidden>
+            <HeroDemo />
           </div>
-          <div>
-            <h1 className="text-3xl font-bold leading-tight tracking-tight text-primary-foreground sm:text-[2.1rem]">
-              Catch off-brand content before it goes out.
-            </h1>
-            <ul className="mt-7 space-y-3.5">
-              {BENEFITS.map((b) => (
-                <li key={b} className="flex gap-3 text-[15px] leading-snug opacity-90">
-                  <Check className="mt-0.5 size-4 shrink-0" strokeWidth={2.6} aria-hidden />
-                  {b}
-                </li>
-              ))}
-            </ul>
-          </div>
-        </section>
+        </div>
+      </section>
 
+      {/* ---- the choice: one role, one switch, one button ---- */}
+      <section className="flex items-center justify-center px-5 py-8 sm:px-12 lg:py-10">
+        {/* no entrance animation: the choices must not move under a quick click or tap */}
         <form
-          className="p-8 sm:p-10"
+          className="w-full max-w-[480px]"
           onSubmit={(e) => {
             e.preventDefault();
             if (!busy) void start();
           }}
         >
-          <h2 className="text-2xl font-bold tracking-tight text-foreground">Continue as a guest</h2>
-          <p className="mt-1.5 text-foreground-secondary">Pick a role to start. No account needed.</p>
+          <h2 className="text-2xl font-bold tracking-tight text-foreground">Try Canonry</h2>
+          <p className="mt-1 text-foreground-secondary">Pick a role. No account needed; switch any time.</p>
 
-          <fieldset className="mt-6 space-y-2.5">
+          <fieldset className="mt-5 grid grid-cols-2 gap-3">
             <legend className="sr-only">Role</legend>
             {ROLES.map(({ id, label, short, icon: Icon }) => {
               const on = role === id;
+              const c = ROLE_ACCENT[id];
               return (
                 <label
                   key={id}
-                  className={`flex cursor-pointer items-center gap-3 rounded-2xl border p-3.5 transition-all has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-brand ${
-                    on ? "border-brand bg-muted ring-2 ring-[var(--ring-glow)]" : "border-border hover:border-border-strong hover:bg-muted/50"
-                  }`}
+                  style={{ "--card-accent": c.accent, "--card-tint": c.tint } as React.CSSProperties}
+                  className={`role-card ${on ? "is-on" : ""}`}
                 >
                   <input type="radio" name="role" value={id} checked={on} onChange={() => setRole(id)} className="sr-only" />
-                  <span className={`grid size-10 shrink-0 place-items-center rounded-xl ${on ? "bg-primary text-primary-foreground" : "bg-muted text-brand"}`}>
-                    <Icon className="size-5" strokeWidth={1.9} aria-hidden />
+                  <span className="role-card-icon">
+                    <Icon className="size-[18px]" strokeWidth={2} aria-hidden />
                   </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block font-semibold text-foreground">{label}</span>
-                    <span className="block text-sm leading-snug text-muted-foreground">{short}</span>
-                  </span>
-                  {on && <Check className="size-4 shrink-0 text-brand" strokeWidth={3} aria-hidden />}
+                  <span className="mt-3 block font-semibold text-foreground">{label}</span>
+                  <span className="mt-0.5 block text-[13px] leading-snug text-muted-foreground">{short}</span>
+                  {on && <Check className="absolute right-3 top-3 size-4 text-[var(--card-accent)]" strokeWidth={3} aria-hidden />}
                 </label>
               );
             })}
           </fieldset>
 
-          <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-2xl border border-border p-3.5 has-[:checked]:border-brand has-[:checked]:bg-brand/[0.05]">
-            <input
-              type="checkbox"
-              checked={guided}
-              onChange={(e) => setGuided(e.target.checked)}
-              className="mt-0.5 size-4 accent-[var(--brand)]"
-            />
-            <span>
+          <label className="mt-4 flex cursor-pointer items-center gap-3 rounded-2xl border border-border bg-card px-4 py-3 transition-colors has-[:checked]:border-brand/40 has-[:checked]:bg-[var(--warning-bg)]">
+            <GuideCharacter className={`h-11 w-9 shrink-0 transition-opacity ${guided ? "opacity-100" : "opacity-40 grayscale"}`} />
+            <span className="min-w-0 flex-1">
               <span className="block text-sm font-semibold text-foreground">Show me around (first time here)</span>
-              <span className="block text-xs text-muted-foreground">
-                A short guide points at each next step while you try a check, a fix and an approval.
-              </span>
+              <span className="block text-xs text-muted-foreground">A quick tour, then a guide that points at each next step.</span>
             </span>
+            <input type="checkbox" checked={guided} onChange={(e) => setGuided(e.target.checked)} className="switch" />
           </label>
 
           {error && (
@@ -291,20 +301,28 @@ function GuestWelcome({ onJoined }: { onJoined: (u: User) => void }) {
               {error}
             </p>
           )}
-          <button type="submit" disabled={busy} className="btn btn-primary btn-lg mt-6 w-full">
+          <button type="submit" disabled={busy} className="btn btn-primary btn-lg mt-5 w-full">
             {busy ? "Opening Canonry…" : <>Continue as guest <ArrowRight className="btn-arrow size-4" aria-hidden /></>}
           </button>
-          <div className="mt-4 rounded-xl border border-border bg-muted/60 px-4 py-3 text-xs leading-relaxed text-foreground-secondary">
-            <p className="font-semibold text-foreground">A shared demo, on purpose</p>
-            <p className="mt-1">
-              Every visitor uses one sample workspace and can switch between all four roles from the top bar, so you
-              can try each side of a review. A real deployment runs in production mode: each person signs in with their
-              own invited account and password, the invitation fixes their role, and agency partners only ever see their
-              own work. Please don&apos;t enter real brand material here.
+          <p className="mt-2 text-center text-xs text-muted-foreground">
+            You start as <strong className="font-semibold text-foreground">{chosen?.label}</strong>
+          </p>
+
+          <details className="group mt-5 rounded-xl border border-border bg-muted/50 px-4 py-2.5 text-xs leading-relaxed text-foreground-secondary">
+            <summary className="flex cursor-pointer list-none items-center gap-2 font-semibold text-foreground">
+              <Info className="size-3.5 text-brand" aria-hidden />
+              A shared demo, on purpose
+              <ChevronDown className="ml-auto size-3.5 transition-transform group-open:rotate-180" aria-hidden />
+            </summary>
+            <p className="mt-2">
+              Every visitor uses one sample workspace and can switch between all four roles, so you can try each side of a
+              review. A real deployment runs in production mode: invited accounts with their own passwords, the role fixed
+              by the invitation, and agency partners who only ever see their own work. Please don&apos;t enter real brand
+              material here.
             </p>
-          </div>
+          </details>
         </form>
-      </div>
+      </section>
     </main>
   );
 }
