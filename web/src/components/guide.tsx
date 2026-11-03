@@ -63,7 +63,7 @@ export function rememberFirstTime(first: boolean) {
  * The next person starts at the welcome screen, as if they had just arrived.
  */
 export function forgetVisit() {
-  for (const key of [FIRST_KEY, GUIDE_KEY, SENT_KEY, "canonry.tour.v1", "canonry.tour.role"]) {
+  for (const key of [FIRST_KEY, GUIDE_KEY, SENT_KEY, "canonry.tour.seen", "canonry.tour.v1", "canonry.tour.role"]) {
     try {
       window.localStorage.removeItem(key);
       window.sessionStorage.removeItem(key);

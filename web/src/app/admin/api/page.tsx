@@ -209,11 +209,14 @@ export default function ApiSettingsPage() {
             A key is a password for another system: it lets your website or a script send drafts to Canonry and read the
             results. Give each system its own key, so you can switch one off without breaking the others.
           </p>
-          <p className="mt-2 text-xs text-muted-foreground">
-            For developers: scope <code>check</code> can create and check submissions; <code>read</code> can read them;{" "}
-            <code>admin</code> includes both. Send <code>Authorization: Bearer ck_live_…</code>. Keys are shown once; only
-            a hash is stored.
-          </p>
+          <details className="mt-2 text-xs text-muted-foreground">
+            <summary className="cursor-pointer font-medium hover:text-foreground">For developers</summary>
+            <p className="mt-1.5 leading-relaxed">
+              Scope <code>check</code> can create and check submissions; <code>read</code> can read them;{" "}
+              <code>admin</code> includes both. Send <code>Authorization: Bearer ck_live_…</code>. Keys are shown once;
+              only a hash is stored.
+            </p>
+          </details>
           <form
             className="mt-4 flex flex-wrap items-end gap-2"
             onSubmit={(e) => {
@@ -294,11 +297,14 @@ export default function ApiSettingsPage() {
             A webhook is a message Canonry sends to your system the moment something happens, such as a draft being
             approved, so it can publish without anyone copying and pasting. If your system is down, Canonry keeps trying.
           </p>
-          <p className="mt-2 text-xs text-muted-foreground">
-            For developers: each delivery is signed:{" "}
-            <code className="break-all">X-Canonry-Signature: sha256=HMAC(secret, timestamp + &quot;.&quot; + body)</code>.
-            A failed delivery is retried after 30 s, 2 min, 10 min, 30 min, 1 h, 2 h and 6 h, then marked failed.
-          </p>
+          <details className="mt-2 text-xs text-muted-foreground">
+            <summary className="cursor-pointer font-medium hover:text-foreground">For developers</summary>
+            <p className="mt-1.5 leading-relaxed">
+              Each delivery is signed:{" "}
+              <code className="break-all">X-Canonry-Signature: sha256=HMAC(secret, timestamp + &quot;.&quot; + body)</code>.
+              A failed delivery is retried after 30 s, 2 min, 10 min, 30 min, 1 h, 2 h and 6 h, then marked failed.
+            </p>
+          </details>
           <form
             className="mt-4 space-y-2"
             onSubmit={(e) => {

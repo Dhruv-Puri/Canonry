@@ -7,39 +7,42 @@ import { useIdentity } from "@/components/identity";
 import { wantsGuide } from "@/components/guide";
 import { roleHome, type Role } from "@/lib/roles";
 
-/** "1" once the tour has been closed, so a returning visitor is not interrupted. */
-const SEEN_KEY = "canonry.tour.v1";
-/** The role the tour last ran for, kept per tab so a role switch is noticed even after a remount. */
-const ROLE_KEY = "canonry.tour.role";
+/** The roles whose tour this browser has already seen, e.g. ["creator","reviewer"]. */
+const SEEN_KEY = "canonry.tour.seen";
+
+function seenRoles(): string[] {
+  try {
+    const v = JSON.parse(window.localStorage.getItem(SEEN_KEY) ?? "[]");
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
+
+function markSeen(role: string) {
+  try {
+    const seen = seenRoles();
+    if (!seen.includes(role)) window.localStorage.setItem(SEEN_KEY, JSON.stringify([...seen, role]));
+  } catch {
+    // storage blocked: the tour may show again next visit, never twice in one
+  }
+}
 
 /**
- * Owns the product tour for the whole app. It opens the first time a guided
- * visitor arrives, and again whenever they switch profile, with one step for
- * every window that profile has — so no workspace is missed.
+ * Owns the product tour for the whole app. A guided visitor sees it once for each profile they
+ * try, with one step for every window that profile has, so no workspace is missed.
  */
 export function TourHost() {
   const { me } = useIdentity();
   const router = useRouter();
   const [open, setOpen] = useState(false);
 
+  // Once per role, only for visitors who asked to be shown around: the first time they arrive as a
+  // creator, a reviewer, an agency partner or an admin. Never again after that, in any session;
+  // "Take the tour" on the home page still opens it on demand.
   useEffect(() => {
     if (!me) return;
-    let last: string | null = null;
-    try {
-      last = window.sessionStorage.getItem(ROLE_KEY);
-    } catch {
-      // storage blocked: still run the tour once for this mount
-    }
-    // A new browser session starts at the welcome screen, so it gets the tour
-    // again; inside one session only a profile switch re-opens it.
-    // Only for visitors who asked to be shown around: a returning visitor is never interrupted
-    // (they can still press "Take the tour"). Before, any role switch opened it for everyone.
-    if (wantsGuide() && (last === null || last !== me.role)) setOpen(true);
-    try {
-      window.sessionStorage.setItem(ROLE_KEY, me.role);
-    } catch {
-      // ignore
-    }
+    if (wantsGuide() && !seenRoles().includes(me.role)) setOpen(true);
   }, [me]);
 
   // One walkthrough at a time: while the tour is open, the step-by-step guide and its pointer
@@ -58,11 +61,7 @@ export function TourHost() {
 
   function close() {
     setOpen(false);
-    try {
-      window.localStorage.setItem(SEEN_KEY, "1");
-    } catch {
-      // ignore
-    }
+    if (me) markSeen(me.role);
   }
 
   function finish() {
