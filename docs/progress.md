@@ -38,6 +38,8 @@ production build; the first-visit walkthrough (27/27) and the writer's sent back
 | A stalled free AI model held up the check | the same check took 3 s or 28 s; one burst took 58 s | a second model is asked after 4 s; calls stop at 15 s; a stall is not retried | `test_gateway` |
 | Two walkthroughs on top of each other | the role tour and the guide both opened; the tour returned on every role switch | one at a time; the tour only for a first visit or a new role | browser walkthrough 27/27 |
 | Signed-out visitors saw the app menu | the public verify page showed Home, Write, My work to a stranger | no app menu without an account | browser check of /verify at 1280 and 390 px |
+| Write looped on "Checking your submission" | after a check, pressing Write showed the loading screen forever | the page's busy flag resets each time it is shown (Next keeps page state) | browser repro, then the creator flow |
+| Intros replayed on every profile switch | signing out wiped the browser's memory of tours already seen | sign-out keeps them; the profile menu reopens the tour or walkthrough on request | tour once per role 9/9, returning browser 6/6 |
 | India pack's real-case score was fitted | 43/45 on cases the patterns were written from; 43% on unseen ASCI decisions | general claim families, measured on a held-out month: 35/72 (49%), up from 21 | `test_compliance` blind sets (D81) |
 | Audio test crashed, API-gate test unregistered | CI did not run them | `test_api_gate` registered; `test_media` checks the module, skips the unwired upload path | `run_tests.py`: 32 suites |
 

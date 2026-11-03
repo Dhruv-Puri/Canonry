@@ -35,8 +35,12 @@
 - Knowledge base with versioned rules, facts and terms, change history and change-impact preview;
   insights on expiring facts, unclear rules and AI usage (internals shown to reviewers and admins);
   roles with agency scoping and confidential redaction; a daily AI allowance.
-- **First-visit walkthrough:** an interactive guide that points at each next button through a full check,
-  fix, review, approval and verification; off for returning visitors.
+- **Four roles, four workspaces:** creator (My work as a stage pipeline), agency partner (sees only its
+  own work, plus a **client scorecard**: approved first time, sent back, issues per first check, the client
+  rules its drafts trip most), reviewer (risk-ranked queue) and brand admin (control room, rules, API docs);
+  each role has its own accent colour and main screen.
+- **Learning it:** a quick tour of each role's windows (once per role, with a guide character in plain
+  words) and a step-by-step walkthrough for every role, both restartable from the profile menu.
 
 **Improvement 1 — documents and images**
 - Upload PDF, Word, PNG or JPEG. PDF findings point to the **page and line**, Word findings to the
@@ -119,7 +123,8 @@ is down or waking up).
   refresh and back, two tabs, an expired session, unknown ids and every screen at 1280 and 390 px:
   **185/185** on the final build. Two scripts click exactly what a person would: the first-visit
   walkthrough (**27/27**) and the writer's sent back → edit → send again → approved loop (**16/16**),
-  both locally and on the live site with real AI and OCR.
+  both locally and on the live site with real AI and OCR; the tour shows once per role (**9/9**); the admin
+  and agency walkthroughs run end to end (**9/9**); every page for every role, desktop and phone: 0 problems.
 - **Code review:** an independent review of the Round 3 branch; every Important finding fixed with a
   test that failed first (docs/progress.md §0).
 - **Bugs found by testing and fixed:** docs/progress.md §0, §7, §8.
@@ -129,8 +134,8 @@ is down or waking up).
 
 ## 5. Roadmap
 
-See README §7: managed Postgres + pgvector live; the India pack blind-tested on newer ASCI
-decisions; the five-person usability study; a larger, independently labelled evaluation set; signing
+See README §7: managed Postgres + pgvector live; a stronger India pack (49% on a held-out month of ASCI
+decisions today); the five-person usability study; a larger, independently labelled evaluation set; signing
 keys that survive restarts; checks where people write (Google Docs add-on, MCP connector); audio
 and video (the header module exists, not yet wired); more formats and market packs.
 
@@ -138,8 +143,9 @@ and video (the header module exists, not yet wired); more formats and market pac
 
 - **Vansh Vaid (team leader):** product direction; web app and review workflow; Round 3 file checks on
   the shared pipeline (Word, OCR, logos), image understanding, understand-first checks, the India pack's
-  real-case test, the growing knowledge base, large-image memory limits, My work and text editing, the
-  slow-AI fixes, browser test scripts, deployments, documentation and this PDF.
+  real-case and blind tests, the growing knowledge base, large-image memory limits, My work and text
+  editing, the slow-AI fixes, per-role tours, walkthroughs and designs, the agency client scorecard,
+  browser test scripts, deployments, documentation and this PDF.
 - **Dhruv Puri:** initial engine; Gemini fallbacks and the admin, agency and review pages; the Round 3
   base for all three improvements (uploads and stamping, REST API and webhooks, demo publisher, India
   pack with clause retrieval, admin API page); the role tour and document viewer; the audio/video

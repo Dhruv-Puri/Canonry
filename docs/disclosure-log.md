@@ -82,9 +82,10 @@ workspace).
 
 | Asset | Origin | Licence/notes |
 |---|---|---|
-| Fonts | Geist Sans, Geist Mono, Source Serif 4 via `next/font/google` | Open Font Licence, self-hosted by the Next build |
+| Fonts | Geist Sans, Geist Mono, Source Serif 4, EB Garamond (tutorial text) via `next/font/google` | Open Font Licence, self-hosted by the Next build |
 | Icons | lucide-react | ISC licence |
 | Brand mark | Drawn in code (`components/brand.tsx`) | Team's own |
+| Tour guide character and window drawings | Drawn in code (`components/tour-figures.tsx`) | Team's own; an original character |
 | Seed CSV data | Written by the team | Fictional; see §3 |
 | India pack clauses | Quoted from the CCPA Guidelines for Prevention of Misleading Advertisements (2022) and the ASCI Code, each with its source link | Public regulatory text, cited |
 | ASCI test cases | 45 ad lines quoted from published reports of upheld ASCI complaints (bestmediainfo, mediabrief), with links (`data/compliance/india_asci_cases.jsonl`) | Short quotations used for testing |

@@ -24,7 +24,6 @@ import { api, CATEGORY_LABEL, type Submission } from "@/lib/api";
 import { RiskBadge, StatusBadge } from "@/components/fx";
 import { EmptyIllustration } from "@/components/brand";
 import { AiLoadingScreen } from "@/components/ai-loading";
-import { ProductTour } from "@/components/tour";
 import { HeroDemo } from "@/components/hero-demo";
 import { Reveal } from "@/components/motion";
 import { Tilt } from "@/components/effects";

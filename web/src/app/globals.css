@@ -277,15 +277,6 @@ body {
     -webkit-box-decoration-break: clone;
   }
 
-  /* Two or more findings on the same words: deeper ink. */
-  .marker-strong {
-    background-image: linear-gradient(to bottom, transparent 40%, var(--highlight-active) 40%, var(--highlight-active) 94%, transparent 94%);
-    border-radius: 2px;
-    padding: 0 1px;
-    box-decoration-break: clone;
-    -webkit-box-decoration-break: clone;
-  }
-
   /* A finding card reached from its highlight briefly glows. */
   .finding:target {
     animation: finding-flash 1600ms var(--ease-out);
@@ -359,8 +350,7 @@ body {
     display: inline-block;
     transition: transform 200ms var(--ease-out);
   }
-  .btn:not(:disabled):hover .btn-arrow,
-  .link-arrow:hover .btn-arrow {
+  .btn:not(:disabled):hover .btn-arrow {
     transform: translateX(3px);
   }
 
@@ -987,10 +977,8 @@ select.field:hover:not(:focus) {
 @keyframes gc-blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(0.1); } }
 @keyframes gc-point { 0%, 70%, 100% { transform: rotate(0); } 78% { transform: rotate(-9deg); } 86% { transform: rotate(4deg); } }
 @keyframes gc-wave { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(-22deg); } }
-.guide-caret { display: inline-block; width: 2px; height: 1em; margin-left: 2px; vertical-align: -2px; background: var(--brand); animation: gc-caret 0.9s steps(1) infinite; }
-@keyframes gc-caret { 50% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) {
-  .guide-char .gc-body, .guide-char .gc-eyes, .guide-char .gc-arm, .guide-char .gc-shadow, .guide-caret { animation: none !important; }
+  .guide-char .gc-body, .guide-char .gc-eyes, .guide-char .gc-arm, .guide-char .gc-shadow { animation: none !important; }
 }
 
 /* ---- tour: the guide's words settle in smoothly ---- */

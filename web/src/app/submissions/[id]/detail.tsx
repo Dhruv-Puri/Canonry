@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronRight, GitCompare, Info, PenLine, Sparkles, TriangleAlert } from "lucide-react";
+import { ChevronRight, GitCompare, Info, PenLine, Sparkles } from "lucide-react";
 import {
   api,
   ApiError,
@@ -25,7 +25,7 @@ import { JourneySteps, NextStep, VerifyLink } from "@/components/journey";
 import { DocumentPreview } from "@/components/document-preview";
 import { rememberSent } from "@/components/guide";
 import { markIssueHandled } from "@/components/start-here";
-import { ROLE_LABEL, roleHome } from "@/lib/roles";
+import { roleHome } from "@/lib/roles";
 import { useIdentity } from "@/components/identity";
 import { toast } from "@/components/toast";
 import { plural } from "@/lib/format";

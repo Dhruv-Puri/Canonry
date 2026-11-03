@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowRight, BookMarked, FileCode2, LineChart, ShieldCheck, Sparkles, TriangleAlert, Users } from "lucide-react";
+import { ArrowRight, BookMarked, FileCode2, ShieldCheck, Sparkles, TriangleAlert, Users } from "lucide-react";
 import { api, type Fact, type Submission } from "@/lib/api";
 import { RiskBadge, StatusBadge } from "@/components/fx";
 import { useIdentity } from "@/components/identity";

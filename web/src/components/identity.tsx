@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
-import { ArrowRight, Check, ChevronRight, Sparkles } from "lucide-react";
+import { ArrowRight, Check } from "lucide-react";
 import { forgetVisit, hasVisited, rememberFirstTime, useGuide } from "@/components/guide";
 import { api, ApiError, SIGNED_OUT_EVENT, type AuthMode, type User } from "@/lib/api";
 import { ROLES, type Role } from "@/lib/roles";
