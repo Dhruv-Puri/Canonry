@@ -371,8 +371,8 @@ export function ProductTour({
         aria-modal="true"
         aria-labelledby="tour-title"
         tabIndex={-1}
-        style={{ height: "min(80dvh, 35rem)" }}
-        className="surface relative z-10 my-auto flex w-full max-w-xl flex-col overflow-hidden border-border-strong shadow-float outline-none"
+        style={{ height: "min(84dvh, 37rem)" }}
+        className="surface relative z-10 my-auto flex w-full max-w-2xl flex-col overflow-hidden border-border-strong shadow-float outline-none"
       >
         <div className="flex shrink-0 items-center gap-2.5 border-b border-border bg-muted/60 px-5 py-3">
           <BrandMark className="size-7" />
@@ -401,7 +401,7 @@ export function ProductTour({
           ))}
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
           <div className="flex items-start gap-4">
             <span className="relative grid size-10 shrink-0 place-items-center rounded-xl border border-border-strong bg-card text-brand shadow-sm">
               <span aria-hidden className="tour-halo absolute inset-0 rounded-2xl" />
@@ -415,9 +415,12 @@ export function ProductTour({
             </div>
           </div>
 
-          <p className="mt-3 text-sm leading-relaxed text-foreground-secondary">{current.body}</p>
-
-          {current.say && <GuideSays text={current.say} />}
+          {/* one message per page: the guide's plain words replace the short description */}
+          {current.say ? (
+            <GuideSays text={current.say} />
+          ) : (
+            <p className="mt-3 text-sm leading-relaxed text-foreground-secondary">{current.body}</p>
+          )}
           {current.fig && <WindowFigure kind={current.fig} />}
 
           {current.demo === "write" && (

@@ -40,9 +40,9 @@ export function GuideCharacter({ className = "" }: { className?: string }) {
 /** The guide and a speech bubble with the one-sentence, plain-language explanation. */
 export function GuideSays({ text }: { text: string }) {
   return (
-    <div className="mt-3 flex items-end gap-2.5">
+    <div className="mt-4 flex items-end gap-3">
       <GuideCharacter className="h-16 w-14 shrink-0" />
-      <p className="relative rounded-2xl rounded-bl-sm border border-border-strong bg-warning-bg/60 px-3.5 py-2.5 text-[13px] leading-relaxed text-foreground">
+      <p className="relative rounded-2xl rounded-bl-sm border border-border-strong bg-warning-bg/60 px-4 py-3 text-sm leading-relaxed text-foreground">
         {text}
       </p>
     </div>
@@ -51,7 +51,7 @@ export function GuideSays({ text }: { text: string }) {
 
 function Frame({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div aria-hidden className="mt-3 overflow-hidden rounded-xl border border-border-strong bg-card shadow-card">
+    <div aria-hidden className="mt-4 overflow-hidden rounded-xl border border-border-strong bg-card shadow-card">
       <div className="flex items-center gap-2 border-b border-border bg-muted/60 px-3 py-1.5">
         <span className="flex gap-1">
           <span className="size-1.5 rounded-full bg-border-strong" />

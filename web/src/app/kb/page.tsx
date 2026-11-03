@@ -210,7 +210,7 @@ export default function KBPage() {
               const isOld = retired(kind, e);
               const gone = isRetired(kind, e);
               return (
-                <div key={String(e.id)} className={`surface p-4 text-sm ${isOld ? "bg-muted/40" : "surface-interactive"}`}>
+                <div key={String(e.id)} className={`group surface p-4 text-sm ${isOld ? "bg-muted/40" : "surface-interactive"}`}>
                   <div className="flex flex-wrap items-start gap-3">
                     <div className="min-w-0 flex-1">
                       {kind === "rules" && <RuleBody r={e as Rule} />}
@@ -220,6 +220,7 @@ export default function KBPage() {
                     <div className="flex shrink-0 items-center gap-1">
                       {gone && kind !== "facts" && <span className="mr-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-foreground-secondary">Retired</span>}
                       <span className="mr-1 font-mono text-[11px] text-muted-foreground">v{e.version}</span>
+                      <span className="flex items-center gap-1 transition-opacity duration-150 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100">
                       <IconButton label="History" onClick={() => setHistoryOf({ kind, entity: e })}>
                         <History className="size-4" />
                       </IconButton>
@@ -238,6 +239,7 @@ export default function KBPage() {
                           <RotateCcw className="size-4" />
                         </IconButton>
                       )}
+                      </span>
                     </div>
                   </div>
                 </div>
