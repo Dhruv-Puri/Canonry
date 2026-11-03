@@ -1117,3 +1117,78 @@ html[data-role] body::after {
 .tour-dot { width: 7px; height: 7px; border-radius: 9999px; background: var(--border-strong); transition: width 200ms var(--ease-out), background-color 200ms; }
 .tour-dot.is-current { width: 22px; background: var(--role-accent, var(--brand)); }
 .tour-dot.is-done { background: color-mix(in srgb, var(--role-accent, var(--brand)) 45%, transparent); }
+
+/* ---- welcome screen ---- */
+.welcome-hero {
+  color: #fbf6ee;
+  background:
+    radial-gradient(circle at 85% 10%, rgba(226, 184, 143, 0.22) 0%, transparent 45%),
+    linear-gradient(160deg, #3d2b1f 0%, #5a4130 100%);
+}
+.welcome-preview {
+  /* the live preview, sized to the 480 px text column; smaller on short screens so nothing is cut off */
+  zoom: 0.74;
+  filter: drop-shadow(0 30px 40px rgba(20, 12, 6, 0.35));
+}
+@media (max-height: 800px) { .welcome-preview { zoom: 0.6; } }
+@media (max-height: 740px) { .welcome-preview { zoom: 0.5; } }
+.role-card {
+  position: relative;
+  display: block;
+  cursor: pointer;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  padding: 12px 14px;
+  transition: border-color 150ms var(--ease-out), box-shadow 150ms var(--ease-out), transform 150ms var(--ease-out);
+}
+.role-card:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+.role-card:has(:focus-visible) { outline: 2px solid var(--card-accent); outline-offset: 2px; }
+.role-card.is-on { border-color: var(--card-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--card-accent) 18%, transparent); }
+.role-card-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--card-tint);
+  color: var(--card-accent);
+}
+.role-card.is-on .role-card-icon { background: var(--card-accent); color: #fffefb; }
+/* a toggle switch built on the checkbox */
+.switch {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  flex-shrink: 0;
+  width: 40px;
+  height: 24px;
+  border-radius: 9999px;
+  background: var(--border-strong);
+  cursor: pointer;
+  transition: background-color 150ms var(--ease-out);
+}
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  background: #fffefb;
+  box-shadow: 0 1px 3px rgba(35, 27, 20, 0.3);
+  transition: transform 180ms var(--ease-out);
+}
+.switch:checked { background: var(--brand); }
+.switch:checked::after { transform: translateX(16px); }
+.switch:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+.switch.switch-sm { width: 32px; height: 19px; }
+.switch.switch-sm::after { width: 13px; height: 13px; }
+.switch.switch-sm:checked::after { transform: translateX(13px); }
+
+/* the walkthrough panel can be dragged by its top strip */
+.guide-drag { cursor: grab; touch-action: none; user-select: none; }
+.guide-panel.is-dragging { box-shadow: 0 24px 48px -12px rgba(40, 24, 12, 0.35); }
+.guide-panel.is-dragging .guide-drag { cursor: grabbing; }

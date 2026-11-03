@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { X } from "lucide-react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { GripHorizontal, X } from "lucide-react";
 import { useIdentity } from "@/components/identity";
 import { GuideCharacter } from "@/components/tour-figures";
 import { api, type Submission, type SubmissionDetail } from "@/lib/api";
@@ -18,8 +18,14 @@ import { api, type Submission, type SubmissionDetail } from "@/lib/api";
 const FIRST_KEY = "canonry.firstTime"; // "yes" | "no"
 const GUIDE_KEY = "canonry.guide"; // "on" | "off" | "done"
 
-type GuideCtx = { on: boolean; start: () => void; stop: (done?: boolean) => void; firstTime: boolean | null };
-const Ctx = createContext<GuideCtx>({ on: false, start: () => {}, stop: () => {}, firstTime: null });
+/** isOn(role): is the walkthrough on for this role? start/stop change it for one role only. */
+type GuideCtx = {
+  isOn: (role?: string | null) => boolean;
+  start: (role?: string | null) => void;
+  stop: (role?: string | null, done?: boolean) => void;
+  firstTime: boolean | null;
+};
+const Ctx = createContext<GuideCtx>({ isOn: () => false, start: () => {}, stop: () => {}, firstTime: null });
 export const useGuide = () => useContext(Ctx);
 
 function read(key: string): string | null {
@@ -38,6 +44,9 @@ function write(key: string, value: string) {
 }
 
 const SENT_KEY = "canonry.guide.sent";
+/** Per-role choices, e.g. {"creator":"off","admin":"on"}; a role not listed follows GUIDE_KEY. */
+const ROLES_KEY = "canonry.guide.roles";
+const RESET_EVENT = "canonry:guide-reset";
 /** The draft this visitor sent for review, so the guide can point the reviewer at it. */
 export function rememberSent(sid: string) {
   write(SENT_KEY, sid);
@@ -57,6 +66,13 @@ export function wantsGuide(): boolean {
 export function rememberFirstTime(first: boolean) {
   write(FIRST_KEY, first ? "yes" : "no");
   write(GUIDE_KEY, first ? "on" : "off");
+  // a fresh answer on the welcome screen starts every role from it again
+  try {
+    window.localStorage.removeItem(ROLES_KEY);
+  } catch {
+    // storage blocked
+  }
+  window.dispatchEvent(new Event(RESET_EVENT));
   // ticking "Show me around" is an explicit request: every role's tour plays again
   if (first) {
     try {
@@ -74,7 +90,7 @@ export function rememberFirstTime(first: boolean) {
 export function forgetVisit() {
   // This browser has still seen the intro and each role's tour: switching profile by signing out
   // and back in must not show them again (it did, every time). Only this visit's progress goes.
-  for (const key of [GUIDE_KEY, SENT_KEY, "canonry.tour.v1", "canonry.tour.role"]) {
+  for (const key of [GUIDE_KEY, SENT_KEY, ROLES_KEY, "canonry.tour.v1", "canonry.tour.role"]) {
     try {
       window.localStorage.removeItem(key);
       window.sessionStorage.removeItem(key);
@@ -84,23 +100,63 @@ export function forgetVisit() {
   }
 }
 
+function readRoles(): Record<string, "on" | "off"> {
+  try {
+    const v = JSON.parse(read(ROLES_KEY) ?? "{}");
+    return v && typeof v === "object" ? v : {};
+  } catch {
+    return {};
+  }
+}
+
 export function GuideProvider({ children }: { children: React.ReactNode }) {
-  const [on, setOn] = useState(false);
+  const [global, setGlobal] = useState(false);
+  const [roles, setRoles] = useState<Record<string, "on" | "off">>({});
   const [firstTime, setFirstTime] = useState<boolean | null>(null);
   useEffect(() => {
-    setOn(read(GUIDE_KEY) === "on");
-    const f = read(FIRST_KEY);
-    setFirstTime(f === null ? null : f === "yes");
+    const load = () => {
+      setGlobal(read(GUIDE_KEY) === "on");
+      setRoles(readRoles());
+      const f = read(FIRST_KEY);
+      setFirstTime(f === null ? null : f === "yes");
+    };
+    load();
+    window.addEventListener(RESET_EVENT, load);
+    return () => window.removeEventListener(RESET_EVENT, load);
   }, []);
-  const start = useCallback(() => {
-    write(GUIDE_KEY, "on");
-    setOn(true);
+  const setRole = useCallback((role: string, value: "on" | "off") => {
+    setRoles((cur) => {
+      const next = { ...cur, [role]: value };
+      write(ROLES_KEY, JSON.stringify(next));
+      return next;
+    });
   }, []);
-  const stop = useCallback((done = false) => {
-    write(GUIDE_KEY, done ? "done" : "off");
-    setOn(false);
-  }, []);
-  return <Ctx.Provider value={{ on, start, stop, firstTime }}>{children}</Ctx.Provider>;
+  const isOn = useCallback(
+    (role?: string | null) => (role && roles[role] ? roles[role] === "on" : global),
+    [roles, global],
+  );
+  const start = useCallback(
+    (role?: string | null) => {
+      if (role) setRole(role, "on");
+      else {
+        write(GUIDE_KEY, "on");
+        setGlobal(true);
+      }
+    },
+    [setRole],
+  );
+  // closing it in one profile leaves the others as they were
+  const stop = useCallback(
+    (role?: string | null, done = false) => {
+      if (role) setRole(role, "off");
+      else {
+        write(GUIDE_KEY, done ? "done" : "off");
+        setGlobal(false);
+      }
+    },
+    [setRole],
+  );
+  return <Ctx.Provider value={{ isOn, start, stop, firstTime }}>{children}</Ctx.Provider>;
 }
 
 type Step = { n: number; title: string; body: React.ReactNode; target?: string; link?: { href: string; label: string }; total?: number };
@@ -114,6 +170,16 @@ function nextStep(path: string, role: string, mine: Submission[], detail: Submis
   const inReview = mine.find((s) => s.status === "In review");
   const signed = mine.find((s) => DONE.includes(s.status));
 
+  // a reviewer who did not send a draft in this visit gets a short journey of their own
+  const ownReview = role === "reviewer" && !sentId;
+  if (path.startsWith("/verify") && ownReview) {
+    return {
+      n: 4, total: 4,
+      title: "That's the review job",
+      body: <>Anyone with this link can check a published copy against what you approved. Back to the queue for the next one.</>,
+      link: { href: "/review", label: "Back to the review queue" },
+    };
+  }
   if (path.startsWith("/verify")) {
     return {
       n: 6,
@@ -131,6 +197,22 @@ function nextStep(path: string, role: string, mine: Submission[], detail: Submis
     const st = detail.submission.status;
     const open = detail.findings.filter((f) => f.status === "open");
     const must = open.filter((f) => f.severity === "high").length;
+    if (DONE.includes(st) && ownReview) {
+      return {
+        n: 3, total: 4,
+        title: "Approved and signed",
+        body: <>Your approval is sealed. Press <strong>Verify the approval</strong> to see the proof anyone can check.</>,
+        target: '[data-guide="verify"]',
+      };
+    }
+    if (ownReview && st !== "In review") {
+      return {
+        n: 1, total: 4,
+        title: "Not waiting for you",
+        body: <>This draft is still with its writer. Open the review queue to see what is waiting for a decision.</>,
+        link: { href: "/review", label: "Open the review queue" },
+      };
+    }
     if (DONE.includes(st)) {
       return {
         n: 6,
@@ -147,7 +229,7 @@ function nextStep(path: string, role: string, mine: Submission[], detail: Submis
       if (role === "reviewer" || role === "admin") {
         return must > 0
           ? {
-              n: 5,
+              n: ownReview ? 2 : 5, total: ownReview ? 4 : undefined,
               title: "Decide as the reviewer",
               body: (
                 <>
@@ -158,7 +240,7 @@ function nextStep(path: string, role: string, mine: Submission[], detail: Submis
               target: '[data-guide="send-back"]',
             }
           : {
-              n: 5,
+              n: ownReview ? 2 : 5, total: ownReview ? 4 : undefined,
               title: "Approve it",
               body: (
                 <>
@@ -274,6 +356,22 @@ function nextStep(path: string, role: string, mine: Submission[], detail: Submis
     };
   }
 
+  if (ownReview) {
+    return path.startsWith("/review")
+      ? {
+          n: 1, total: 4,
+          title: "Your review queue",
+          body: <>Everything waiting for a decision. Open a draft to read what Canonry flagged.</>,
+          target: 'main a[href^="/submissions/"]',
+        }
+      : {
+          n: 1, total: 4,
+          title: "Start with the review queue",
+          body: <>Drafts waiting for your decision are there.</>,
+          link: { href: "/review", label: "Open the review queue" },
+        };
+  }
+
   if (role === "reviewer" || role === "admin") {
     if (path.startsWith("/review")) {
       return {
@@ -375,15 +473,129 @@ function firstVisible(selector: string): HTMLElement | null {
 }
 
 /** The panel itself: floating bottom-right beside the page; a bottom sheet on phones. */
+/** Where the person dragged the panel to: an offset from its usual place, bottom centre. */
+const POS_KEY = "canonry.guide.pos";
+type Offset = { x: number; y: number };
+const EDGE = 8;
+
+/** Keep the whole panel on screen: the offset is limited by where the panel would sit without it. */
+function clampOffset(want: Offset, el: HTMLElement, current: Offset): Offset {
+  const r = el.getBoundingClientRect();
+  const baseLeft = r.left - current.x;
+  const baseTop = r.top - current.y;
+  const minX = EDGE - baseLeft;
+  const maxX = window.innerWidth - EDGE - r.width - baseLeft;
+  const minY = EDGE - baseTop;
+  const maxY = window.innerHeight - EDGE - r.height - baseTop;
+  return {
+    x: Math.round(Math.min(Math.max(want.x, minX), Math.max(minX, maxX))),
+    y: Math.round(Math.min(Math.max(want.y, minY), Math.max(minY, maxY))),
+  };
+}
+
+/** Drag the panel by its top strip (mouse, touch or pen) or nudge it with the arrow keys. */
+function useDraggable(active: boolean) {
+  const ref = useRef<HTMLElement>(null);
+  const [offset, setOffset] = useState<Offset>({ x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
+  const start = useRef<{ px: number; py: number; from: Offset } | null>(null);
+  const live = useRef(offset);
+  live.current = offset;
+
+  useEffect(() => {
+    try {
+      const v = JSON.parse(read(POS_KEY) ?? "null");
+      if (v && Number.isFinite(v.x) && Number.isFinite(v.y)) setOffset({ x: v.x, y: v.y });
+    } catch {
+      // nothing saved
+    }
+  }, []);
+
+  // after a resize, or when the panel grows on a longer step, pull it back on screen
+  useEffect(() => {
+    if (!active) return;
+    const fit = () => {
+      if (!ref.current) return;
+      const next = clampOffset(live.current, ref.current, live.current);
+      if (next.x !== live.current.x || next.y !== live.current.y) setOffset(next);
+    };
+    fit();
+    window.addEventListener("resize", fit);
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(fit) : null;
+    if (ref.current && ro) ro.observe(ref.current);
+    return () => {
+      window.removeEventListener("resize", fit);
+      ro?.disconnect();
+    };
+  }, [active]);
+
+  const save = (o: Offset) => write(POS_KEY, JSON.stringify(o));
+
+  const handle = {
+    onPointerDown(e: React.PointerEvent<HTMLElement>) {
+      if (e.button !== 0 || (e.target as HTMLElement).closest("button:not([data-drag])")) return;
+      e.currentTarget.setPointerCapture(e.pointerId);
+      start.current = { px: e.clientX, py: e.clientY, from: live.current };
+      setDragging(true);
+    },
+    onPointerMove(e: React.PointerEvent<HTMLElement>) {
+      const s0 = start.current;
+      if (!s0 || !ref.current) return;
+      setOffset(clampOffset({ x: s0.from.x + e.clientX - s0.px, y: s0.from.y + e.clientY - s0.py }, ref.current, live.current));
+    },
+    onPointerUp() {
+      if (!start.current) return;
+      start.current = null;
+      setDragging(false);
+      save(live.current);
+    },
+    onPointerCancel() {
+      start.current = null;
+      setDragging(false);
+    },
+    // double-click puts it back in its usual place
+    onDoubleClick() {
+      setOffset({ x: 0, y: 0 });
+      save({ x: 0, y: 0 });
+    },
+  };
+
+  function onKeyDown(e: React.KeyboardEvent) {
+    const step = e.shiftKey ? 64 : 16;
+    const d: Record<string, Offset> = {
+      ArrowLeft: { x: -step, y: 0 },
+      ArrowRight: { x: step, y: 0 },
+      ArrowUp: { x: 0, y: -step },
+      ArrowDown: { x: 0, y: step },
+    };
+    if (e.key === "Home") {
+      e.preventDefault();
+      setOffset({ x: 0, y: 0 });
+      save({ x: 0, y: 0 });
+      return;
+    }
+    const m = d[e.key];
+    if (!m || !ref.current) return;
+    e.preventDefault();
+    const next = clampOffset({ x: live.current.x + m.x, y: live.current.y + m.y }, ref.current, live.current);
+    setOffset(next);
+    save(next);
+  }
+
+  return { ref, offset, dragging, handle, onKeyDown };
+}
+
 export function GuidePanel() {
-  const { on, stop } = useGuide();
+  const { isOn, stop } = useGuide();
   const { me } = useIdentity();
+  const on = isOn(me?.role);
   const path = usePathname();
   const [mine, setMine] = useState<Submission[]>([]);
   const [detail, setDetail] = useState<SubmissionDetail | null>(null);
   const [tick, setTick] = useState(0);
 
   const sid = path.startsWith("/submissions/") ? path.split("/")[2] : null;
+  const drag = useDraggable(on && !!me);
 
   // follow what the person does: refresh on navigation and every few seconds
   useEffect(() => {
@@ -452,11 +664,28 @@ export function GuidePanel() {
 
   return (
     <aside
+      ref={drag.ref}
       aria-label="Guide"
       aria-live="polite"
-      className="guide-panel fixed inset-x-3 bottom-3 z-50 mx-auto max-w-[460px] rounded-2xl border border-brand/30 bg-card p-4 shadow-float md:bottom-6"
+      style={{ translate: `${drag.offset.x}px ${drag.offset.y}px` }}
+      className={`guide-panel fixed inset-x-3 bottom-3 z-50 mx-auto max-w-[460px] rounded-2xl border border-brand/30 bg-card p-4 pt-2 shadow-float md:bottom-6 ${
+        drag.dragging ? "is-dragging" : ""
+      }`}
     >
-      <div className="flex items-start gap-3">
+      {/* the top strip moves the panel: drag it anywhere, double-click to put it back */}
+      <div {...drag.handle} className="guide-drag -mx-4 -mt-2 mb-1 flex justify-center px-4 pb-1 pt-1.5">
+        <button
+          type="button"
+          data-drag
+          onKeyDown={drag.onKeyDown}
+          aria-label="Move the guide (arrow keys; Home puts it back)"
+          title="Drag to move · double-click to put it back"
+          className="grid h-4 w-12 place-items-center rounded-full text-muted-foreground/70 hover:bg-muted hover:text-foreground"
+        >
+          <GripHorizontal className="size-4" aria-hidden />
+        </button>
+      </div>
+      <div {...drag.handle} className="guide-drag flex items-start gap-3">
         {/* the same guide who leads the Quick Tour walks you through the steps */}
         <GuideCharacter className="-mb-1 -ml-1 -mt-2 h-[68px] w-[58px] shrink-0" waving={finished} />
         <div className="min-w-0 flex-1">
@@ -467,7 +696,7 @@ export function GuidePanel() {
         </div>
         <button
           type="button"
-          onClick={() => stop(finished)}
+          onClick={() => stop(me.role, finished)}
           aria-label="Close the guide"
           className="-mr-1 -mt-1 grid size-8 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
         >
@@ -492,11 +721,11 @@ export function GuidePanel() {
           </Link>
         )}
         {finished && (
-          <button type="button" onClick={() => stop(true)} className="btn btn-sm btn-primary">
+          <button type="button" onClick={() => stop(me.role, true)} className="btn btn-sm btn-primary">
             Finish the guide
           </button>
         )}
-        <button type="button" onClick={() => stop()} className="ml-auto text-xs text-muted-foreground hover:text-foreground">
+        <button type="button" onClick={() => stop(me.role)} className="ml-auto text-xs text-muted-foreground hover:text-foreground">
           I&apos;ll explore on my own
         </button>
       </div>

@@ -78,7 +78,8 @@ export function SiteNav() {
           ))}
         </nav>
 
-        <div className="ml-auto hidden md:block">
+        <div className="ml-auto hidden items-center gap-3 md:flex">
+          <GuideToggle />
           <ProfileMenu />
         </div>
 
@@ -97,11 +98,36 @@ export function SiteNav() {
             ))}
           </nav>
           <div className="mt-2 border-t border-border pt-2">
+            <GuideToggle wide />
             <ProfileMenu inline />
           </div>
         </div>
       )}
     </header>
+  );
+}
+
+/** The walkthrough on or off for the role you are in (each role remembers its own). */
+function GuideToggle({ wide = false }: { wide?: boolean }) {
+  const { me } = useIdentity();
+  const { isOn, start, stop } = useGuide();
+  if (!me) return null;
+  const on = isOn(me.role);
+  return (
+    <label
+      title={on ? "Walkthrough on for this role" : "Walkthrough off for this role"}
+      className={`flex cursor-pointer items-center gap-2 rounded-full text-xs font-medium text-foreground-secondary ${
+        wide ? "justify-between px-2 py-2 text-sm" : "border border-border bg-card/70 py-1 pl-3 pr-1.5"
+      }`}
+    >
+      <span>Walkthrough</span>
+      <input
+        type="checkbox"
+        className="switch switch-sm"
+        checked={on}
+        onChange={(e) => (e.target.checked ? start(me.role) : stop(me.role))}
+      />
+    </label>
   );
 }
 
@@ -238,7 +264,7 @@ function ProfileMenu({ inline = false }: { inline?: boolean }) {
             role="menuitem"
             onClick={() => {
               setOpen(false);
-              startGuide();
+              startGuide(me.role);
             }}
             className="flex w-full items-center gap-2.5 rounded-xl px-2 py-2 text-left text-sm hover:bg-muted"
           >
