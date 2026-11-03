@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { BrandMark } from "@/components/brand";
 import { ROLE_LABEL, type Role } from "@/lib/roles";
+import { GuideSays, WindowFigure, type FigureKind } from "@/components/tour-figures";
 
 type Step = {
   eyebrow: string;
@@ -39,6 +40,10 @@ type Step = {
   target?: string;
   /** the window this page is about, so the tour can take you there without ending */
   href?: string;
+  /** the guide's one-sentence explanation, in everyday words */
+  say?: string;
+  /** a small drawing of the window */
+  fig?: FigureKind;
 };
 
 /** The write window with both ways in. Only authoring profiles get this page. */
@@ -48,6 +53,7 @@ const WRITE_STEP: Step = {
   body: "Type a draft, or drop the PDF, Word file or image you already have.",
   icon: FileText,
   demo: "write",
+  say: "Think of this as your outbox: put the words or the file in, and I check them before anyone outside sees them.",
   target: '[data-nav="/new"]',
   href: "/new",
 };
@@ -63,6 +69,7 @@ const PIPELINE_STEP: Step = {
     "AI findings are suggestions: accept, edit or dispute them.",
   ],
   demo: "check",
+  say: "First I mark it against the rulebook, like a teacher with an answer key. Then AI gives a second opinion. You always have the last word.",
 };
 
 /** One short page per window the profile actually has. */
@@ -72,6 +79,8 @@ const ROLE_WINDOWS: Record<Role, Step[]> = {
       eyebrow: "Your windows",
       title: "Home is your desk",
       body: "Paste a draft, see what is waiting, and reopen your submissions.",
+      say: "This is your desk. New work starts here, and anything that needs you shows up first.",
+      fig: "home",
       icon: Home,
       target: '[data-nav="/"]',
       href: "/",
@@ -81,6 +90,8 @@ const ROLE_WINDOWS: Record<Role, Step[]> = {
       eyebrow: "Your windows",
       title: "Knowledge base",
       body: "The rules, facts and terms every check runs against.",
+      say: "This is the brand's rulebook: words to use, words to avoid, and facts we are allowed to say. Every check reads from it.",
+      fig: "kb",
       icon: BookOpen,
       cta: { href: "/kb", label: "Open the knowledge base" },
     },
@@ -88,6 +99,8 @@ const ROLE_WINDOWS: Record<Role, Step[]> = {
       eyebrow: "Your windows",
       title: "My work",
       body: "Everything you wrote: what a reviewer sent back and why, what is with them, and what was approved.",
+      say: "Like a parcel tracker for your drafts: sent back, with a reviewer, or approved, with the reviewer's note right there.",
+      fig: "work",
       icon: Inbox,
       cta: { href: "/work", label: "Open my work" },
     },
@@ -97,6 +110,8 @@ const ROLE_WINDOWS: Record<Role, Step[]> = {
       eyebrow: "Your windows",
       title: "Review queue",
       body: "Everything waiting on a decision, oldest first.",
+      say: "Your in-tray. Open a draft, read the lines I flagged, then approve it or send it back with a note.",
+      fig: "queue",
       icon: Inbox,
       cta: { href: "/review", label: "Open the review queue" },
     },
@@ -104,6 +119,8 @@ const ROLE_WINDOWS: Record<Role, Step[]> = {
       eyebrow: "Your windows",
       title: "Knowledge base",
       body: "Edit the rules and facts, with a reason for every change.",
+      say: "When a rule confuses people, fix it here, and every later check uses the clearer rule.",
+      fig: "kb",
       icon: BookOpen,
       cta: { href: "/kb", label: "Open the knowledge base" },
     },
@@ -111,6 +128,8 @@ const ROLE_WINDOWS: Record<Role, Step[]> = {
       eyebrow: "Your windows",
       title: "Insights",
       body: "Approval health and the findings that fire most.",
+      say: "A report card for the brand: which mistakes happen most, and which rules people argue with.",
+      fig: "insights",
       icon: BarChart3,
       cta: { href: "/insights", label: "Open insights" },
     },
@@ -120,6 +139,8 @@ const ROLE_WINDOWS: Record<Role, Step[]> = {
       eyebrow: "Your windows",
       title: "My work",
       body: "Only your agency's submissions, and what needs fixing.",
+      say: "Only your agency's work shows here, behind a lock. You never see other teams' drafts or secret facts.",
+      fig: "agency",
       icon: Building2,
       cta: { href: "/agency", label: "Open my work" },
     },
@@ -127,6 +148,8 @@ const ROLE_WINDOWS: Record<Role, Step[]> = {
       eyebrow: "Your windows",
       title: "Knowledge base",
       body: "The client's rules, so you can get it right first time.",
+      say: "The client's rulebook, so you can get it right the first time.",
+      fig: "kb",
       icon: BookOpen,
       cta: { href: "/kb", label: "Open the knowledge base" },
     },
@@ -136,6 +159,8 @@ const ROLE_WINDOWS: Record<Role, Step[]> = {
       eyebrow: "Your windows",
       title: "Overview",
       body: "The workspace at a glance, and every admin door.",
+      say: "The control room: how much is waiting, what is risky, and which rules or facts need attention.",
+      fig: "overview",
       icon: LayoutDashboard,
       cta: { href: "/admin", label: "Open the overview" },
     },
@@ -143,6 +168,8 @@ const ROLE_WINDOWS: Record<Role, Step[]> = {
       eyebrow: "Your windows",
       title: "Review queue",
       body: "Any draft waiting on a person.",
+      say: "Admins can decide too: anything waiting on a person shows here.",
+      fig: "queue",
       icon: Inbox,
       cta: { href: "/review", label: "Open the review queue" },
     },
@@ -150,6 +177,8 @@ const ROLE_WINDOWS: Record<Role, Step[]> = {
       eyebrow: "Your windows",
       title: "Knowledge base",
       body: "Rules, facts and terms; every change is a version.",
+      say: "Change a rule here and I show which approved posts it would affect, before you save it.",
+      fig: "kb",
       icon: BookOpen,
       cta: { href: "/kb", label: "Open the knowledge base" },
     },
@@ -157,6 +186,8 @@ const ROLE_WINDOWS: Record<Role, Step[]> = {
       eyebrow: "Your windows",
       title: "Insights",
       body: "Approval health, top findings and AI usage.",
+      say: "The report card, plus how much the AI was used and when it was skipped.",
+      fig: "insights",
       icon: BarChart3,
       cta: { href: "/insights", label: "Open insights" },
     },
@@ -164,6 +195,8 @@ const ROLE_WINDOWS: Record<Role, Step[]> = {
       eyebrow: "Your windows",
       title: "API & webhooks",
       body: "Run checks from your own pipeline, and hear about approvals.",
+      say: "Like a guard at your website's door: a post goes out only after my signed 'approved' note arrives.",
+      fig: "api",
       icon: KeyRound,
       cta: { href: "/admin/api", label: "Open API & webhooks" },
     },
@@ -383,6 +416,9 @@ export function ProductTour({
           </div>
 
           <p className="mt-3 text-sm leading-relaxed text-foreground-secondary">{current.body}</p>
+
+          {current.say && <GuideSays text={current.say} />}
+          {current.fig && <WindowFigure kind={current.fig} />}
 
           {current.demo === "write" && (
             <>
